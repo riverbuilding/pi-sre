@@ -1,0 +1,15 @@
+# Copy to ~/.pi-sre/config.yaml or pass its path with PI_SRE_CONFIG.
+# This template intentionally enables diagnostic, read-only operation only.
+kubernetes:
+  defaultCluster: staging
+  mcp:
+    transport: stdio
+    command: kubernetes-mcp-server
+    configFile: ~/.pi-sre/kubernetes-mcp.toml
+
+investigation:
+  defaultTimeRange: 30m
+  maxToolCalls: 40
+
+safety:
+  mode: read-only

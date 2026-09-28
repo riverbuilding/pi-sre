@@ -1,0 +1,11 @@
+# Defense in depth: Pi SRE filters tool exposure, this server is read-only,
+# and Kubernetes credentials should also be bound to read-only RBAC.
+read_only = true
+
+toolsets = [
+  "core",
+  "config",
+]
+
+# Add server-supported enabled_tools / disabled_tools or resource deny rules here
+# once the exact Kubernetes MCP server tool inventory is established.

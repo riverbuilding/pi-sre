@@ -1,0 +1,11 @@
+node_modules/
+dist/
+coverage/
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+
+# Local Pi SRE configuration can include environment-specific paths and cluster names.
+.pi-sre/
