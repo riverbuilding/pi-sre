@@ -1,6 +1,6 @@
 # Phase 1 Implementation Slices
 
-**Status:** Slice 0 implemented; later slices proposed
+**Status:** Slices 0–1 implemented; later slices proposed
 
 **Applies to:** Pi SRE V0.1, Phase 1
 
@@ -225,7 +225,8 @@ Runtime settings such as `read_only` and `toolsets` belong in TOML, not invented
 - Implement `src/main.ts` as a thin executable entrypoint with a Node shebang.
 - Implement `SreApplication.run()` and idempotent `SreApplication.close()`.
 - Create Pi services and a session through `createAgentSessionRuntime` or the equivalent `createAgentSessionServices` plus `createAgentSessionFromServices` factory path.
-- Pass `noTools: "builtin"` so Pi's read, write, edit, and shell tools are unavailable while later custom MCP tools remain eligible.
+- Pass `noTools: "builtin"` and exclude every built-in coding tool from the registry so Pi's tool picker cannot re-enable them while later custom MCP tools remain eligible.
+- Intercept Pi's user-facing `!` shell shortcut and return a read-only denial without executing a command.
 - Construct `InteractiveMode` with the runtime and call `run()`.
 - Use a Pi SRE-owned runtime directory rather than treating the shell launch directory as operational context.
 - Use the Pi SRE application home as the Pi `agentDir`, model-authentication directory, settings directory, and session root.
