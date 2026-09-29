@@ -1152,7 +1152,7 @@ kubernetes:
 
     command: kubernetes-mcp-server
 
-    configFile: ~/.pi-sre/kubernetes-mcp.toml
+    configFile: kubernetes-mcp.toml
 
 investigation:
 
@@ -1164,6 +1164,29 @@ safety:
 
   mode: read-only
 ```
+
+## 35.1 Pi SRE Application Home
+
+Pi SRE uses one application-owned home directory by default:
+
+```text
+~/.pi-sre/
+├── config.yaml
+├── kubernetes-mcp.toml
+├── auth.json
+├── models.json
+├── settings.json
+├── sessions/
+└── logs/
+```
+
+This directory contains all Pi SRE configuration and persisted runtime state, including model credentials, model metadata, Pi settings, and conversation sessions. Pi SRE reuses Pi's runtime and provider integration, but it does not reuse Pi Coding Agent's `~/.pi/agent` storage by default.
+
+At runtime, Pi SRE passes this directory as Pi's `agentDir`, creates its `ModelRuntime` with the `auth.json` and `models.json` paths shown above, and places sessions in `~/.pi-sre/sessions`. This keeps the SRE application's operational state and credentials isolated in one predictable location.
+
+Paths in `config.yaml`, including `kubernetes.mcp.configFile`, resolve relative to the YAML file's directory unless absolute or prefixed with `~/`.
+
+An explicit future migration may import credentials into this directory, but Pi SRE must not silently read, modify, or couple itself to another Pi application's storage.
 
 ---
 
@@ -2031,6 +2054,8 @@ Investigation Domain
 ---
 
 # 63. Phase 1 — Runtime + MCP Skeleton
+
+Detailed implementation plan: [Phase 1 Implementation Slices](./PHASE1_IMPLEMENTATION_SLICES.md).
 
 Deliver:
 

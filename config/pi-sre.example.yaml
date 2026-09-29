@@ -5,7 +5,11 @@ kubernetes:
   mcp:
     transport: stdio
     command: kubernetes-mcp-server
-    configFile: ~/.pi-sre/kubernetes-mcp.toml
+    args: []
+    # Relative paths resolve from this YAML file's directory.
+    configFile: kubernetes-mcp.toml
+    startupTimeoutMs: 15000
+    toolCallTimeoutMs: 30000
 
 investigation:
   defaultTimeRange: 30m
