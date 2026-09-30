@@ -15,7 +15,8 @@ pi-sre
   → Pi InteractiveMode
   → Pi AgentSessionRuntime
   → Pi SRE MCP tool adapter
-  → managed Kubernetes MCP stdio process
+  → Pi MCP client and managed stdio transport
+  → Kubernetes MCP Server
   → read-only MCP tool result
   → Pi TUI
 ```
@@ -31,7 +32,7 @@ Phase 1 is infrastructure work. It does not implement incident state, diagnostic
 - a launchable TypeScript CLI;
 - Pi model, authentication, session, streaming, and TUI reuse;
 - an SRE-owned `ResourceLoader` configuration;
-- managed Kubernetes MCP stdio lifecycle;
+- Pi MCP client and managed stdio lifecycle;
 - MCP initialization, health checking, and tool discovery;
 - an explicit Pi-side diagnostic tool allowlist;
 - MCP JSON Schema to Pi `ToolDefinition` adaptation;
@@ -63,7 +64,7 @@ Core tools such as `pods_list`, `events_list`, and `pods_log` may be discovered 
 
 1. **Build vertical slices.** Each slice must produce a runnable or testable outcome.
 2. **Fail closed.** A missing annotation, invalid schema, unknown tool, missing cluster scope, or policy ambiguity excludes the tool.
-3. **Keep adapters thin.** Pi SRE translates protocols and enforces policy; it does not reimplement Kubernetes operations.
+3. **Keep adapters thin.** Pi's MCP package owns the protocol and transport; Pi SRE enforces policy and maps results to its domain.
 4. **Keep startup recoverable.** MCP failure disables Kubernetes tools but does not prevent the TUI from opening when the Pi runtime itself is available.
 5. **Own all lifecycle edges.** Startup, abort, process exit, and TUI shutdown must close the MCP transport exactly once.
 6. **Do not load arbitrary project behavior.** The launch directory must not inject `AGENTS.md`, extensions, prompts, or tools into Pi SRE.
@@ -87,9 +88,7 @@ src/
 │   ├── system-prompt.ts
 │   └── tool-policy.ts
 └── mcp/
-    ├── client.ts
-    ├── server-process.ts
-    ├── tool-discovery.ts
+    ├── connection.ts
     ├── tool-bridge.ts
     └── result-normalizer.ts
 
@@ -140,11 +139,11 @@ type ToolPolicyDecision =
   { readonly allowed: true } | { readonly allowed: false; readonly reason: string };
 ```
 
-The MCP SDK and Pi types belong at adapter boundaries:
+Pi MCP and Pi Coding Agent types belong at adapter boundaries:
 
-- `client.ts` owns MCP SDK types;
+- `connection.ts` wraps `@earendil-works/pi-mcp` and owns the one connection;
 - `tool-bridge.ts` owns Pi `ToolDefinition` creation;
-- `config/` and `server-process.ts` do not import Pi;
+- `config/` does not import Pi;
 - the rest of the application consumes Pi SRE-owned interfaces.
 
 ## 7. Slice 0 — Freeze the Phase 1 Contract
@@ -290,8 +289,10 @@ Pi SRE can start, initialize, health-check, and stop a Kubernetes MCP Server ove
 
 ### Work
 
-- Wrap MCP SDK `Client` and `StdioClientTransport` in `src/mcp/client.ts` and `src/mcp/server-process.ts`.
-- Let `StdioClientTransport` own the child process; do not spawn a second process separately.
+- Upgrade the Pi dependencies to a compatible 0.99 release and add `@earendil-works/pi-mcp` as a direct dependency.
+- Remove the direct `@modelcontextprotocol/sdk` dependency once its remaining uses have been replaced by Pi MCP.
+- Wrap Pi MCP `McpClient` and `StdioTransport` in `src/mcp/connection.ts` behind the small `McpConnection` contract.
+- Let Pi's `StdioTransport` own the child process; do not spawn a second process or implement MCP framing.
 - Capture stderr separately because stdout is reserved for MCP JSON-RPC.
 - Bound retained stderr and redact credential-like content before surfacing diagnostics.
 - Add startup and request timeouts.
@@ -328,7 +329,7 @@ Pi SRE can list MCP tools and produce a deterministic report of which tools are 
 
 ### Work
 
-- Implement pagination-aware tool discovery.
+- Use Pi MCP's paginated `listTools()` rather than implementing MCP pagination.
 - Validate every discovered descriptor before use.
 - Preserve name, description, input schema, annotations, and output schema metadata.
 - Apply a fail-closed `ToolPolicy`:
@@ -367,7 +368,7 @@ The Pi model can invoke `configuration_contexts_list`, the bridge calls MCP, and
 
 ### Work
 
-- Implement MCP JSON Schema to TypeBox-compatible schema adaptation in one isolated module.
+- Adapt approved MCP JSON object schemas to Pi TypeBox-compatible tool definitions in one isolated module; do not build a general MCP schema converter.
 - Create a Pi `ToolDefinition` for each approved descriptor.
 - Keep arguments typed as `Record<string, unknown>` at the dynamic boundary.
 - Validate arguments in Pi before transport and rely on MCP validation as a second boundary.
@@ -389,7 +390,7 @@ The Pi model can invoke `configuration_contexts_list`, the bridge calls MCP, and
 
 ### Tests
 
-- schema conversion for strings, numbers, booleans, arrays, nested objects, enums, and required fields;
+- supported object schema adaptation for strings, numbers, booleans, arrays, nested objects, enums, and required fields;
 - unsupported schema construct fails closed with a diagnostic;
 - tool name mapping round trip;
 - arguments forwarded exactly;
@@ -408,7 +409,7 @@ Tool results are useful to the model without allowing unbounded MCP responses to
 - Implement `result-normalizer.ts` for MCP text, structured content, embedded resources, resource links, images, and error responses.
 - Set explicit per-result model-facing size and item limits in configuration.
 - Prefer `structuredContent` when it is present and valid.
-- Preserve the raw result only in non-model-facing tool details when it is safe and bounded.
+- Retain raw data outside model context only when policy permits, with explicit size and lifetime limits; do not assume Pi's built-in MCP 20 KB text truncation is evidence handling.
 - Mark every truncation visibly; never silently cut data.
 - Redact known credential and token patterns from diagnostics and rendered errors.
 - Distinguish:
@@ -452,7 +453,7 @@ load and validate Pi SRE config
         ↓
 create SRE ResourceLoader
         ↓
-start and initialize MCP
+start and initialize Pi MCP client/stdio transport
         ↓
 discover and filter tools
         ↓
@@ -482,6 +483,7 @@ restore terminal and exit
 ### Work
 
 - Centralize orchestration in `SreApplication`.
+- Keep the Kubernetes connection application-owned so Phase 2 can call `configuration_contexts_list` during startup on the same connection used for diagnosis. Pi's built-in MCP extension is not loaded for this connection.
 - Install `SIGINT` and `SIGTERM` handling once.
 - Ensure startup failures unwind already-created resources in reverse order.
 - Convert expected failures into concise user-facing diagnostics.
@@ -565,7 +567,7 @@ Keep each pull request independently reviewable:
 | --- | ----- | --------------------------------------------- |
 | 1   | 0     | configuration contract and safety defaults    |
 | 2   | 1–2   | Pi runtime/TUI boot and resource isolation    |
-| 3   | 3     | MCP subprocess and protocol lifecycle         |
+| 3   | 3     | Pi MCP client and stdio lifecycle             |
 | 4   | 4     | discovery and read-only policy                |
 | 5   | 5     | dynamic schema and Pi tool bridge             |
 | 6   | 6     | result normalization and error taxonomy       |
@@ -577,7 +579,7 @@ Do not merge a slice with skipped acceptance tests unless the limitation and fol
 
 | Risk                                                         | Mitigation                                                                                 |
 | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------ |
-| Dynamic MCP schemas do not map cleanly to Pi TypeBox schemas | Isolate conversion, cover supported constructs, and reject unsupported schemas             |
+| Dynamic MCP schemas do not map cleanly to Pi TypeBox schemas | Isolate the narrow adaptation and reject unsupported schemas                               |
 | Server upgrades expose new tools                             | Exact Pi-side allowlist; unknown tools remain hidden                                       |
 | `read_only` is misconfigured                                 | Require Pi policy checks and recommend read-only Kubernetes RBAC                           |
 | Kubeconfig data leaks through a config tool                  | Do not expose `configuration_view`                                                         |
@@ -604,12 +606,14 @@ Phase 1 should leave clean seams for these features without implementing them ea
 
 ## 19. External Compatibility Notes
 
-- The repository lockfile is authoritative for the Pi and MCP SDK API versions used by this plan.
+- The repository lockfile is authoritative for the Pi 0.99 coding agent and `@earendil-works/pi-mcp` API versions used by this plan. The current implementation still uses Pi 0.87.1; Slice 3 includes the upgrade.
 - Pi's public runtime path provides `AgentSessionRuntime`, `InteractiveMode`, `DefaultResourceLoader`, custom `ToolDefinition` support, and `noTools: "builtin"`.
 - Pi SRE passes explicit `agentDir`, authentication, model, settings, and session paths so all persisted state lives below `~/.pi-sre` rather than Pi Coding Agent's default directory.
-- MCP SDK's `StdioClientTransport` already owns subprocess spawning and exposes `Client.connect`, `listTools`, `callTool`, `ping`, and `close`.
+- Pi's standalone MCP package provides `McpClient`, `StdioTransport`, `connect`, paginated `listTools`, `callTool`, cancellation, `ping`, and `close`. Pi's SDK does not load its built-in MCP extension automatically; V0.1 uses the standalone client so startup and tool calls share one connection.
 - Kubernetes MCP Server stdio mode reserves stdout for MCP protocol traffic.
 - Kubernetes MCP Server runtime policy belongs in TOML. Use `--config` to select the file.
 - Keep `read_only = true` and limit toolsets/tools in the Kubernetes MCP configuration.
 
 Reference: [Kubernetes MCP Server configuration](https://github.com/containers/kubernetes-mcp-server/blob/main/docs/configuration.md).
+
+Pi references: [Pi 0.99 release](https://github.com/earendil-works/pi/releases/tag/v0.99.0), [Pi MCP package](https://github.com/earendil-works/pi/blob/v0.99.0/packages/mcp/README.md), [Pi SDK MCP loading](https://pi.dev/docs/latest/sdk).

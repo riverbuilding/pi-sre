@@ -3,9 +3,12 @@
 **Status:** Draft  
 **Version:** 0.1  
 **Primary Language:** TypeScript  
-**Agent Runtime:** Pi / `@earendil-works/pi-coding-agent`  
+**Agent Runtime:** Pi 0.99 / `@earendil-works/pi-coding-agent`<br>
+**MCP Client:** `@earendil-works/pi-mcp`<br>
 **Kubernetes Integration:** Kubernetes MCP Server  
 **Primary Domain:** Kubernetes Incident Diagnosis
+
+This document describes the V0.1 target. The current implementation still depends on Pi 0.87.1; the planned MCP integration includes the upgrade to Pi 0.99 and its MCP package.
 
 ---
 
@@ -33,6 +36,7 @@ Pi provides:
 - extension infrastructure
 - settings
 - TUI / `InteractiveMode`
+- MCP protocol client, stdio transport, tool discovery, cancellation, and connection cleanup through `@earendil-works/pi-mcp`
 
 Kubernetes MCP Server provides:
 
@@ -49,8 +53,8 @@ Kubernetes MCP Server provides:
 Pi SRE provides:
 
 - SRE system prompt
-- MCP lifecycle and integration
-- MCP-to-Pi tool bridge
+- MCP connection orchestration and operational health
+- MCP-to-Pi policy and tool bridge
 - cluster/context management
 - active-cluster state
 - SRE skills
@@ -231,9 +235,9 @@ V0.1 will not:
 ┌────────────────────────┐  ┌──────────────────────────┐
 │ Investigation Domain   │  │ MCP Integration         │
 │                        │  │                          │
-│ Incident               │  │ MCP Client              │
-│ Scope                  │  │ Tool Discovery          │
-│ Target                 │  │ Pi Tool Bridge          │
+│ Incident               │  │ Pi MCP Client/Transport │
+│ Scope                  │  │ Pi SRE Tool Policy      │
+│ Target                 │  │ Pi SRE Tool Bridge      │
 │ Evidence               │  │ Context Injection       │
 │ Hypothesis             │  │ Result Normalization    │
 │ InvestigationState     │  │                         │
@@ -401,7 +405,7 @@ The `core` toolset includes Kubernetes resource, event, pod and related operatio
 
 # 9. MCP Connection Model
 
-Pi SRE contains an MCP integration layer.
+Pi SRE uses Pi 0.99's standalone `@earendil-works/pi-mcp` package for the MCP protocol client and transport. One application-owned connection serves startup context discovery and subsequent diagnostic calls. Pi SRE does not implement MCP framing, initialization, pagination, cancellation, or stdio process management.
 
 Conceptually:
 
@@ -409,25 +413,27 @@ Conceptually:
 Pi Tool Interface
        │
        ▼
-McpToolBridge
+Pi SRE policy, scope injection, and result normalization
        │
        ▼
-MCP Client
+@earendil-works/pi-mcp client and transport
        │
        ▼
 Kubernetes MCP Server
 ```
 
-Pi SRE does not reinterpret each Kubernetes operation into a custom implementation.
+Pi SRE does not reinterpret each Kubernetes operation into a custom implementation. Its thin adapter:
 
-Instead it:
+1. creates and closes the Pi MCP client;
+2. calls `configuration_contexts_list` during startup and validates the response for cluster resolution;
+3. discovers server tools and applies the exact diagnostic allowlist;
+4. adapts approved tool schemas to Pi tool definitions;
+5. validates each model call, resolves and injects its cluster scope, then calls MCP;
+6. converts results into evidence and compact model-facing output.
 
-1. connects to MCP;
-2. discovers available tools;
-3. filters allowed tools;
-4. converts their schemas into Pi-compatible tool definitions;
-5. invokes MCP when the Pi Agent calls the tool;
-6. returns MCP results to Pi.
+Pi 0.99 also has a built-in MCP extension with `/mcp`, tool exposure, and `tool_call`/`tool_result` hooks. That extension owns its connection and does not expose a documented application-side call for startup context enumeration. Pi SRE therefore uses the standalone client in V0.1 and does not start a second MCP connection through the built-in extension. Reconsider the built-in extension if it gains a suitable programmatic call interface or the startup contract changes.
+
+Pi references: [0.99 release](https://github.com/earendil-works/pi/releases/tag/v0.99.0), [standalone MCP package](https://github.com/earendil-works/pi/blob/v0.99.0/packages/mcp/README.md), [built-in MCP and SDK loading](https://pi.dev/docs/latest/mcp).
 
 ---
 
@@ -439,21 +445,20 @@ The preferred V0.1 transport is:
 stdio
 ```
 
-Pi SRE may start the MCP server as a managed subprocess.
+Pi SRE uses Pi's `StdioTransport` to start the MCP server as a managed subprocess.
 
 Conceptually:
 
 ```text
 pi-sre
    │
-   ├── starts Kubernetes MCP Server
-   │
-   ├── establishes MCP stdio connection
-   │
-   └── owns process lifecycle
+   └── Pi MCP StdioTransport
+         ├── starts Kubernetes MCP Server
+         ├── establishes MCP stdio connection
+         └── closes the process with the connection
 ```
 
-Future versions may also support an externally managed MCP server over Streamable HTTP.
+Pi's MCP package also supports Streamable HTTP. V0.1 uses stdio; a future version may configure an externally managed HTTP server without introducing another MCP client implementation.
 
 Kubernetes MCP Server supports running as both a local/native process and an HTTP MCP endpoint.
 
@@ -464,15 +469,15 @@ Kubernetes MCP Server supports running as both a local/native process and an HTT
 During startup:
 
 ```text
-connect MCP
+connect through Pi MCP client
     ↓
-initialize
+call configuration_contexts_list and resolve startup cluster
     ↓
-list tools
+list tools through Pi MCP client
     ↓
-filter allowed tools
+validate descriptors and filter allowed tools
     ↓
-convert to Pi tools
+adapt approved schemas to Pi tools
     ↓
 register tools with AgentSessionRuntime
 ```
@@ -482,14 +487,13 @@ Pi SRE does not need compile-time implementations for individual Kubernetes oper
 A conceptual adapter:
 
 ```ts
-interface McpToolBridge {
-    discoverTools(): Promise<McpToolDefinition[]>;
-
-    createPiTools(
-        tools: McpToolDefinition[]
-    ): AgentTool[];
+interface SreMcpAdapter {
+    listApprovedTools(): Promise<readonly AgentTool[]>;
+    listClusterContexts(): Promise<readonly ClusterContext[]>;
 }
 ```
+
+The example describes Pi SRE's boundary, not an additional MCP client implementation. Tool descriptions and schemas remain server-owned. Pi SRE validates untrusted descriptors and arguments before use.
 
 ---
 
@@ -515,7 +519,7 @@ Second, Kubernetes MCP Server should run with:
 read_only = true
 ```
 
-Third, Pi SRE should expose only approved diagnostic tools.
+Third, Pi SRE should register only approved diagnostic tools and check the allowlist again at execution time. A newly discovered tool, a model-supplied `context`, or an MCP annotation alone cannot grant access. Missing or contradictory read-only metadata fails closed.
 
 The MCP server supports `read_only`, `enabled_tools`, `disabled_tools`, and resource deny rules.
 
@@ -664,13 +668,13 @@ Active:
 
 # 18. Context Enumeration
 
-At startup, Pi SRE calls:
+At startup, Pi SRE calls the already connected Pi MCP client directly:
 
 ```text
 configuration_contexts_list
 ```
 
-through the Kubernetes MCP Server.
+through the Kubernetes MCP Server. The same connection later serves approved diagnostic tools; context enumeration does not require a model turn or a second MCP subprocess.
 
 The MCP server returns structured information including:
 
@@ -996,7 +1000,7 @@ The Pi SRE execution layer injects it.
 
 # 30. Context Injection
 
-The MCP bridge performs:
+The Pi SRE tool bridge performs:
 
 ```text
 Pi Agent Tool Call
@@ -1022,6 +1026,8 @@ const args = {
 
 return mcp.callTool(toolName, args);
 ```
+
+Before that call, the bridge validates the tool and arguments, rejects an unbound or unavailable cluster, and overwrites any model-supplied `context`. It never relies on kubeconfig's current context. If this policy later moves to Pi's built-in `tool_call` hook, Pi SRE must validate the final mutated arguments itself because Pi does not revalidate hook mutations.
 
 ---
 
@@ -1181,6 +1187,8 @@ Pi SRE uses one application-owned home directory by default:
 ```
 
 This directory contains all Pi SRE configuration and persisted runtime state, including model credentials, model metadata, Pi settings, and conversation sessions. Pi SRE reuses Pi's runtime and provider integration, but it does not reuse Pi Coding Agent's `~/.pi/agent` storage by default.
+
+Pi SRE configures its single Kubernetes MCP connection from validated SRE configuration. It does not load arbitrary user or project `mcp.json` servers as operational tools. The Pi coding agent's built-in MCP extension is not loaded for the V0.1 Kubernetes connection.
 
 At runtime, Pi SRE passes this directory as Pi's `agentDir`, creates its `ModelRuntime` with the `auth.json` and `models.json` paths shown above, and places sessions in `~/.pi-sre/sessions`. This keeps the SRE application's operational state and credentials isolated in one predictable location.
 
@@ -1534,6 +1542,8 @@ relevant structured data
 summary
 artifact reference
 ```
+
+This reduction must happen before a result is returned to the Pi Agent. Pi's built-in MCP extension truncates model-facing text above 20 KB, but it can also retain the complete result in `structuredContent` and write the full text to a temporary file. Those defaults are not Pi SRE's evidence, retention, or sensitive-data policy. The Pi SRE adapter validates result shape, classifies MCP `isError` separately from an empty success, and controls both model-facing content and any retained raw artifact.
 
 ---
 
@@ -1952,9 +1962,7 @@ pi-sre/
 │   │   └── tool-policy.ts
 │   │
 │   ├── mcp/
-│   │   ├── client.ts
-│   │   ├── server-process.ts
-│   │   ├── tool-discovery.ts
+│   │   ├── connection.ts
 │   │   ├── tool-bridge.ts
 │   │   └── result-normalizer.ts
 │   │
@@ -2064,8 +2072,8 @@ TypeScript application
 Pi AgentSessionRuntime
 Pi InteractiveMode
 custom ResourceLoader
-Kubernetes MCP process/client
-MCP tool discovery
+Pi MCP client/stdio transport integration
+Pi MCP tool discovery with SRE filtering
 read-only tool exposure
 ```
 
@@ -2258,7 +2266,7 @@ Pi SRE does not implement Kubernetes diagnostic tools itself.
 Kubernetes capabilities come from Kubernetes MCP Server.
 
 ### ADR-6
-Pi SRE maintains a thin MCP integration/tool-bridge layer.
+Pi SRE reuses `@earendil-works/pi-mcp` for the MCP client and transport, with a thin SRE-owned policy/tool bridge. V0.1 does not also run Pi's built-in MCP extension for Kubernetes.
 
 ### ADR-7
 MCP `config` and `core` toolsets form the initial Kubernetes capability surface.
@@ -2322,13 +2330,11 @@ The following remain intentionally open.
 
 ## MCP lifecycle
 
-Should Pi SRE always start its own MCP process, or optionally connect to an already-running server in V0.1?
-
-The initial implementation should prefer managed stdio.
+V0.1 uses one Pi MCP client and managed stdio transport. Should a later version also allow an externally managed Streamable HTTP server? Pi's MCP package supports that transport without changing Pi SRE's policy boundary.
 
 ---
 
-## MCP tool schema adaptation
+## MCP tool description guidance
 
 How much should the Pi-facing MCP tool descriptions be modified for SRE-specific guidance?
 
