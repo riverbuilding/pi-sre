@@ -1,6 +1,6 @@
 # Phase 1 Implementation Slices
 
-**Status:** Slices 0–1 implemented; later slices proposed
+**Status:** Slices 0–2 implemented; later slices proposed
 
 **Applies to:** Pi SRE V0.1, Phase 1
 
@@ -248,6 +248,8 @@ Runtime settings such as `read_only` and `toolsets` belong in TOML, not invented
 - application close is safe when called zero, one, or multiple times.
 
 ## 9. Slice 2 — Own the SRE Resource Boundary
+
+**Implementation status:** Complete. The Pi service factory and standalone loader share the same SRE resource policy and prompt.
 
 ### Outcome
 

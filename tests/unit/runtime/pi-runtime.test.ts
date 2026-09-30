@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { createApplicationPaths, type SreConfig } from "../../../src/config/config.js";
 import { createSreRuntime } from "../../../src/runtime/pi-runtime.js";
+import { createSreSystemPrompt } from "../../../src/runtime/system-prompt.js";
 
 describe("Pi SRE runtime", () => {
   let home: string | undefined;
@@ -39,6 +40,9 @@ describe("Pi SRE runtime", () => {
       expect(runtime.services.agentDir).toBe(home);
       expect(runtime.session.sessionManager.getCwd()).toBe(home);
       expect(runtime.session.getActiveToolNames()).toEqual([]);
+      expect(runtime.services.resourceLoader.getSystemPrompt()).toBe(createSreSystemPrompt());
+      expect(runtime.session.systemPrompt).toContain(createSreSystemPrompt());
+      expect(runtime.session.systemPrompt).not.toContain("expert coding assistant");
       runtime.session.setActiveToolsByName([
         "bash",
         "read",

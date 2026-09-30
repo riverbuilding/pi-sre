@@ -8,6 +8,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 
 import type { SreConfig } from "../config/config.js";
+import { createSreResourceLoaderOptions } from "./resource-loader.js";
 
 /** Pi uses this for TUI assets and managed helpers outside its session factory. */
 export const PI_AGENT_DIR_ENV = "PI_CODING_AGENT_DIR";
@@ -23,11 +24,7 @@ export async function createSreRuntime(config: SreConfig): Promise<AgentSessionR
       cwd: options.cwd,
       agentDir: options.agentDir,
       resourceLoaderOptions: {
-        noExtensions: true,
-        noSkills: true,
-        noPromptTemplates: true,
-        noThemes: true,
-        noContextFiles: true,
+        ...createSreResourceLoaderOptions(),
         extensionFactories: [
           {
             name: "pi-sre-read-only-shell-guard",
