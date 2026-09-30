@@ -1,6 +1,6 @@
 # Phase 1 Implementation Slices
 
-**Status:** Slices 0–2 implemented; later slices proposed
+**Status:** Slices 0–3 implemented; later slices proposed
 
 **Applies to:** Pi SRE V0.1, Phase 1
 
@@ -38,6 +38,7 @@ Phase 1 is infrastructure work. It does not implement incident state, diagnostic
 - MCP JSON Schema to Pi `ToolDefinition` adaptation;
 - normalized, size-bounded MCP results;
 - graceful startup and shutdown behavior;
+- in-session MCP recovery through `/mcp_restart`;
 - automated tests using a fake stdio MCP server;
 - an optional live smoke test against Kubernetes MCP Server.
 
@@ -47,7 +48,7 @@ Phase 1 is infrastructure work. It does not implement incident state, diagnostic
 - automatic context injection into cluster-dependent calls;
 - incident, evidence, hypothesis, or investigation persistence;
 - Kubernetes diagnostic skills;
-- custom SRE footer and commands;
+- custom SRE footer and commands other than `/mcp_restart`;
 - shell, `kubectl`, repository read/write, or other coding tools;
 - HTTP MCP transport;
 - remediation or any write-capable Kubernetes operation.
@@ -78,6 +79,7 @@ src/
 ├── main.ts
 ├── app/
 │   ├── create-runtime.ts
+│   ├── mcp-controller.ts
 │   └── sre-application.ts
 ├── config/
 │   ├── config.ts
@@ -87,10 +89,12 @@ src/
 │   ├── resource-loader.ts
 │   ├── system-prompt.ts
 │   └── tool-policy.ts
-└── mcp/
-    ├── connection.ts
-    ├── tool-bridge.ts
-    └── result-normalizer.ts
+├── mcp/
+│   ├── connection.ts
+│   ├── tool-bridge.ts
+│   └── result-normalizer.ts
+└── tui/
+    └── mcp-restart-command.ts
 
 tests/
 ├── fixtures/
@@ -101,6 +105,7 @@ tests/
 │   └── runtime/
 └── integration/
     ├── mcp-lifecycle.test.ts
+    ├── mcp-restart.test.ts
     └── runtime-tools.test.ts
 ```
 
@@ -506,7 +511,47 @@ restore terminal and exit
 - active-call cancellation;
 - no dangling handles after the integration suite.
 
-## 15. Slice 8 — Phase Gate and Live Smoke Test
+## 15. Slice 8 — Recover MCP In Session
+
+### Outcome
+
+After MCP startup or transport failure, the user can restore Kubernetes MCP access without restarting the Pi TUI or losing the conversation.
+
+### Command contract
+
+- `/mcp_restart` retries when MCP is unavailable. If the connection is healthy, it reports that status without disrupting active work.
+- `/mcp_restart --force` replaces a healthy connection. Reject unknown arguments and show usage; do not pass command text through to the MCP executable.
+- Each attempt rereads and validates the MCP configuration, including the read-only TOML policy. Changes to application home or Pi session paths require a full `pi-sre` restart; do not move a live session to a new home.
+- The command reports `connecting`, then either `ready` with the approved tool count or a concise failure category and retry guidance. Never render raw stderr or secrets.
+
+### Work
+
+- Put restart orchestration in an application-owned connection controller; keep the Pi extension command as thin UI wiring.
+- Serialize restart attempts. Close a failed or replaced transport before starting its replacement, and make cleanup safe after partial initialization.
+- For `--force`, wait for active MCP calls to finish or cancel them explicitly before closing the old connection. Never route an in-flight call to a different process.
+- After a successful ping, rediscover and validate tools, apply the exact read-only allowlist, and refresh Pi's current-session tool inventory. A successful connection alone does not imply usable Kubernetes tools.
+- Disable MCP tools when the connection drops or restart fails. Preserve the conversation and other Pi session state. Do not re-enable coding tools or cluster-dependent tools without explicit cluster scope.
+- Check Pi 0.99's supported runtime tool-refresh path during implementation. Use extension-owned dynamic registration or a supported session reload; do not mutate Pi private fields. Keep the command available even when initial MCP startup fails.
+
+### Acceptance criteria
+
+- A failed startup followed by `/mcp_restart` can restore approved tools in the same TUI session.
+- A failed retry leaves MCP tools unavailable and permits another retry.
+- `/mcp_restart` on a healthy connection is a no-op; `--force` replaces it safely.
+- Concurrent restart requests produce one controlled transition, with no orphaned child or stale active tools.
+- Changed configuration is validated before connection, and unsafe or session-path changes fail closed with actionable guidance.
+
+### Tests
+
+- failed startup followed by successful retry and a model-facing tool call;
+- repeated failures and subsequent recovery;
+- healthy no-op and forced replacement during an active call;
+- concurrent restart commands and child-process cleanup;
+- changed, malformed, or non-read-only configuration;
+- tool inventory refresh, connection drop, and stale-tool removal;
+- preservation of conversation/session state and continued exclusion of coding tools.
+
+## 16. Slice 9 — Phase Gate and Live Smoke Test
 
 ### Outcome
 
@@ -545,6 +590,7 @@ Procedure:
 6. Ask the model to modify a deployment.
 7. Confirm no write tool is available and no shell fallback exists.
 8. Exit and confirm the MCP child process terminates.
+9. Repeat with MCP unavailable at startup, repair the configuration, run `/mcp_restart`, and confirm `configuration_contexts_list` works without leaving the TUI.
 
 ### Phase 1 exit criteria
 
@@ -556,26 +602,29 @@ Procedure:
 - At least one safe MCP tool works through the full Pi agent loop.
 - Results are normalized and size-bounded.
 - MCP failure produces degraded mode rather than false capability.
+- `/mcp_restart` restores approved tools after a recoverable MCP failure without restarting the TUI.
 - Shutdown leaves no subprocess or terminal corruption.
 - All automated checks pass.
 
-## 16. Suggested Pull Request Boundaries
+## 17. Suggested Pull Request Boundaries
 
 Keep each pull request independently reviewable:
 
-| PR  | Slice | Review focus                                  |
-| --- | ----- | --------------------------------------------- |
-| 1   | 0     | configuration contract and safety defaults    |
-| 2   | 1–2   | Pi runtime/TUI boot and resource isolation    |
-| 3   | 3     | Pi MCP client and stdio lifecycle             |
-| 4   | 4     | discovery and read-only policy                |
-| 5   | 5     | dynamic schema and Pi tool bridge             |
-| 6   | 6     | result normalization and error taxonomy       |
-| 7   | 7–8   | application orchestration and acceptance gate |
+| PR  | Slice | Review focus                               |
+| --- | ----- | ------------------------------------------ |
+| 1   | 0     | configuration contract and safety defaults |
+| 2   | 1–2   | Pi runtime/TUI boot and resource isolation |
+| 3   | 3     | Pi MCP client and stdio lifecycle          |
+| 4   | 4     | discovery and read-only policy             |
+| 5   | 5     | dynamic schema and Pi tool bridge          |
+| 6   | 6     | result normalization and error taxonomy    |
+| 7   | 7     | application orchestration and diagnostics  |
+| 8   | 8     | in-session MCP recovery and tool refresh   |
+| 9   | 9     | acceptance gate and live smoke test        |
 
 Do not merge a slice with skipped acceptance tests unless the limitation and follow-up are explicitly documented.
 
-## 17. Known Risks and Mitigations
+## 18. Known Risks and Mitigations
 
 | Risk                                                         | Mitigation                                                                                 |
 | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------ |
@@ -585,11 +634,12 @@ Do not merge a slice with skipped acceptance tests unless the limitation and fol
 | Kubeconfig data leaks through a config tool                  | Do not expose `configuration_view`                                                         |
 | Large Kubernetes responses overwhelm model context           | Normalize, cap, and visibly mark truncation                                                |
 | MCP child survives TUI failure                               | Central idempotent cleanup and signal tests                                                |
+| Restart leaves stale tools or orphaned children              | Serialize replacement, refresh Pi tools, and test process cleanup                          |
 | Launch-directory instructions alter SRE behavior             | Disable project context and extension discovery                                            |
 | Phase 1 accidentally relies on current context               | Only invoke non-cluster-dependent tools until Phase 2                                      |
 | Dependency API drift                                         | Keep the lockfile authoritative and validate Pi/MCP adapter contracts in integration tests |
 
-## 18. Deferred Decisions
+## 19. Deferred Decisions
 
 The following decisions belong to later phases and must not block Phase 1:
 
@@ -599,14 +649,13 @@ The following decisions belong to later phases and must not block Phase 1:
 - investigation-state injection into model context;
 - custom MCP tool rendering beyond the standard Pi renderer;
 - SRE diagnostic skill content;
-- retry and reconnection UX after startup;
 - external Streamable HTTP MCP servers.
 
 Phase 1 should leave clean seams for these features without implementing them early.
 
-## 19. External Compatibility Notes
+## 20. External Compatibility Notes
 
-- The repository lockfile is authoritative for the Pi 0.99 coding agent and `@earendil-works/pi-mcp` API versions used by this plan. The current implementation still uses Pi 0.87.1; Slice 3 includes the upgrade.
+- The repository lockfile is authoritative for the Pi 0.99 coding agent and `@earendil-works/pi-mcp` API versions used by this plan. Slice 3 upgraded both dependencies to 0.99.0.
 - Pi's public runtime path provides `AgentSessionRuntime`, `InteractiveMode`, `DefaultResourceLoader`, custom `ToolDefinition` support, and `noTools: "builtin"`.
 - Pi SRE passes explicit `agentDir`, authentication, model, settings, and session paths so all persisted state lives below `~/.pi-sre` rather than Pi Coding Agent's default directory.
 - Pi's standalone MCP package provides `McpClient`, `StdioTransport`, `connect`, paginated `listTools`, `callTool`, cancellation, `ping`, and `close`. Pi's SDK does not load its built-in MCP extension automatically; V0.1 uses the standalone client so startup and tool calls share one connection.

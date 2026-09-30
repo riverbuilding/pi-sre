@@ -10,8 +10,22 @@ import { PI_AGENT_DIR_ENV } from "../../../src/runtime/pi-runtime.js";
 
 const mocks = vi.hoisted(() => ({
   dispose: vi.fn<() => Promise<void>>(),
+  mcpClose: vi.fn<() => Promise<void>>(),
+  mcpConnect: vi.fn(),
   modeRun: vi.fn<() => Promise<void>>(),
   createRuntime: vi.fn(),
+  modeOptions: [] as unknown[],
+}));
+
+vi.mock("../../../src/mcp/connection.js", () => ({
+  McpStartupError: class extends Error {
+    diagnostic: string;
+    constructor(_kind: string, diagnostic: string) {
+      super(diagnostic);
+      this.diagnostic = diagnostic;
+    }
+  },
+  ManagedMcpConnection: { connect: mocks.mcpConnect },
 }));
 
 vi.mock("../../../src/runtime/pi-runtime.js", () => ({
@@ -21,6 +35,9 @@ vi.mock("../../../src/runtime/pi-runtime.js", () => ({
 
 vi.mock("@earendil-works/pi-coding-agent", () => ({
   InteractiveMode: class {
+    constructor(_runtime: unknown, options: unknown) {
+      mocks.modeOptions.push(options);
+    }
     run = mocks.modeRun;
   },
 }));
@@ -33,8 +50,11 @@ describe("SreApplication", () => {
     home = await mkdtemp(join(tmpdir(), "pi-sre-app-"));
     previousAgentDir = process.env[PI_AGENT_DIR_ENV];
     mocks.dispose.mockReset().mockResolvedValue();
+    mocks.mcpClose.mockReset().mockResolvedValue();
+    mocks.mcpConnect.mockReset().mockResolvedValue({ close: mocks.mcpClose });
     mocks.modeRun.mockReset().mockResolvedValue();
     mocks.createRuntime.mockReset().mockResolvedValue({ dispose: mocks.dispose });
+    mocks.modeOptions.length = 0;
   });
 
   afterEach(async () => {
@@ -82,6 +102,7 @@ describe("SreApplication", () => {
 
     expect(mocks.createRuntime).toHaveBeenCalledWith(config());
     expect(mocks.modeRun).toHaveBeenCalledOnce();
+    expect(mocks.mcpClose).toHaveBeenCalledOnce();
     expect(mocks.dispose).toHaveBeenCalledOnce();
     expect(process.env[PI_AGENT_DIR_ENV]).toBe("existing-pi-location");
   });
@@ -93,5 +114,27 @@ describe("SreApplication", () => {
     await expect(app.run()).rejects.toThrow("runtime unavailable");
     expect(process.env[PI_AGENT_DIR_ENV]).toBe(previousAgentDir);
     expect(mocks.dispose).not.toHaveBeenCalled();
+  });
+
+  it("opens the TUI with a startup diagnostic when MCP is unavailable", async () => {
+    mocks.mcpConnect.mockRejectedValue(new Error("token=do-not-show"));
+    const app = new SreApplication(config());
+
+    await app.run();
+
+    expect(mocks.modeRun).toHaveBeenCalledOnce();
+    expect(mocks.modeOptions).toEqual([
+      {
+        startupDiagnostics: [
+          {
+            type: "warning",
+            message:
+              "Kubernetes MCP connection failed during startup. Kubernetes tools are unavailable. Check the MCP configuration and restart pi-sre.",
+          },
+        ],
+      },
+    ]);
+    expect(mocks.mcpClose).not.toHaveBeenCalled();
+    expect(mocks.dispose).toHaveBeenCalledOnce();
   });
 });
