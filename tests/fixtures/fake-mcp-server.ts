@@ -12,7 +12,11 @@ input.on("line", (line) => {
   const request: unknown = JSON.parse(line);
   if (!request || typeof request !== "object" || !("method" in request) || !("id" in request))
     return;
-  const { method, id } = request as { method: string; id: number };
+  const { method, id, params } = request as {
+    method: string;
+    id: number;
+    params?: { cursor?: string };
+  };
   const result =
     method === "initialize"
       ? {
@@ -21,7 +25,26 @@ input.on("line", (line) => {
           serverInfo: { name: "fake-kubernetes-mcp", version: "0.0.1" },
         }
       : method === "tools/list"
-        ? { tools: [{ name: "configuration_contexts_list", inputSchema: { type: "object" } }] }
+        ? scenario === "paginated" && !params?.cursor
+          ? {
+              tools: [
+                {
+                  name: "configuration_view",
+                  inputSchema: { type: "object" },
+                  annotations: { readOnlyHint: true },
+                },
+              ],
+              nextCursor: "page-2",
+            }
+          : {
+              tools: [
+                {
+                  name: "configuration_contexts_list",
+                  inputSchema: { type: "object" },
+                  annotations: { readOnlyHint: true },
+                },
+              ],
+            }
         : method === "tools/call"
           ? { content: [{ type: "text", text: "ok" }] }
           : {};

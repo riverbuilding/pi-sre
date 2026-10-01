@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   dispose: vi.fn<() => Promise<void>>(),
   mcpClose: vi.fn<() => Promise<void>>(),
   mcpConnect: vi.fn(),
+  mcpListTools: vi.fn(),
   modeRun: vi.fn<() => Promise<void>>(),
   createRuntime: vi.fn(),
   modeOptions: [] as unknown[],
@@ -51,7 +52,10 @@ describe("SreApplication", () => {
     previousAgentDir = process.env[PI_AGENT_DIR_ENV];
     mocks.dispose.mockReset().mockResolvedValue();
     mocks.mcpClose.mockReset().mockResolvedValue();
-    mocks.mcpConnect.mockReset().mockResolvedValue({ close: mocks.mcpClose });
+    mocks.mcpListTools.mockReset().mockResolvedValue([]);
+    mocks.mcpConnect
+      .mockReset()
+      .mockResolvedValue({ close: mocks.mcpClose, listTools: mocks.mcpListTools });
     mocks.modeRun.mockReset().mockResolvedValue();
     mocks.createRuntime.mockReset().mockResolvedValue({ dispose: mocks.dispose });
     mocks.modeOptions.length = 0;
@@ -136,5 +140,59 @@ describe("SreApplication", () => {
     ]);
     expect(mocks.mcpClose).not.toHaveBeenCalled();
     expect(mocks.dispose).toHaveBeenCalledOnce();
+  });
+
+  it("discovers and reports policy decisions without registering tools", async () => {
+    mocks.mcpListTools.mockResolvedValue([
+      {
+        name: "configuration_contexts_list",
+        inputSchema: { type: "object" },
+        annotations: { readOnlyHint: true },
+      },
+      {
+        name: "configuration_view",
+        inputSchema: { type: "object" },
+        annotations: { readOnlyHint: true },
+      },
+    ]);
+    const app = new SreApplication(config());
+
+    await app.run();
+
+    expect(app.toolDiscoveryReport?.exposed.map((tool) => tool.name)).toEqual([
+      "configuration_contexts_list",
+    ]);
+    expect(mocks.modeOptions).toEqual([
+      {
+        startupDiagnostics: [
+          {
+            type: "info",
+            message:
+              "Kubernetes MCP discovery: 1 approved, 0 deferred, 1 rejected. Model-facing Kubernetes tools are not registered in this slice.",
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("keeps the TUI available when discovery fails", async () => {
+    mocks.mcpListTools.mockRejectedValue(new Error("token=private"));
+    const app = new SreApplication(config());
+
+    await app.run();
+
+    expect(app.toolDiscoveryReport).toBeUndefined();
+    expect(mocks.modeOptions).toEqual([
+      {
+        startupDiagnostics: [
+          {
+            type: "warning",
+            message:
+              "Kubernetes MCP tool discovery failed. Kubernetes tools are unavailable. Check the MCP configuration and restart pi-sre.",
+          },
+        ],
+      },
+    ]);
+    expect(mocks.mcpClose).toHaveBeenCalledOnce();
   });
 });

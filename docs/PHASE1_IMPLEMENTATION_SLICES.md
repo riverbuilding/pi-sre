@@ -1,6 +1,6 @@
 # Phase 1 Implementation Slices
 
-**Status:** Slices 0–3 implemented; later slices proposed
+**Status:** Slices 0–4 implemented; later slices proposed
 
 **Applies to:** Pi SRE V0.1, Phase 1
 
@@ -327,6 +327,10 @@ Pi SRE can start, initialize, health-check, and stop a Kubernetes MCP Server ove
 - abort during startup.
 
 ## 11. Slice 4 — Discover and Filter Tools
+
+**Implementation status:** Complete. Startup discovery uses Pi MCP pagination, validates descriptors, and records ordered allow, reject, and defer decisions. Pi tool registration remains Slice 5.
+
+The implemented input and output schema contracts are documented in [MCP_TOOL_SCHEMAS.md](./MCP_TOOL_SCHEMAS.md).
 
 ### Outcome
 

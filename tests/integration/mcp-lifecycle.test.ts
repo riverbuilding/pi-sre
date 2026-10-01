@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import type { McpServerConfig } from "../../src/config/config.js";
 import { ManagedMcpConnection, McpStartupError } from "../../src/mcp/connection.js";
+import { discoverMcpTools } from "../../src/mcp/tool-discovery.js";
 
 const fixture = fileURLToPath(new URL("../fixtures/fake-mcp-server.ts", import.meta.url));
 
@@ -72,5 +73,19 @@ describe("managed MCP lifecycle", () => {
     const pending = ManagedMcpConnection.connect(config("timeout"), controller.signal);
     controller.abort();
     expect(await failureKind(pending)).toBe("aborted");
+  });
+
+  it("discovers every page through the MCP client and filters the result", async () => {
+    const connection = await ManagedMcpConnection.connect(config("paginated"));
+    try {
+      const report = await discoverMcpTools(connection);
+      expect(report.exposed.map((tool) => tool.name)).toEqual(["configuration_contexts_list"]);
+      expect(report.decisions).toEqual([
+        { name: "configuration_contexts_list", status: "exposed" },
+        { name: "configuration_view", status: "rejected", reason: "not-allowlisted" },
+      ]);
+    } finally {
+      await connection.close();
+    }
   });
 });
