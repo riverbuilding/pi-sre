@@ -2,7 +2,7 @@
 
 Pi SRE is a read-only Kubernetes incident diagnosis application built on the Pi agent runtime and Kubernetes MCP Server. It is intentionally an independent TypeScript application, not a Pi package.
 
-The implementation follows the architecture in [docs/DESIGN.md](docs/DESIGN.md). Phase 1 Slices 0–4 provide configuration validation, a Pi TUI, an isolated SRE resource boundary, a managed Kubernetes MCP connection, and read-only tool discovery. Model-facing diagnostic tools are planned for later slices.
+The implementation follows the architecture in [docs/DESIGN.md](docs/DESIGN.md). Phase 1 Slices 0–5 provide configuration validation, a Pi TUI, an isolated SRE resource boundary, a managed Kubernetes MCP connection, read-only tool discovery, and model-facing context listing through MCP.
 
 ## Prerequisites
 
@@ -52,7 +52,9 @@ npm run dev -- --help
 npm run dev
 ```
 
-The built executable is `dist/main.js`; `npm link` also makes `pi-sre` available on your PATH. The current runtime opens Pi's TUI with no coding-agent tools or shell execution. It uses a Pi SRE system prompt and does not load project instructions, extensions, skills, or prompt templates. It starts and health-checks the configured Kubernetes MCP process, discovers tools, and reports read-only policy decisions before closing the connection when the TUI exits. If MCP startup or discovery fails, the TUI opens with a warning but cannot inspect Kubernetes. Check the MCP configuration and restart `pi-sre`; in-session reconnection is not implemented. Kubernetes tools are not yet exposed to the model; tool registration arrives in Slice 5. Cluster selection with `--cluster` is planned for Phase 2.
+The built executable is `dist/main.js`; `npm link` also makes `pi-sre` available on your PATH. The current runtime opens Pi's TUI with no coding-agent tools or shell execution. It uses a Pi SRE system prompt and does not load project instructions, extensions, skills, or prompt templates. It starts and health-checks the configured Kubernetes MCP process, discovers tools, and registers approved read-only tools before opening the TUI. Ask **“List configured Kubernetes contexts”** to invoke `configuration_contexts_list` through the agent loop. The tool does not access a cluster; cluster-dependent tools remain deferred until Phase 2 implements explicit cluster selection and context injection.
+
+If MCP startup, discovery, or schema adaptation fails, the TUI opens with a warning and no Kubernetes tools. Check the MCP configuration and restart `pi-sre`; in-session reconnection is not implemented. The bridge currently supports text results, marks truncation after 8,000 characters, and reports MCP errors as failed tool results. Other result content, configurable budgets, and richer failure normalization arrive in Slice 6. Cluster selection with `--cluster` is planned for Phase 2.
 
 ## Layout
 

@@ -15,8 +15,9 @@ input.on("line", (line) => {
   const { method, id, params } = request as {
     method: string;
     id: number;
-    params?: { cursor?: string };
+    params?: { cursor?: string; name?: string; arguments?: Record<string, unknown> };
   };
+  if (method === "tools/call" && scenario === "call-timeout") return;
   const result =
     method === "initialize"
       ? {
@@ -46,7 +47,20 @@ input.on("line", (line) => {
               ],
             }
         : method === "tools/call"
-          ? { content: [{ type: "text", text: "ok" }] }
+          ? scenario === "bridge"
+            ? {
+                content: [
+                  {
+                    type: "text",
+                    text: JSON.stringify({
+                      name: params?.name,
+                      arguments: params?.arguments,
+                      contexts: ["dev", "prod"],
+                    }),
+                  },
+                ],
+              }
+            : { content: [{ type: "text", text: "ok" }] }
           : {};
   process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id, result })}\n`);
 });

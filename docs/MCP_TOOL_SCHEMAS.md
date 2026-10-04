@@ -40,7 +40,7 @@ An argument object satisfying that schema would be:
 { "namespace": "default" }
 ```
 
-Discovery checks that the schema document has a supported structure. Checking that an actual argument contains a nonempty namespace belongs to the tool bridge in Slice 5. Validating actual structured results is also a separate operation; accepting an output schema does not prove any returned data conforms to it.
+Discovery checks that the schema document has a supported structure. The [tool bridge](../src/mcp/tool-bridge.ts) checks actual arguments against the adapted schema before transport. Validating actual structured results is a separate operation; accepting an output schema does not prove any returned data conforms to it. Slice 5 returns text and status details and does not expose the discovered output schema as a Pi result contract.
 
 ## Supported schema documents
 
@@ -69,7 +69,7 @@ The root has depth 0. Each property schema or array item schema adds one level. 
 
 Unknown fields are rejected. Examples include `$schema`, `$id`, `$ref`, `$defs`, `allOf`, `anyOf`, `oneOf`, `not`, conditional schemas, `patternProperties`, and tuple item arrays. Boolean schemas such as `true` and union types such as `["string", "null"]` are also outside this subset. A schema can be valid JSON Schema and still be unsupported by Pi SRE.
 
-This is a structural compatibility check, not a complete JSON Schema semantic validator. It does not check whether a pattern compiles, a format name is recognized, enum/default values match the declared type, minimum and maximum agree, or `multipleOf` is positive. Those checks must be considered when implementing schema adaptation and argument/result validation; discovery acceptance alone does not establish executable validation support.
+This is a structural compatibility check, not a complete JSON Schema semantic validator. Discovery does not check whether a pattern compiles, a format name is recognized, enum/default values match the declared type, minimum and maximum agree, or `multipleOf` is positive. The bridge additionally rejects invalid patterns, unregistered TypeBox formats, nonpositive `multipleOf`, and reversed minimum/maximum, length, or item bounds. TypeBox 1 validates the accepted JSON Schema directly; the adapter supplies the dynamic record type after validating and cloning the schema. Actual arguments must satisfy both the type and enum constraints. Defaults and examples are metadata; the bridge never applies defaults, coerces values, or removes properties.
 
 The two uses of `additionalProperties: false` in the code have different targets: TypeBox's option rejects unknown fields in a schema document; the server's schema keyword restricts fields in the future arguments or result object. See [JSON Schema object keywords](https://json-schema.org/understanding-json-schema/reference/object).
 

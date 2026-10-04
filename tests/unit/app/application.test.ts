@@ -104,7 +104,7 @@ describe("SreApplication", () => {
     await app.close();
     await app.close();
 
-    expect(mocks.createRuntime).toHaveBeenCalledWith(config());
+    expect(mocks.createRuntime).toHaveBeenCalledWith(config(), []);
     expect(mocks.modeRun).toHaveBeenCalledOnce();
     expect(mocks.mcpClose).toHaveBeenCalledOnce();
     expect(mocks.dispose).toHaveBeenCalledOnce();
@@ -142,7 +142,7 @@ describe("SreApplication", () => {
     expect(mocks.dispose).toHaveBeenCalledOnce();
   });
 
-  it("discovers and reports policy decisions without registering tools", async () => {
+  it("registers only approved tools after discovery", async () => {
     mocks.mcpListTools.mockResolvedValue([
       {
         name: "configuration_contexts_list",
@@ -168,7 +168,36 @@ describe("SreApplication", () => {
           {
             type: "info",
             message:
-              "Kubernetes MCP discovery: 1 approved, 0 deferred, 1 rejected. Model-facing Kubernetes tools are not registered in this slice.",
+              "Kubernetes MCP discovery: 1 approved, 0 deferred, 1 rejected. 1 read-only tools registered.",
+          },
+        ],
+      },
+    ]);
+    expect(mocks.createRuntime).toHaveBeenCalledWith(config(), [
+      expect.objectContaining({ name: "configuration_contexts_list" }),
+    ]);
+  });
+
+  it("opens without tools when an approved schema cannot be executed safely", async () => {
+    mocks.mcpListTools.mockResolvedValue([
+      {
+        name: "configuration_contexts_list",
+        inputSchema: {
+          type: "object",
+          properties: { name: { type: "string", format: "unsupported" } },
+        },
+        annotations: { readOnlyHint: true },
+      },
+    ]);
+    await new SreApplication(config()).run();
+    expect(mocks.createRuntime).toHaveBeenCalledWith(config(), []);
+    expect(mocks.modeOptions).toEqual([
+      {
+        startupDiagnostics: [
+          {
+            type: "warning",
+            message:
+              "Kubernetes MCP tool schema cannot be adapted safely. Kubernetes tools are unavailable. Check the MCP configuration and restart pi-sre.",
           },
         ],
       },

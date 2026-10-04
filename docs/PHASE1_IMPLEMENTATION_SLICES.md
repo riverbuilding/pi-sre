@@ -1,6 +1,6 @@
 # Phase 1 Implementation Slices
 
-**Status:** Slices 0–4 implemented; later slices proposed
+**Status:** Slices 0–5 implemented; later slices proposed
 
 **Applies to:** Pi SRE V0.1, Phase 1
 
@@ -370,6 +370,10 @@ Pi SRE can list MCP tools and produce a deterministic report of which tools are 
 - deterministic ordering.
 
 ## 12. Slice 5 — Bridge One Tool End to End
+
+**Implementation status:** Complete. Approved descriptors are adapted to Pi custom tools before runtime creation. The bridge validates arguments without coercion or defaults, preserves the caller's signal and the connection's configured timeout, and returns bounded text plus structured status details. MCP `isError` becomes a failed Pi result. Deterministic tests exercise a model tool call through the real Pi agent loop and fake stdio server, result delivery to the transcript and TUI events, cancellation, timeout, and session recreation without coding tools. Live server validation requires a locally installed Kubernetes MCP executable and model authentication.
+
+The initial text-only response boundary caps text at 8,000 characters with a visible truncation marker. Unsupported or malformed content fails closed. Error payloads are replaced with safe diagnostic text. Slice 6 owns broader content normalization, configurable budgets, raw retention policy, and richer error categories.
 
 ### Outcome
 
