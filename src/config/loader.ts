@@ -116,6 +116,7 @@ export async function loadSreConfig(options: LoadSreConfigOptions = {}): Promise
     : command;
 
   return {
+    results: parsed.data.results,
     paths: { ...paths, config: configPath, kubernetesMcpConfig: configFile },
     kubernetes: {
       ...(parsed.data.kubernetes.defaultCluster === undefined

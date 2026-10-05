@@ -59,6 +59,7 @@ describe("loadSreConfig", () => {
     expect(config.paths.settings).toBe(join(applicationHome, "settings.json"));
     expect(config.paths.sessions).toBe(join(applicationHome, "sessions"));
     expect(config.kubernetes.defaultCluster).toBe("staging");
+    expect(config.results).toEqual({ maxTextChars: 8_000, maxItems: 50, rawRetention: "disabled" });
     expect(config.kubernetes.mcp).toEqual({
       transport: "stdio",
       command: "kubernetes-mcp-server",
@@ -77,6 +78,40 @@ describe("loadSreConfig", () => {
 
     const config = await load();
     expect(config.kubernetes.mcp.args).toEqual(["--config", mcpConfigPath]);
+  });
+
+  it("loads explicit model-facing result budgets", async () => {
+    await writeFile(
+      configPath,
+      `${validYaml}results:
+  maxTextChars: 512
+  maxItems: 5
+  rawRetention: disabled
+`,
+    );
+    expect((await load()).results).toEqual({
+      maxTextChars: 512,
+      maxItems: 5,
+      rawRetention: "disabled",
+    });
+  });
+
+  it.each([
+    "maxTextChars: 0",
+    "maxTextChars: 255",
+    "maxTextChars: 64001",
+    "maxItems: 0",
+    "maxItems: 1.5",
+    "maxItems: 1001",
+    "rawRetention: enabled",
+  ])("rejects unsafe result policy %s", async (field) => {
+    await writeFile(
+      configPath,
+      `${validYaml}results:
+  ${field}
+`,
+    );
+    await expect(load()).rejects.toThrow("results.");
   });
 
   it("resolves paths and executable arguments relative to the selected config file", async () => {

@@ -2,7 +2,18 @@ import { z } from "zod";
 
 const nonBlank = z.string().trim().min(1);
 
+export const resultPolicySchema = z.strictObject({
+  maxTextChars: z.int().min(256).max(64_000).default(8_000),
+  maxItems: z.int().positive().max(1_000).default(50),
+  // Raw MCP payloads are never persisted or attached to Pi result details.
+  rawRetention: z.literal("disabled").default("disabled"),
+});
+
+export const DEFAULT_RESULT_POLICY = resultPolicySchema.parse({});
+export type ResultPolicy = z.output<typeof resultPolicySchema>;
+
 export const sreConfigSchema = z.strictObject({
+  results: resultPolicySchema.default(DEFAULT_RESULT_POLICY),
   kubernetes: z.strictObject({
     defaultCluster: nonBlank.optional(),
     mcp: z.strictObject({

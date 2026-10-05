@@ -94,9 +94,11 @@ describe("MCP tool bridge", () => {
   it("blocks invalid arguments and unsafe tools before transport", async () => {
     const callTool = vi.fn();
     const tool = createMcpToolBridge(descriptor, { callTool });
-    await expect(
-      tool.execute("bad", { extra: true }, undefined, undefined, {} as never),
-    ).rejects.toThrow("Invalid arguments");
+    const invalid = await tool.execute("bad", { extra: true }, undefined, undefined, {} as never);
+    expect(invalid).toMatchObject({
+      isError: true,
+      details: { failureCategory: "invalid-arguments" },
+    });
     expect(callTool).not.toHaveBeenCalled();
     for (const unsafe of ["pods_list", "configuration_view", "bash"]) {
       expect(() => createMcpToolBridge({ ...descriptor, name: unsafe }, { callTool })).toThrow(
@@ -143,11 +145,14 @@ describe("MCP tool bridge", () => {
     expect(callTool).not.toHaveBeenCalled();
   });
 
-  it("preserves transport failure causes without rendering their sensitive messages", async () => {
+  it("normalizes transport failures without retaining sensitive causes", async () => {
     const cause = new Error("token=private");
     const tool = createMcpToolBridge(descriptor, { callTool: vi.fn().mockRejectedValue(cause) });
-    await expect(tool.execute("fail", {}, undefined, undefined, {} as never)).rejects.toMatchObject(
-      { message: "Kubernetes MCP operation configuration_contexts_list failed.", cause },
-    );
+    const result = await tool.execute("fail", {}, undefined, undefined, {} as never);
+    expect(result).toMatchObject({
+      isError: true,
+      details: { failureCategory: "tool-execution-failed" },
+    });
+    expect(JSON.stringify(result)).not.toContain("private");
   });
 });

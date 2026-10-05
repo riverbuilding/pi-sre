@@ -46,6 +46,16 @@ describe("managed MCP lifecycle", () => {
     await expect(connection.listTools()).rejects.toThrow("unavailable");
   });
 
+  it("withholds truncated stderr containing a credential fragment", async () => {
+    const connection = await ManagedMcpConnection.connect(config("large-stderr"));
+    try {
+      expect(connection.diagnosticStderr).toBe("[MCP stderr truncated; content withheld]");
+      expect(connection.diagnosticStderr).not.toContain("PRIVATE_FRAGMENT");
+    } finally {
+      await connection.close();
+    }
+  });
+
   it("classifies missing executable", async () => {
     expect(
       await failureKind(

@@ -1,3 +1,4 @@
+import { DEFAULT_RESULT_POLICY } from "../../../src/config/schema.js";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -32,6 +33,7 @@ describe("Pi SRE runtime", () => {
       },
       investigation: { defaultTimeRange: "30m", maxToolCalls: 40 },
       safety: { mode: "read-only" },
+      results: DEFAULT_RESULT_POLICY,
     };
 
     const runtime = await createSreRuntime(config);

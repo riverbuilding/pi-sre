@@ -2,7 +2,14 @@ import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type, type TUnsafe } from "typebox";
 import { Format } from "typebox/format";
 import { Value } from "typebox/value";
-import { z } from "zod";
+import { DEFAULT_RESULT_POLICY, type ResultPolicy } from "../config/schema.js";
+import {
+  classifyToolFailure,
+  normalizeMcpResult,
+  normalizeToolFailure,
+  type NormalizedMcpResult,
+  type ToolFailureCategory,
+} from "./result-normalizer.js";
 
 import type { McpConnection } from "./connection.js";
 import type { McpToolDescriptor } from "./tool-discovery.js";
@@ -18,6 +25,7 @@ export interface McpToolDetails {
   readonly tool: ToolNameMapping;
   readonly status: "success" | "tool-error" | "invalid-result";
   readonly truncated: boolean;
+  readonly failureCategory?: ToolFailureCategory;
 }
 
 export class McpToolBridgeError extends Error {
@@ -75,17 +83,23 @@ export function adaptMcpInputSchema(value: unknown): TUnsafe<Record<string, unkn
   }
 }
 
-const TextBlock = z.object({ type: z.literal("text"), text: z.string() });
-const CallResult = z.object({
-  content: z.array(TextBlock),
-  isError: z.boolean().optional(),
-});
-const MAX_TEXT_LENGTH = 8_000;
+function bridgeResult(result: NormalizedMcpResult, mapping: ToolNameMapping) {
+  return {
+    content: [{ type: "text" as const, text: result.text }],
+    details: {
+      tool: mapping,
+      status: result.status,
+      truncated: result.truncated,
+      ...(result.failureCategory ? { failureCategory: result.failureCategory } : {}),
+    } satisfies McpToolDetails,
+    isError: result.isError,
+  };
+}
 
-/** Slice 5 handles text results only. Other content requires Slice 6 normalization. */
 export function createMcpToolBridge(
   descriptor: McpToolDescriptor,
-  connection: Pick<McpConnection, "callTool">,
+  connection: Pick<McpConnection, "callTool"> & Partial<Pick<McpConnection, "state">>,
+  policy: ResultPolicy = DEFAULT_RESULT_POLICY,
 ): ToolDefinition {
   if (evaluateToolPolicy(descriptor).status !== "exposed") {
     throw new Error("Kubernetes MCP tool is not approved for Phase 1.");
@@ -98,47 +112,22 @@ export function createMcpToolBridge(
     description: descriptor.description ?? "List configured Kubernetes contexts (read-only).",
     parameters,
     async execute(_toolCallId, params, signal) {
-      if (!isRecord(params) || !Value.Check(parameters, params)) {
-        throw new Error(`Invalid arguments for Kubernetes MCP tool ${mapping.piName}.`);
-      }
       signal?.throwIfAborted();
+      if (!isRecord(params) || !Value.Check(parameters, params)) {
+        return bridgeResult(normalizeToolFailure("invalid-arguments", policy), mapping);
+      }
       let raw: unknown;
       try {
         raw = await connection.callTool(mapping.mcpName, params, signal);
       } catch (error) {
         if (signal?.aborted) signal.throwIfAborted();
-        throw new Error(`Kubernetes MCP operation ${mapping.mcpName} failed.`, { cause: error });
+        const category =
+          connection.state && connection.state !== "ready"
+            ? "transport-unavailable"
+            : classifyToolFailure(error);
+        return bridgeResult(normalizeToolFailure(category, policy), mapping);
       }
-      const parsed = CallResult.safeParse(raw);
-      if (!parsed.success) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: "Kubernetes MCP returned an unsupported or invalid tool result.",
-            },
-          ],
-          details: { tool: mapping, status: "invalid-result", truncated: false },
-          isError: true,
-        };
-      }
-      const isError = parsed.data.isError === true;
-      // Do not relay untrusted error payloads (which can include credentials).
-      const text = isError
-        ? `Kubernetes MCP tool ${mapping.mcpName} reported an execution error.`
-        : parsed.data.content.map((block) => block.text).join("\n") ||
-          "Tool completed successfully with no content.";
-      const truncated = text.length > MAX_TEXT_LENGTH;
-      return {
-        content: [
-          {
-            type: "text",
-            text: truncated ? `${text.slice(0, MAX_TEXT_LENGTH)}\n[Result truncated]` : text,
-          },
-        ],
-        details: { tool: mapping, status: isError ? "tool-error" : "success", truncated },
-        isError,
-      };
+      return bridgeResult(normalizeMcpResult(raw, policy), mapping);
     },
   };
 }

@@ -1,6 +1,6 @@
 # Phase 1 Implementation Slices
 
-**Status:** Slices 0–5 implemented; later slices proposed
+**Status:** Slices 0–6 implemented; later slices proposed
 
 **Applies to:** Pi SRE V0.1, Phase 1
 
@@ -412,6 +412,14 @@ The Pi model can invoke `configuration_contexts_list`, the bridge calls MCP, and
 - successful end-to-end fake server invocation.
 
 ## 13. Slice 6 — Normalize Results and Failures
+
+### Implemented decisions
+
+- Result policy is configured under `results`: 8,000 characters and 50 items by default, including truncation notices. Structured fields/array entries share an item budget; depth is limited to 32.
+- Raw retention is disabled (zero retained bytes and lifetime). No artifact/evidence store is introduced.
+- Images and binary resources produce metadata with explicit omission notices. Resource links are never fetched.
+- Safe failure categories reach both Pi model transcripts and TUI events. Timeout is distinct; caller cancellation propagates.
+- Pattern redaction applies to successful observations and process diagnostics; raw error payloads are replaced with safe messages. Truncated stderr is withheld.
 
 ### Outcome
 

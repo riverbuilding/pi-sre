@@ -17,3 +17,10 @@ investigation:
 
 safety:
   mode: read-only
+
+# Limits include the visible truncation notice. Item budget covers content blocks
+# or all nested structured fields/array entries. Raw responses are not retained.
+results:
+  maxTextChars: 8000
+  maxItems: 50
+  rawRetention: disabled

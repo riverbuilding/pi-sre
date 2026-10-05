@@ -1,5 +1,7 @@
 import { McpClient, StdioTransport, type Tool } from "@earendil-works/pi-mcp";
 
+import { redactDiagnosticText } from "./redaction.js";
+
 import type { McpServerConfig } from "../config/config.js";
 
 export type McpConnectionState = "starting" | "ready" | "failed" | "closed";
@@ -36,13 +38,7 @@ export interface McpConnection {
 const MAX_STDERR_BYTES = 4_096;
 
 function safeStderr(value: string): string {
-  return value
-    .replace(
-      /(authorization|token|password|secret|api[_-]?key|credential)\s*[:=]\s*\S+/gi,
-      "$1=[REDACTED]",
-    )
-    .replace(/Bearer\s+\S+/gi, "Bearer [REDACTED]")
-    .slice(-MAX_STDERR_BYTES);
+  return redactDiagnosticText(value).slice(-MAX_STDERR_BYTES);
 }
 
 function startupFailure(error: unknown, transportError: Error | undefined): McpStartupError {
@@ -87,6 +83,7 @@ export class ManagedMcpConnection implements McpConnection {
   private readonly transport: StdioTransport;
   private closePromise: Promise<void> | undefined;
   private stderrTail = "";
+  private stderrTruncated = false;
 
   private constructor(private readonly config: McpServerConfig) {
     this.client = new McpClient({
@@ -104,13 +101,18 @@ export class ManagedMcpConnection implements McpConnection {
       stderr: "pipe",
       maxStderrBytes: MAX_STDERR_BYTES,
       onStderr: (chunk) => {
-        this.stderrTail = (this.stderrTail + chunk).slice(-MAX_STDERR_BYTES);
+        const combined = this.stderrTail + chunk;
+        this.stderrTruncated ||= combined.length > MAX_STDERR_BYTES;
+        this.stderrTail = combined.slice(-MAX_STDERR_BYTES);
       },
     });
   }
 
   get diagnosticStderr(): string {
-    return safeStderr(this.stderrTail);
+    // A tail starting inside a credential cannot be reliably redacted.
+    return this.stderrTruncated
+      ? "[MCP stderr truncated; content withheld]"
+      : safeStderr(this.stderrTail);
   }
 
   static async connect(

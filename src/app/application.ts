@@ -40,7 +40,9 @@ export class SreApplication {
         const mcp = await ManagedMcpConnection.connect(this.config.kubernetes.mcp);
         this.mcp = mcp;
         this.discoveryReport = await discoverMcpTools(mcp);
-        customTools = this.discoveryReport.exposed.map((tool) => createMcpToolBridge(tool, mcp));
+        customTools = this.discoveryReport.exposed.map((tool) =>
+          createMcpToolBridge(tool, mcp, this.config.results),
+        );
         const counts = { exposed: 0, deferred: 0, rejected: 0 };
         for (const decision of this.discoveryReport.decisions) counts[decision.status]++;
         startupDiagnostics.push({
