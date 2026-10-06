@@ -3,10 +3,11 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createApplicationPaths, type SreConfig } from "../../../src/config/config.js";
 import { createSreRuntime } from "../../../src/runtime/pi-runtime.js";
+import { SreRuntime } from "../../../src/runtime/sre-runtime.js";
 import { createSreSystemPrompt } from "../../../src/runtime/system-prompt.js";
 
 describe("Pi SRE runtime", () => {
@@ -18,26 +19,12 @@ describe("Pi SRE runtime", () => {
 
   it("starts with no coding tools and keeps runtime paths under the application home", async () => {
     home = await mkdtemp(join(tmpdir(), "pi-sre-runtime-"));
-    const paths = createApplicationPaths(home);
-    const config: SreConfig = {
-      paths,
-      kubernetes: {
-        mcp: {
-          transport: "stdio",
-          command: "kubernetes-mcp-server",
-          args: [],
-          cwd: home,
-          startupTimeoutMs: 15_000,
-          toolCallTimeoutMs: 30_000,
-        },
-      },
-      investigation: { defaultTimeRange: "30m", maxToolCalls: 40 },
-      safety: { mode: "read-only" },
-      results: DEFAULT_RESULT_POLICY,
-    };
+    const config = runtimeConfig(home);
 
     const runtime = await createSreRuntime(config);
     try {
+      expect(runtime).toBeInstanceOf(SreRuntime);
+      expect(Object.hasOwn(runtime, "dispose")).toBe(false);
       expect(runtime.cwd).toBe(home);
       expect(runtime.services.agentDir).toBe(home);
       expect(runtime.session.sessionManager.getCwd()).toBe(home);
@@ -69,4 +56,59 @@ describe("Pi SRE runtime", () => {
       await runtime.dispose();
     }
   });
+  it("separates application shutdown from session disposal and preserves session replacement", async () => {
+    home = await mkdtemp(join(tmpdir(), "pi-sre-runtime-"));
+    const shutdown = vi.fn<() => Promise<void>>().mockResolvedValue();
+    const runtime = await createSreRuntime(runtimeConfig(home), [], shutdown);
+    const originalSession = runtime.session;
+    const originalDispose = vi.spyOn(originalSession, "dispose");
+    const rebind = vi.fn<() => Promise<void>>().mockResolvedValue();
+    const invalidate = vi.fn();
+    runtime.setRebindSession(rebind);
+    runtime.setBeforeSessionInvalidate(invalidate);
+    try {
+      await runtime.dispose();
+      expect(shutdown).toHaveBeenCalledOnce();
+      expect(originalDispose).not.toHaveBeenCalled();
+
+      await runtime.newSession();
+      expect(runtime.session).not.toBe(originalSession);
+      expect(originalDispose).toHaveBeenCalledOnce();
+      expect(rebind).toHaveBeenCalledOnce();
+      expect(shutdown).toHaveBeenCalledOnce();
+      expect(runtime.cwd).toBe(home);
+      expect(runtime.session.getActiveToolNames()).toEqual([]);
+
+      const currentDispose = vi.spyOn(runtime.session, "dispose");
+      const firstDisposal = runtime.disposeSession();
+      expect(runtime.disposeSession()).toBe(firstDisposal);
+      await firstDisposal;
+      expect(currentDispose).toHaveBeenCalledOnce();
+      expect(invalidate).toHaveBeenCalledTimes(2);
+      expect(shutdown).toHaveBeenCalledOnce();
+    } finally {
+      await runtime.disposeSession();
+      vi.restoreAllMocks();
+    }
+  });
 });
+
+function runtimeConfig(home: string): SreConfig {
+  const paths = createApplicationPaths(home);
+  return {
+    paths,
+    kubernetes: {
+      mcp: {
+        transport: "stdio",
+        command: "kubernetes-mcp-server",
+        args: [],
+        cwd: home,
+        startupTimeoutMs: 15_000,
+        toolCallTimeoutMs: 30_000,
+      },
+    },
+    investigation: { defaultTimeRange: "30m", maxToolCalls: 40 },
+    safety: { mode: "read-only" },
+    results: DEFAULT_RESULT_POLICY,
+  };
+}

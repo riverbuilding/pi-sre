@@ -1,6 +1,6 @@
 # Phase 1 Implementation Slices
 
-**Status:** Slices 0–6 implemented; later slices proposed
+**Status:** Slices 0–7 implemented; later slices proposed
 
 **Applies to:** Pi SRE V0.1, Phase 1
 
@@ -462,6 +462,12 @@ Tool results are useful to the model without allowing unbounded MCP responses to
 - each error category.
 
 ## 14. Slice 7 — Integrate Startup, Shutdown, and Diagnostics
+
+**Implementation status:** Complete. `SreApplication` owns startup cancellation, application-scoped MCP call signals, and idempotent shutdown. Failed discovery closes its connection before degraded runtime creation. Fatal runtime and terminal startup failures preserve their causes behind safe diagnostic messages.
+
+Pi 0.99's `InteractiveMode` calls the public runtime `dispose()` method and then exits the process on quit. The SRE-owned `SreRuntime` subclass overrides `dispose()` to request application cleanup; the application calls its separate, idempotent `disposeSession()` method to invoke Pi's original disposal. Runtime methods are not reassigned, and no Pi private fields are accessed. Fresh startup uses Pi's public runtime constructor; inherited session replacement methods preserve Pi's validation and lifecycle callbacks. Cleanup does not depend on `run()` returning. Public, idempotent TUI initialization is awaited before shutdown releases resources. Application SIGINT/SIGTERM listeners are installed once per run. SIGTERM ownership transfers to Pi immediately before its public TUI initialization; its runtime disposal still invokes application cleanup. All application listeners are removed at cleanup. Cleanup aborts MCP requests and the Pi session, disposes the runtime, closes the transport, then calls the public TUI `stop()` method.
+
+Tests cover real Pi sessions with fake MCP subprocesses, child exit, degraded startup, runtime creation failure, signals during startup and input, active-call cancellation, repeated disposal, resource acquisition during shutdown, and listener cleanup. Terminal rendering is replaced by a deterministic adapter in these tests; physical terminal restoration remains part of the Slice 9 live smoke test.
 
 ### Outcome
 

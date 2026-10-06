@@ -1,4 +1,7 @@
+import { writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
+
+if (process.argv[3]) writeFileSync(process.argv[3], String(process.pid));
 
 const scenario = process.argv[2] ?? "success";
 process.stderr.write("token=fixture-secret\n");
@@ -19,7 +22,10 @@ input.on("line", (line) => {
     id: number;
     params?: { cursor?: string; name?: string; arguments?: Record<string, unknown> };
   };
-  if (method === "tools/call" && scenario === "call-timeout") return;
+  if (method === "tools/call" && scenario === "call-timeout") {
+    if (process.argv[3]) writeFileSync(`${process.argv[3]}.call`, "started");
+    return;
+  }
   const result =
     method === "initialize"
       ? {

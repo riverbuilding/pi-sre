@@ -1,15 +1,14 @@
 import {
   createAgentSessionFromServices,
-  createAgentSessionRuntime,
   createAgentSessionServices,
   SessionManager,
-  type AgentSessionRuntime,
   type CreateAgentSessionRuntimeFactory,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 
 import type { SreConfig } from "../config/config.js";
 import { createSreResourceLoaderOptions } from "./resource-loader.js";
+import { SreRuntime } from "./sre-runtime.js";
 
 /** Pi uses this for TUI assets and managed helpers outside its session factory. */
 export const PI_AGENT_DIR_ENV = "PI_CODING_AGENT_DIR";
@@ -17,7 +16,8 @@ export const PI_AGENT_DIR_ENV = "PI_CODING_AGENT_DIR";
 export async function createSreRuntime(
   config: SreConfig,
   customTools: readonly ToolDefinition[] = [],
-): Promise<AgentSessionRuntime> {
+  requestApplicationShutdown?: () => Promise<void>,
+): Promise<SreRuntime> {
   const appHome = config.paths.home;
   const createRuntime: CreateAgentSessionRuntimeFactory = async (options) => {
     if (options.cwd !== appHome || options.agentDir !== appHome) {
@@ -58,9 +58,12 @@ export async function createSreRuntime(
     return { ...result, services, diagnostics: services.diagnostics };
   };
 
-  return createAgentSessionRuntime(createRuntime, {
+  // Startup always creates a fresh session, so Pi's stored-session cwd guard
+  // does not apply. Inherited resume/fork/import paths retain Pi's validation.
+  const result = await createRuntime({
     cwd: appHome,
     agentDir: appHome,
     sessionManager: SessionManager.create(appHome, config.paths.sessions),
   });
+  return new SreRuntime(result, createRuntime, requestApplicationShutdown);
 }

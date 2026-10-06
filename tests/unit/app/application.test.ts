@@ -10,10 +10,13 @@ import { createApplicationPaths, type SreConfig } from "../../../src/config/conf
 import { PI_AGENT_DIR_ENV } from "../../../src/runtime/pi-runtime.js";
 
 const mocks = vi.hoisted(() => ({
+  abort: vi.fn<() => Promise<void>>(),
+  stop: vi.fn(),
   dispose: vi.fn<() => Promise<void>>(),
   mcpClose: vi.fn<() => Promise<void>>(),
   mcpConnect: vi.fn(),
   mcpListTools: vi.fn(),
+  modeInit: vi.fn<() => Promise<void>>(),
   modeRun: vi.fn<() => Promise<void>>(),
   createRuntime: vi.fn(),
   modeOptions: [] as unknown[],
@@ -37,10 +40,24 @@ vi.mock("../../../src/runtime/pi-runtime.js", () => ({
 
 vi.mock("@earendil-works/pi-coding-agent", () => ({
   InteractiveMode: class {
-    constructor(_runtime: unknown, options: unknown) {
+    private readonly onTerm = (): void => {
+      void this.runtime.dispose().catch(() => undefined);
+    };
+    constructor(
+      private readonly runtime: { dispose(): Promise<void> },
+      options: unknown,
+    ) {
       mocks.modeOptions.push(options);
     }
+    init = async (): Promise<void> => {
+      process.on("SIGTERM", this.onTerm);
+      await mocks.modeInit();
+    };
     run = mocks.modeRun;
+    stop(): void {
+      process.off("SIGTERM", this.onTerm);
+      mocks.stop();
+    }
   },
 }));
 
@@ -51,14 +68,23 @@ describe("SreApplication", () => {
   beforeEach(async () => {
     home = await mkdtemp(join(tmpdir(), "pi-sre-app-"));
     previousAgentDir = process.env[PI_AGENT_DIR_ENV];
+    mocks.abort.mockReset().mockResolvedValue();
+    mocks.stop.mockReset();
     mocks.dispose.mockReset().mockResolvedValue();
     mocks.mcpClose.mockReset().mockResolvedValue();
     mocks.mcpListTools.mockReset().mockResolvedValue([]);
     mocks.mcpConnect
       .mockReset()
       .mockResolvedValue({ close: mocks.mcpClose, listTools: mocks.mcpListTools });
+    mocks.modeInit.mockReset().mockResolvedValue();
     mocks.modeRun.mockReset().mockResolvedValue();
-    mocks.createRuntime.mockReset().mockResolvedValue({ dispose: mocks.dispose });
+    mocks.createRuntime
+      .mockReset()
+      .mockImplementation((_config: unknown, _tools: unknown, shutdown: () => Promise<void>) => ({
+        dispose: shutdown,
+        disposeSession: mocks.dispose,
+        session: { abort: mocks.abort },
+      }));
     mocks.modeOptions.length = 0;
   });
 
@@ -106,7 +132,7 @@ describe("SreApplication", () => {
     await app.close();
     await app.close();
 
-    expect(mocks.createRuntime).toHaveBeenCalledWith(config(), []);
+    expect(mocks.createRuntime).toHaveBeenCalledWith(config(), [], expect.any(Function));
     expect(mocks.modeRun).toHaveBeenCalledOnce();
     expect(mocks.mcpClose).toHaveBeenCalledOnce();
     expect(mocks.dispose).toHaveBeenCalledOnce();
@@ -117,7 +143,7 @@ describe("SreApplication", () => {
     mocks.createRuntime.mockRejectedValue(new Error("runtime unavailable"));
     const app = new SreApplication(config());
 
-    await expect(app.run()).rejects.toThrow("runtime unavailable");
+    await expect(app.run()).rejects.toThrow("Pi SRE runtime startup failed.");
     expect(process.env[PI_AGENT_DIR_ENV]).toBe(previousAgentDir);
     expect(mocks.dispose).not.toHaveBeenCalled();
   });
@@ -175,9 +201,11 @@ describe("SreApplication", () => {
         ],
       },
     ]);
-    expect(mocks.createRuntime).toHaveBeenCalledWith(config(), [
-      expect.objectContaining({ name: "configuration_contexts_list" }),
-    ]);
+    expect(mocks.createRuntime).toHaveBeenCalledWith(
+      config(),
+      [expect.objectContaining({ name: "configuration_contexts_list" })],
+      expect.any(Function),
+    );
   });
 
   it("opens without tools when an approved schema cannot be executed safely", async () => {
@@ -192,7 +220,7 @@ describe("SreApplication", () => {
       },
     ]);
     await new SreApplication(config()).run();
-    expect(mocks.createRuntime).toHaveBeenCalledWith(config(), []);
+    expect(mocks.createRuntime).toHaveBeenCalledWith(config(), [], expect.any(Function));
     expect(mocks.modeOptions).toEqual([
       {
         startupDiagnostics: [
@@ -225,5 +253,74 @@ describe("SreApplication", () => {
       },
     ]);
     expect(mocks.mcpClose).toHaveBeenCalledOnce();
+  });
+  it("disposes the runtime before closing MCP and restores the terminal last", async () => {
+    await new SreApplication(config()).run();
+    expect(mocks.abort.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.dispose.mock.invocationCallOrder[0]!,
+    );
+    expect(mocks.dispose.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.mcpClose.mock.invocationCallOrder[0]!,
+    );
+    expect(mocks.mcpClose.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.stop.mock.invocationCallOrder[0]!,
+    );
+  });
+
+  it("still closes MCP and restores state when runtime disposal fails", async () => {
+    mocks.dispose.mockRejectedValue(new Error("dispose failed"));
+    await expect(new SreApplication(config()).run()).rejects.toThrow("Pi SRE shutdown failed.");
+    expect(mocks.mcpClose).toHaveBeenCalledOnce();
+    expect(mocks.stop).toHaveBeenCalledOnce();
+    expect(process.env[PI_AGENT_DIR_ENV]).toBe(previousAgentDir);
+  });
+
+  it("waits for runtime creation during shutdown and never starts the TUI", async () => {
+    const pending = Promise.withResolvers<{
+      disposeSession: typeof mocks.dispose;
+      session: { abort: typeof mocks.abort };
+    }>();
+    const creating = Promise.withResolvers<void>();
+    mocks.createRuntime.mockImplementation(() => {
+      creating.resolve();
+      return pending.promise;
+    });
+    const app = new SreApplication(config());
+    const running = app.run();
+    await creating.promise;
+    const closing = app.close();
+    pending.resolve({ disposeSession: mocks.dispose, session: { abort: mocks.abort } });
+    await Promise.all([running, closing]);
+    expect(mocks.modeRun).not.toHaveBeenCalled();
+    expect(mocks.dispose).toHaveBeenCalledOnce();
+    expect(mocks.mcpClose).toHaveBeenCalledOnce();
+  });
+
+  it("registers signals once and removes them after repeated signal shutdown", async () => {
+    const before = [process.listenerCount("SIGINT"), process.listenerCount("SIGTERM")];
+    mocks.modeRun.mockImplementation(async () => {
+      expect(process.listenerCount("SIGINT")).toBe(before[0]! + 1);
+      expect(process.listenerCount("SIGTERM")).toBe(before[1]! + 1);
+      process.emit("SIGINT");
+      process.emit("SIGTERM");
+      await new Promise<void>(() => undefined);
+    });
+    const app = new SreApplication(config());
+    await app.run();
+    await expect(app.run()).rejects.toThrow("already run");
+    expect(mocks.dispose).toHaveBeenCalledOnce();
+    expect(mocks.mcpClose).toHaveBeenCalledOnce();
+    expect([process.listenerCount("SIGINT"), process.listenerCount("SIGTERM")]).toEqual(before);
+  });
+  it("unwinds runtime and MCP when terminal initialization fails", async () => {
+    const cause = new Error("terminal failed PRIVATE_FIXTURE");
+    mocks.modeInit.mockRejectedValue(cause);
+    await expect(new SreApplication(config()).run()).rejects.toMatchObject({
+      message: "Pi SRE terminal startup failed.",
+      cause,
+    });
+    expect(mocks.dispose).toHaveBeenCalledOnce();
+    expect(mocks.mcpClose).toHaveBeenCalledOnce();
+    expect(mocks.stop).toHaveBeenCalledOnce();
   });
 });
