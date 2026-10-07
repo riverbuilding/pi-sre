@@ -1,5 +1,5 @@
 import { DEFAULT_RESULT_POLICY } from "../../src/config/schema.js";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,14 +15,14 @@ import { createSreRuntime } from "../../src/runtime/pi-runtime.js";
 
 const fixture = fileURLToPath(new URL("../fixtures/fake-mcp-server.ts", import.meta.url));
 
-function config(home: string, scenario = "bridge"): SreConfig {
+function config(home: string, scenario = "bridge", pidPath?: string): SreConfig {
   return {
     paths: createApplicationPaths(home),
     kubernetes: {
       mcp: {
         transport: "stdio",
         command: process.execPath,
-        args: ["--import", "tsx", fixture, scenario],
+        args: ["--import", "tsx", fixture, scenario, ...(pidPath ? [pidPath] : [])],
         cwd: process.cwd(),
         startupTimeoutMs: 2_000,
         toolCallTimeoutMs: 150,
@@ -39,7 +39,8 @@ describe("Pi runtime MCP tools", () => {
     "delivers normalized %s results through stdio to the model transcript and TUI events",
     async (scenario) => {
       const home = await mkdtemp(join(tmpdir(), "pi-sre-bridge-"));
-      const sreConfig = config(home, scenario);
+      const pidPath = join(home, "mcp.pid");
+      const sreConfig = config(home, scenario, pidPath);
       const isError = scenario === "bridge-error";
       const truncated = scenario === "bridge-large";
       const status = isError ? "tool-error" : "success";
@@ -67,6 +68,20 @@ describe("Pi runtime MCP tools", () => {
             expect(result).toMatchObject({ toolName: "configuration_contexts_list", isError });
             expect(JSON.stringify(result)).not.toContain("PRIVATE_FIXTURE");
             expect(JSON.stringify(result)).toContain(isError ? "authorization failed" : "dev");
+            if (scenario === "bridge") {
+              expect(result).toMatchObject({
+                content: [
+                  {
+                    type: "text",
+                    text: JSON.stringify({
+                      name: "configuration_contexts_list",
+                      arguments: {},
+                      contexts: ["dev", "prod"],
+                    }),
+                  },
+                ],
+              });
+            }
           }
           type Stream = Awaited<ReturnType<typeof session.agent.streamFunction>>;
           type Message = Awaited<ReturnType<Stream["result"]>>;
@@ -141,7 +156,25 @@ describe("Pi runtime MCP tools", () => {
       } finally {
         await runtime?.dispose();
         await connection.close();
-        await rm(home, { recursive: true, force: true });
+        try {
+          const pid = Number(await readFile(pidPath, "utf8"));
+          expect(Number.isSafeInteger(pid) && pid > 0).toBe(true);
+          await expect
+            .poll(() => {
+              try {
+                process.kill(pid, 0);
+                return false;
+              } catch (error) {
+                if (error instanceof Error && "code" in error && error.code === "ESRCH") {
+                  return true;
+                }
+                throw error;
+              }
+            })
+            .toBe(true);
+        } finally {
+          await rm(home, { recursive: true, force: true });
+        }
       }
     },
   );

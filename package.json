@@ -11,6 +11,7 @@
     "node": ">=22.19.0"
   },
   "scripts": {
+    "prepack": "npm run build",
     "build": "tsc -p tsconfig.build.json",
     "check": "tsc --noEmit",
     "dev": "tsx src/main.ts",

@@ -407,7 +407,6 @@ npm run lint
 
 Use the commands defined by this repository's `package.json`; do not invent alternate build/test flows when canonical scripts already exist.
 
-
 ## Code Quality
 
 - Read files in full before wide-ranging changes, before editing files you have not fully inspected, and when asked to investigate or audit. Do not rely on search snippets for broad changes.

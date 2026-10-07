@@ -1,6 +1,6 @@
 # Phase 1 Implementation Slices
 
-**Status:** Slices 0–8 implemented; later slices proposed
+**Status:** Slices 0–9 complete; manual live smoke test confirmed by the user on 2026-10-07
 
 **Applies to:** Pi SRE V0.1, Phase 1
 
@@ -467,7 +467,7 @@ Tool results are useful to the model without allowing unbounded MCP responses to
 
 Pi 0.99's `InteractiveMode` calls the public runtime `dispose()` method and then exits the process on quit. The SRE-owned `SreRuntime` subclass overrides `dispose()` to request application cleanup; the application calls its separate, idempotent `disposeSession()` method to invoke Pi's original disposal. Runtime methods are not reassigned, and no Pi private fields are accessed. Fresh startup uses Pi's public runtime constructor; inherited session replacement methods preserve Pi's validation and lifecycle callbacks. Cleanup does not depend on `run()` returning. Public, idempotent TUI initialization is awaited before shutdown releases resources. Application SIGINT/SIGTERM listeners are installed once per run. SIGTERM ownership transfers to Pi immediately before its public TUI initialization; its runtime disposal still invokes application cleanup. All application listeners are removed at cleanup. Cleanup aborts MCP requests and the Pi session, disposes the runtime, closes the transport, then calls the public TUI `stop()` method.
 
-Tests cover real Pi sessions with fake MCP subprocesses, child exit, degraded startup, runtime creation failure, signals during startup and input, active-call cancellation, repeated disposal, resource acquisition during shutdown, and listener cleanup. Terminal rendering is replaced by a deterministic adapter in these tests; physical terminal restoration remains part of the Slice 9 live smoke test.
+Tests cover real Pi sessions with fake MCP subprocesses, child exit, degraded startup, runtime creation failure, signals during startup and input, active-call cancellation, repeated disposal, resource acquisition during shutdown, and listener cleanup. Terminal rendering is replaced by a deterministic adapter in these tests; physical terminal restoration is covered by the Slice 9 manual live smoke test, confirmed complete by the user on 2026-10-07.
 
 ### Outcome
 
@@ -537,7 +537,7 @@ restore terminal and exit
 
 **Implementation status:** Complete. The application-owned `McpController` serializes retries, validates refreshed configuration, cancels and drains active calls before transport replacement, and removes model access immediately on transport loss. `/mcp_restart` remains registered in degraded sessions. Pi 0.99's public extension `registerTool()` refreshes current-session tools; replacing removed definitions with `exposure: "hidden"` makes them unreachable even if explicitly activated. Pi has no public unregister API, so hidden definitions remain in its registered inventory. Captured old handlers retain their aborted connection generation and cannot call the replacement. Extension lifecycle hooks release subscriptions on session replacement and reload; new extensions subscribe to the controller's current inventory.
 
-Real Pi/fake stdio tests cover retry failures and repair, model-loop calls after recovery, conversation preservation, healthy no-op, forced cancellation, concurrent retry coalescing, unsafe/malformed configuration, changed home, changed tool inventory, connection drops, and cleanup of every subprocess. Physical terminal and live Kubernetes testing remain in Slice 9.
+Real Pi/fake stdio tests cover retry failures and repair, model-loop calls after recovery, conversation preservation, healthy no-op, forced cancellation, concurrent retry coalescing, unsafe/malformed configuration, changed home, changed tool inventory, connection drops, and cleanup of every subprocess. Physical terminal and live Kubernetes testing are covered by Slice 9, confirmed complete by the user on 2026-10-07.
 
 ### Outcome
 
@@ -578,6 +578,8 @@ After MCP startup or transport failure, the user can restore Kubernetes MCP acce
 - preservation of conversation/session state and continued exclusion of coding tools.
 
 ## 16. Slice 9 — Phase Gate and Live Smoke Test
+
+**Implementation status:** Complete. Packaging builds through `prepack`; an offline packed-CLI test launches outside the checkout. The real Pi agent-loop/fake-MCP integration test asserts exact results and subprocess cleanup. All automated gate commands passed, and the user confirmed completion of the manual live smoke test on 2026-10-07. See [PHASE1_ACCEPTANCE.md](./PHASE1_ACCEPTANCE.md) for the evidence and repeatable smoke procedure. Phase 1 is ready for Phase 2 cluster-context management.
 
 ### Outcome
 
