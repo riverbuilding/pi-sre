@@ -1,6 +1,6 @@
 # Phase 1 Implementation Slices
 
-**Status:** Slices 0–7 implemented; later slices proposed
+**Status:** Slices 0–8 implemented; later slices proposed
 
 **Applies to:** Pi SRE V0.1, Phase 1
 
@@ -534,6 +534,10 @@ restore terminal and exit
 - no dangling handles after the integration suite.
 
 ## 15. Slice 8 — Recover MCP In Session
+
+**Implementation status:** Complete. The application-owned `McpController` serializes retries, validates refreshed configuration, cancels and drains active calls before transport replacement, and removes model access immediately on transport loss. `/mcp_restart` remains registered in degraded sessions. Pi 0.99's public extension `registerTool()` refreshes current-session tools; replacing removed definitions with `exposure: "hidden"` makes them unreachable even if explicitly activated. Pi has no public unregister API, so hidden definitions remain in its registered inventory. Captured old handlers retain their aborted connection generation and cannot call the replacement. Extension lifecycle hooks release subscriptions on session replacement and reload; new extensions subscribe to the controller's current inventory.
+
+Real Pi/fake stdio tests cover retry failures and repair, model-loop calls after recovery, conversation preservation, healthy no-op, forced cancellation, concurrent retry coalescing, unsafe/malformed configuration, changed home, changed tool inventory, connection drops, and cleanup of every subprocess. Physical terminal and live Kubernetes testing remain in Slice 9.
 
 ### Outcome
 

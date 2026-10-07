@@ -2,7 +2,7 @@
 
 Pi SRE is a read-only Kubernetes incident diagnosis application built on the Pi agent runtime and Kubernetes MCP Server. It is intentionally an independent TypeScript application, not a Pi package.
 
-The implementation follows the architecture in [docs/DESIGN.md](docs/DESIGN.md). Phase 1 Slices 0–7 provide configuration validation, a Pi TUI, an isolated SRE resource boundary, a managed Kubernetes MCP connection, read-only tool discovery, model-facing context listing through MCP, bounded, redacted result normalization, and deterministic startup/shutdown.
+The implementation follows the architecture in [docs/DESIGN.md](docs/DESIGN.md). Phase 1 Slices 0–8 provide configuration validation, a Pi TUI, an isolated SRE resource boundary, a managed Kubernetes MCP connection, read-only tool discovery, model-facing context listing through MCP, bounded, redacted result normalization, deterministic startup/shutdown, and in-session MCP recovery.
 
 ## Prerequisites
 
@@ -54,7 +54,7 @@ npm run dev
 
 The built executable is `dist/main.js`; `npm link` also makes `pi-sre` available on your PATH. The current runtime opens Pi's TUI with no coding-agent tools or shell execution. It uses a Pi SRE system prompt and does not load project instructions, extensions, skills, or prompt templates. It starts and health-checks the configured Kubernetes MCP process, discovers tools, and registers approved read-only tools before opening the TUI. Ask **“List configured Kubernetes contexts”** to invoke `configuration_contexts_list` through the agent loop. The tool does not access a cluster; cluster-dependent tools remain deferred until Phase 2 implements explicit cluster selection and context injection.
 
-If MCP startup, discovery, or schema adaptation fails, the TUI opens with a warning and no Kubernetes tools. Check the MCP configuration and restart `pi-sre`; in-session reconnection is not implemented. Cluster selection with `--cluster` is planned for Phase 2.
+If MCP startup, discovery, or schema adaptation fails, the TUI opens with a warning and no Kubernetes tools. Repair the configuration and run `/mcp_restart` to retry within the same conversation. A healthy connection is left running; `/mcp_restart --force` cancels active MCP calls and replaces it. Unknown arguments show usage. Each retry rereads the YAML and read-only TOML configuration; application home and session path changes require a full `pi-sre` restart. Connecting, ready tool counts, and safe failure diagnostics appear in the TUI. Connection drops and failed retries hide MCP tools until recovery. Cluster selection with `--cluster` is planned for Phase 2.
 
 Startup and active MCP operations are cancellable. On shutdown, Pi SRE aborts work, disposes the Pi runtime, closes the managed MCP child, and stops the TUI. Quit and process signals share an idempotent cleanup path; runtime and terminal startup failures also release acquired resources.
 

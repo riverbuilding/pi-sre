@@ -19,6 +19,7 @@ Configuration:
 The MCP TOML path is set by kubernetes.mcp.configFile in config.yaml.
 
 Pi model credentials, settings, and sessions live under PI_SRE_HOME.
-Kubernetes MCP tools and cluster selection are not available in this slice.
+Use /mcp_restart in the TUI to retry Kubernetes MCP access.
+Cluster selection is planned for Phase 2.
 `;
 }

@@ -1,11 +1,10 @@
 import { mkdir } from "node:fs/promises";
 
-import { InteractiveMode, type ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { InteractiveMode } from "@earendil-works/pi-coding-agent";
 
 import type { SreConfig } from "../config/config.js";
-import { ManagedMcpConnection, McpStartupError, type McpConnection } from "../mcp/connection.js";
-import { discoverMcpTools, type ToolDiscoveryReport } from "../mcp/tool-discovery.js";
-import { createMcpToolBridge, McpToolBridgeError } from "../mcp/tool-bridge.js";
+import { McpController } from "./mcp-controller.js";
+import type { ToolDiscoveryReport } from "../mcp/tool-discovery.js";
 import { createSreRuntime, PI_AGENT_DIR_ENV } from "../runtime/pi-runtime.js";
 import type { SreRuntime } from "../runtime/sre-runtime.js";
 
@@ -26,16 +25,17 @@ export class SreApplication {
     // run() observes cleanup failures; signal callbacks must not float rejections.
     void this.close().catch(() => undefined);
   };
-  private mcp: McpConnection | undefined;
-  private discoveryReport: ToolDiscoveryReport | undefined;
+  private readonly mcp: McpController;
   private closePromise: Promise<void> | undefined;
   private started = false;
   private previousPiAgentDir: string | undefined;
 
-  constructor(private readonly config: SreConfig) {}
+  constructor(private readonly config: SreConfig) {
+    this.mcp = new McpController(config, this.cancellation.signal);
+  }
 
   get toolDiscoveryReport(): ToolDiscoveryReport | undefined {
-    return this.discoveryReport;
+    return this.mcp.discoveryReport;
   }
 
   async run(): Promise<void> {
@@ -65,47 +65,22 @@ export class SreApplication {
   private async initialize(): Promise<void> {
     await mkdir(this.config.paths.home, { recursive: true, mode: 0o700 });
     if (this.cancellation.signal.aborted) return;
-    let customTools: ToolDefinition[] = [];
+    const state = await this.mcp.restart(false, true);
     const startupDiagnostics = this.startupDiagnostics;
-    try {
-      const mcp = await ManagedMcpConnection.connect(
-        this.config.kubernetes.mcp,
-        this.cancellation.signal,
-      );
-      this.mcp = mcp;
-      this.discoveryReport = await discoverMcpTools(mcp, this.cancellation.signal);
-      customTools = this.discoveryReport.exposed.map((tool) =>
-        createMcpToolBridge(tool, this.scopedConnection(mcp), this.config.results),
-      );
+    const report = this.mcp.discoveryReport;
+    if (report) {
       const counts = { exposed: 0, deferred: 0, rejected: 0 };
-      for (const decision of this.discoveryReport.decisions) counts[decision.status]++;
+      for (const decision of report.decisions) counts[decision.status]++;
       startupDiagnostics.push({
         type: "info",
-        message: `Kubernetes MCP discovery: ${counts.exposed} approved, ${counts.deferred} deferred, ${counts.rejected} rejected. ${customTools.length} read-only tools registered.`,
+        message: `Kubernetes MCP discovery: ${counts.exposed} approved, ${counts.deferred} deferred, ${counts.rejected} rejected. ${state.tools.length} read-only tools registered.`,
       });
-    } catch (error) {
-      if (this.cancellation.signal.aborted) return;
-      const discoveryFailed = this.mcp !== undefined;
-      await this.mcp?.close();
-      this.mcp = undefined;
-      this.discoveryReport = undefined;
-      customTools = [];
-      const startupDiagnostic =
-        error instanceof McpStartupError
-          ? error.diagnostic
-          : error instanceof McpToolBridgeError
-            ? error.message
-            : discoveryFailed
-              ? "Kubernetes MCP tool discovery failed."
-              : "Kubernetes MCP connection failed during startup.";
-      startupDiagnostics.push({
-        type: "warning",
-        message: `${startupDiagnostic} Kubernetes tools are unavailable. Check the MCP configuration and restart pi-sre.`,
-      });
+    } else {
+      startupDiagnostics.push({ type: "warning", message: state.message });
     }
     if (this.cancellation.signal.aborted) return;
     try {
-      this.runtime = await createSreRuntime(this.config, customTools, () => this.close());
+      this.runtime = await createSreRuntime(this.config, state.tools, () => this.close(), this.mcp);
     } catch (error) {
       throw new SreApplicationError("Pi SRE runtime startup failed.", error);
     }
@@ -120,26 +95,6 @@ export class SreApplication {
     } catch (error) {
       throw new SreApplicationError("Pi SRE terminal startup failed.", error);
     }
-  }
-
-  private scopedConnection(connection: McpConnection): McpConnection {
-    const shutdown = this.cancellation.signal;
-    return {
-      get state() {
-        return connection.state;
-      },
-      listTools: (signal) =>
-        connection.listTools(signal ? AbortSignal.any([signal, shutdown]) : shutdown),
-      callTool: (name, args, signal) => {
-        shutdown.throwIfAborted();
-        return connection.callTool(
-          name,
-          args,
-          signal ? AbortSignal.any([signal, shutdown]) : shutdown,
-        );
-      },
-      close: () => connection.close(),
-    };
   }
 
   close(): Promise<void> {
@@ -163,7 +118,7 @@ export class SreApplication {
           failures.push(error);
         }
         try {
-          await this.mcp?.close();
+          await this.mcp.close();
         } catch (error) {
           failures.push(error);
         }

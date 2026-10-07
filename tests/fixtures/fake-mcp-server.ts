@@ -46,13 +46,16 @@ input.on("line", (line) => {
               nextCursor: "page-2",
             }
           : {
-              tools: [
-                {
-                  name: "configuration_contexts_list",
-                  inputSchema: { type: "object" },
-                  annotations: { readOnlyHint: true },
-                },
-              ],
+              tools:
+                scenario === "empty-tools"
+                  ? []
+                  : [
+                      {
+                        name: "configuration_contexts_list",
+                        inputSchema: { type: "object" },
+                        annotations: { readOnlyHint: true },
+                      },
+                    ],
             }
         : method === "tools/call"
           ? scenario === "bridge-error"

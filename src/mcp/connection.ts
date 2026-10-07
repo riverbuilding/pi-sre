@@ -32,6 +32,7 @@ export interface McpConnection {
     args: Readonly<Record<string, unknown>>,
     signal?: AbortSignal,
   ): Promise<unknown>;
+  onClose?(listener: () => void): () => void;
   close(): Promise<void>;
 }
 
@@ -82,6 +83,7 @@ export class ManagedMcpConnection implements McpConnection {
   private readonly client: McpClient;
   private readonly transport: StdioTransport;
   private closePromise: Promise<void> | undefined;
+  private readonly closeListeners = new Set<() => void>();
   private stderrTail = "";
   private stderrTruncated = false;
 
@@ -92,7 +94,10 @@ export class ManagedMcpConnection implements McpConnection {
       requestTimeoutMs: config.startupTimeoutMs,
     });
     this.client.onClose(() => {
-      if (this.state === "ready") this.state = "failed";
+      if (this.state === "ready") {
+        this.state = "failed";
+        for (const listener of this.closeListeners) listener();
+      }
     });
     this.transport = new StdioTransport({
       command: config.command,
@@ -188,6 +193,13 @@ export class ManagedMcpConnection implements McpConnection {
       { ...args },
       { ...(signal ? { signal } : {}), timeoutMs: this.config.toolCallTimeoutMs },
     );
+  }
+
+  onClose(listener: () => void): () => void {
+    this.closeListeners.add(listener);
+    return () => {
+      this.closeListeners.delete(listener);
+    };
   }
 
   close(): Promise<void> {

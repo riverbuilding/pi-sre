@@ -4,8 +4,11 @@ import {
   SessionManager,
   type CreateAgentSessionRuntimeFactory,
   type ToolDefinition,
+  type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
 
+import type { McpController } from "../app/mcp-controller.js";
+import { registerMcpRecovery } from "../tui/mcp-restart-command.js";
 import type { SreConfig } from "../config/config.js";
 import { createSreResourceLoaderOptions } from "./resource-loader.js";
 import { SreRuntime } from "./sre-runtime.js";
@@ -17,6 +20,7 @@ export async function createSreRuntime(
   config: SreConfig,
   customTools: readonly ToolDefinition[] = [],
   requestApplicationShutdown?: () => Promise<void>,
+  mcpController?: McpController,
 ): Promise<SreRuntime> {
   const appHome = config.paths.home;
   const createRuntime: CreateAgentSessionRuntimeFactory = async (options) => {
@@ -30,6 +34,15 @@ export async function createSreRuntime(
       resourceLoaderOptions: {
         ...createSreResourceLoaderOptions(),
         extensionFactories: [
+          ...(mcpController
+            ? [
+                {
+                  name: "pi-sre-mcp-recovery",
+                  hidden: true,
+                  factory: (pi: ExtensionAPI) => registerMcpRecovery(pi, mcpController),
+                },
+              ]
+            : []),
           {
             name: "pi-sre-read-only-shell-guard",
             hidden: true,
@@ -52,7 +65,7 @@ export async function createSreRuntime(
       sessionManager: options.sessionManager,
       ...(options.sessionStartEvent ? { sessionStartEvent: options.sessionStartEvent } : {}),
       noTools: "builtin",
-      customTools: [...customTools],
+      customTools: mcpController ? [] : [...customTools],
       excludeTools: ["read", "bash", "powershell", "edit", "write", "grep", "find", "ls"],
     });
     return { ...result, services, diagnostics: services.diagnostics };

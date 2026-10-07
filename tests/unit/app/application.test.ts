@@ -75,7 +75,7 @@ describe("SreApplication", () => {
     mocks.mcpListTools.mockReset().mockResolvedValue([]);
     mocks.mcpConnect
       .mockReset()
-      .mockResolvedValue({ close: mocks.mcpClose, listTools: mocks.mcpListTools });
+      .mockResolvedValue({ state: "ready", close: mocks.mcpClose, listTools: mocks.mcpListTools });
     mocks.modeInit.mockReset().mockResolvedValue();
     mocks.modeRun.mockReset().mockResolvedValue();
     mocks.createRuntime
@@ -132,7 +132,12 @@ describe("SreApplication", () => {
     await app.close();
     await app.close();
 
-    expect(mocks.createRuntime).toHaveBeenCalledWith(config(), [], expect.any(Function));
+    expect(mocks.createRuntime).toHaveBeenCalledWith(
+      config(),
+      [],
+      expect.any(Function),
+      expect.anything(),
+    );
     expect(mocks.modeRun).toHaveBeenCalledOnce();
     expect(mocks.mcpClose).toHaveBeenCalledOnce();
     expect(mocks.dispose).toHaveBeenCalledOnce();
@@ -161,7 +166,7 @@ describe("SreApplication", () => {
           {
             type: "warning",
             message:
-              "Kubernetes MCP connection failed during startup. Kubernetes tools are unavailable. Check the MCP configuration and restart pi-sre.",
+              "Kubernetes MCP connection failed during startup. Kubernetes tools are unavailable. Check the MCP configuration and use /mcp_restart to retry.",
           },
         ],
       },
@@ -205,6 +210,7 @@ describe("SreApplication", () => {
       config(),
       [expect.objectContaining({ name: "configuration_contexts_list" })],
       expect.any(Function),
+      expect.anything(),
     );
   });
 
@@ -220,14 +226,19 @@ describe("SreApplication", () => {
       },
     ]);
     await new SreApplication(config()).run();
-    expect(mocks.createRuntime).toHaveBeenCalledWith(config(), [], expect.any(Function));
+    expect(mocks.createRuntime).toHaveBeenCalledWith(
+      config(),
+      [],
+      expect.any(Function),
+      expect.anything(),
+    );
     expect(mocks.modeOptions).toEqual([
       {
         startupDiagnostics: [
           {
             type: "warning",
             message:
-              "Kubernetes MCP tool schema cannot be adapted safely. Kubernetes tools are unavailable. Check the MCP configuration and restart pi-sre.",
+              "Kubernetes MCP tool schema cannot be adapted safely. Kubernetes tools are unavailable. Check the MCP configuration and use /mcp_restart to retry.",
           },
         ],
       },
@@ -247,7 +258,7 @@ describe("SreApplication", () => {
           {
             type: "warning",
             message:
-              "Kubernetes MCP tool discovery failed. Kubernetes tools are unavailable. Check the MCP configuration and restart pi-sre.",
+              "Kubernetes MCP tool discovery failed. Kubernetes tools are unavailable. Check the MCP configuration and use /mcp_restart to retry.",
           },
         ],
       },
