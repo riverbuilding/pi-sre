@@ -1,0 +1,21 @@
+{
+  "apiVersion": "v1",
+  "kind": "PodList",
+  "metadata": {},
+  "items": [
+    {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "alpha-marker",
+        "namespace": "fixture"
+      },
+      "spec": {
+        "containers": []
+      },
+      "status": {
+        "phase": "Running"
+      }
+    }
+  ]
+}

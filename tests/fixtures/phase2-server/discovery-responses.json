@@ -1,0 +1,30 @@
+{
+  "/api": {
+    "kind": "APIVersions",
+    "versions": ["v1"]
+  },
+  "/apis": {
+    "kind": "APIGroupList",
+    "groups": []
+  },
+  "/api/v1": {
+    "kind": "APIResourceList",
+    "groupVersion": "v1",
+    "resources": [
+      {
+        "name": "pods",
+        "singularName": "pod",
+        "namespaced": true,
+        "kind": "Pod",
+        "verbs": ["get", "list"]
+      }
+    ]
+  },
+  "notFound": {
+    "kind": "Status",
+    "apiVersion": "v1",
+    "status": "Failure",
+    "reason": "NotFound",
+    "code": 404
+  }
+}

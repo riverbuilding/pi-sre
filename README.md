@@ -6,6 +6,8 @@ The implementation follows the architecture in [docs/DESIGN.md](docs/DESIGN.md).
 
 Slice 9 completes the [Phase 1 acceptance gate and live smoke test](docs/PHASE1_ACCEPTANCE.md). Automated checks cover the packed CLI and fake MCP agent loop; the user confirmed completion of the manual live Kubernetes smoke test on 2026-10-07. Phase 1 is complete and ready for Phase 2 cluster-context management.
 
+The [Phase 2 implementation slices](docs/PHASE2_IMPLEMENTATION_SLICES.md) plan context discovery, startup selection, explicit scope enforcement, cluster commands and status, MCP recovery, and live targeting acceptance.
+
 ## Prerequisites
 
 - Node.js 22.19.0 or later
@@ -59,6 +61,8 @@ npm run dev
 The built executable is `dist/main.js`; `npm link` also makes `pi-sre` available on your PATH. The current runtime opens Pi's TUI with no coding-agent tools or shell execution. It uses a Pi SRE system prompt and does not load project instructions, extensions, skills, or prompt templates. It starts and health-checks the configured Kubernetes MCP process, discovers tools, and registers approved read-only tools before opening the TUI. Ask **“List configured Kubernetes contexts”** to invoke `configuration_contexts_list` through the agent loop. The tool does not access a cluster; cluster-dependent tools remain deferred until Phase 2 implements explicit cluster selection and context injection.
 
 `npm pack` builds the executable before producing an installable archive. `npm run test:e2e` verifies the extracted package offline using the checkout's locked dependencies. The acceptance runbook covers installing the archive and exercising its npm-linked `pi-sre` command in a terminal.
+
+`npm run test:contracts` compares Kubernetes MCP Server 0.0.67 against the checked-in Phase 2 contract snapshot using static synthetic kubeconfigs and local mock endpoints. It requires `kubernetes-mcp-server` on PATH. Regular tests skip this executable-dependent suite; see [the contract record](docs/PHASE2_CONTRACTS.md) for an alternate executable path.
 
 If MCP startup, discovery, or schema adaptation fails, the TUI opens with a warning and no Kubernetes tools. Repair the configuration and run `/mcp_restart` to retry within the same conversation. A healthy connection is left running; `/mcp_restart --force` cancels active MCP calls and replaces it. Unknown arguments show usage. Each retry rereads the YAML and read-only TOML configuration; application home and session path changes require a full `pi-sre` restart. Connecting, ready tool counts, and safe failure diagnostics appear in the TUI. Connection drops and failed retries hide MCP tools until recovery. Cluster selection with `--cluster` is planned for Phase 2.
 

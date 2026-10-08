@@ -1,0 +1,1187 @@
+{
+  "serverVersion": "0.0.67",
+  "cases": {
+    "multiple-default": {
+      "descriptors": [
+        {
+          "_meta": {
+            "io.kubernetes-mcp-server/rbac": {
+              "version": "v1alpha1",
+              "none": {}
+            }
+          },
+          "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false,
+            "readOnlyHint": true,
+            "title": "Configuration: Contexts List"
+          },
+          "description": "List all available context names and associated server urls from the kubeconfig file",
+          "inputSchema": {
+            "type": "object",
+            "properties": {}
+          },
+          "name": "configuration_contexts_list",
+          "title": "Configuration: Contexts List"
+        },
+        {
+          "_meta": {
+            "io.kubernetes-mcp-server/rbac": {
+              "version": "v1alpha1",
+              "bounded": {
+                "requirements": [
+                  {
+                    "verbs": ["list"],
+                    "target": {
+                      "resource": {
+                        "resource": "events"
+                      }
+                    },
+                    "namespace": {
+                      "argument": "namespace"
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": true,
+            "title": "Events: List"
+          },
+          "description": "List Kubernetes events (warnings, errors, state changes) for debugging and troubleshooting in the current cluster from all namespaces",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "context": {
+                "type": "string",
+                "description": "Optional parameter selecting which context to run the tool in. Defaults to alpha if not set"
+              },
+              "fieldSelector": {
+                "type": "string",
+                "description": "Optional Kubernetes field selector to filter events by field values (e.g. 'type=Warning', 'involvedObject.name=my-pod'). Supported fields: involvedObject.kind, involvedObject.name, involvedObject.namespace, involvedObject.uid, involvedObject.apiVersion, involvedObject.resourceVersion, involvedObject.fieldPath, reason, reportingComponent, source, type. See https://kubernetes.io/docs/concepts/overview/working-with-objects/field-selectors/",
+                "pattern": "^[.\\-A-Za-z0-9]+([=!,]{1,2}[./\\-A-Za-z0-9]+)+$"
+              },
+              "namespace": {
+                "type": "string",
+                "description": "Optional Namespace to retrieve the events from. If not provided, will list events from all namespaces"
+              }
+            }
+          },
+          "name": "events_list",
+          "title": "Events: List"
+        },
+        {
+          "_meta": {
+            "io.kubernetes-mcp-server/rbac": {
+              "version": "v1alpha1",
+              "bounded": {
+                "requirements": [
+                  {
+                    "verbs": ["list"],
+                    "target": {
+                      "resource": {
+                        "resource": "namespaces"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": true,
+            "title": "Namespaces: List"
+          },
+          "description": "List all the Kubernetes namespaces in the current cluster",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "context": {
+                "type": "string",
+                "description": "Optional parameter selecting which context to run the tool in. Defaults to alpha if not set"
+              },
+              "fieldSelector": {
+                "type": "string",
+                "description": "Optional Kubernetes field selector to filter namespaces by field values (e.g. 'metadata.name=default', 'status.phase=Active'). Supported fields: metadata.name, status.phase. See https://kubernetes.io/docs/concepts/overview/working-with-objects/field-selectors/",
+                "pattern": "^[.\\-A-Za-z0-9]+([=!,]{1,2}[./\\-A-Za-z0-9]+)+$"
+              }
+            }
+          },
+          "name": "namespaces_list",
+          "title": "Namespaces: List"
+        },
+        {
+          "_meta": {
+            "io.kubernetes-mcp-server/rbac": {
+              "version": "v1alpha1",
+              "bounded": {
+                "requirements": [
+                  {
+                    "verbs": ["get"],
+                    "target": {
+                      "resource": {
+                        "resource": "pods"
+                      }
+                    },
+                    "namespace": {
+                      "argument": "namespace"
+                    },
+                    "resourceName": {
+                      "argument": "name"
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": true,
+            "title": "Pods: Get"
+          },
+          "description": "Get a Kubernetes Pod in the current or provided namespace with the provided name",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "context": {
+                "type": "string",
+                "description": "Optional parameter selecting which context to run the tool in. Defaults to alpha if not set"
+              },
+              "name": {
+                "type": "string",
+                "description": "Name of the Pod"
+              },
+              "namespace": {
+                "type": "string",
+                "description": "Namespace to get the Pod from"
+              }
+            },
+            "required": ["name"]
+          },
+          "name": "pods_get",
+          "title": "Pods: Get"
+        },
+        {
+          "_meta": {
+            "io.kubernetes-mcp-server/rbac": {
+              "version": "v1alpha1",
+              "bounded": {
+                "requirements": [
+                  {
+                    "verbs": ["list"],
+                    "target": {
+                      "resource": {
+                        "resource": "pods"
+                      }
+                    },
+                    "namespace": {
+                      "all": true
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": true,
+            "title": "Pods: List"
+          },
+          "description": "List all the Kubernetes pods in the current cluster from all namespaces",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "context": {
+                "type": "string",
+                "description": "Optional parameter selecting which context to run the tool in. Defaults to alpha if not set"
+              },
+              "fieldSelector": {
+                "type": "string",
+                "description": "Optional Kubernetes field selector to filter pods by field values (e.g. 'status.phase=Running', 'spec.nodeName=node1'). Supported fields: metadata.name, metadata.namespace, spec.nodeName, spec.restartPolicy, spec.schedulerName, spec.serviceAccountName, status.phase (Pending/Running/Succeeded/Failed/Unknown), status.podIP, status.nominatedNodeName. Note: CrashLoopBackOff is a container state, not a pod phase, so it cannot be filtered directly. See https://kubernetes.io/docs/concepts/overview/working-with-objects/field-selectors/",
+                "pattern": "^[.\\-A-Za-z0-9]+([=!,]{1,2}[./\\-A-Za-z0-9]+)+$"
+              },
+              "labelSelector": {
+                "type": "string",
+                "description": "Optional Kubernetes label selector (e.g. 'app=myapp,env=prod' or 'app in (myapp,yourapp)'), use this option when you want to filter the pods by label",
+                "pattern": "^([/_.\\-A-Za-z0-9=, ()!])+$"
+              }
+            }
+          },
+          "name": "pods_list",
+          "title": "Pods: List"
+        },
+        {
+          "_meta": {
+            "io.kubernetes-mcp-server/rbac": {
+              "version": "v1alpha1",
+              "bounded": {
+                "requirements": [
+                  {
+                    "verbs": ["get"],
+                    "target": {
+                      "resource": {
+                        "resource": "pods"
+                      }
+                    },
+                    "namespace": {
+                      "argument": "namespace"
+                    },
+                    "resourceName": {
+                      "argument": "name"
+                    }
+                  },
+                  {
+                    "verbs": ["get"],
+                    "target": {
+                      "resource": {
+                        "resource": "pods",
+                        "subresource": "log"
+                      }
+                    },
+                    "namespace": {
+                      "argument": "namespace"
+                    },
+                    "resourceName": {
+                      "argument": "name"
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": true,
+            "title": "Pods: Log"
+          },
+          "description": "Get the logs of a Kubernetes Pod in the current or provided namespace with the provided name",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "container": {
+                "type": "string",
+                "description": "Name of the Pod container to get the logs from (Optional)"
+              },
+              "context": {
+                "type": "string",
+                "description": "Optional parameter selecting which context to run the tool in. Defaults to alpha if not set"
+              },
+              "name": {
+                "type": "string",
+                "description": "Name of the Pod to get the logs from"
+              },
+              "namespace": {
+                "type": "string",
+                "description": "Namespace to get the Pod logs from"
+              },
+              "previous": {
+                "type": "boolean",
+                "description": "Return previous terminated container logs (Optional)"
+              },
+              "tail": {
+                "type": "integer",
+                "description": "Number of lines to retrieve from the end of the logs (Optional, default: 100)",
+                "default": 100,
+                "minimum": 0
+              }
+            },
+            "required": ["name"]
+          },
+          "name": "pods_log",
+          "title": "Pods: Log"
+        }
+      ],
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Available Kubernetes contexts (2 total, default: alpha):\n\nFormat: [*] CONTEXT_NAME -> SERVER_URL\n (* indicates the default context used in tools if context is not set)\n\nContexts:\n---------\n*alpha -> https://alpha.example.invalid\n beta -> https://beta.example.invalid\n---------\n\nTo use a specific context with any tool, set the 'context' parameter in the tool call arguments"
+          }
+        ],
+        "structuredContent": {
+          "defaultContext": "alpha",
+          "contexts": [
+            {
+              "name": "alpha",
+              "server": "https://alpha.example.invalid",
+              "default": true
+            },
+            {
+              "name": "beta",
+              "server": "https://beta.example.invalid",
+              "default": false
+            }
+          ]
+        }
+      }
+    },
+    "multiple-no-default": {
+      "startupFailure": "MCP connection closed",
+      "diagnostic": "Error: unable to create kubernetes target provider: current-context is not set in kubeconfig and multiple contexts are available (alpha, beta)."
+    },
+    "single-default": {
+      "descriptors": [
+        {
+          "_meta": {
+            "io.kubernetes-mcp-server/rbac": {
+              "version": "v1alpha1",
+              "bounded": {
+                "requirements": [
+                  {
+                    "verbs": ["list"],
+                    "target": {
+                      "resource": {
+                        "resource": "events"
+                      }
+                    },
+                    "namespace": {
+                      "argument": "namespace"
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": true,
+            "title": "Events: List"
+          },
+          "description": "List Kubernetes events (warnings, errors, state changes) for debugging and troubleshooting in the current cluster from all namespaces",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "fieldSelector": {
+                "type": "string",
+                "description": "Optional Kubernetes field selector to filter events by field values (e.g. 'type=Warning', 'involvedObject.name=my-pod'). Supported fields: involvedObject.kind, involvedObject.name, involvedObject.namespace, involvedObject.uid, involvedObject.apiVersion, involvedObject.resourceVersion, involvedObject.fieldPath, reason, reportingComponent, source, type. See https://kubernetes.io/docs/concepts/overview/working-with-objects/field-selectors/",
+                "pattern": "^[.\\-A-Za-z0-9]+([=!,]{1,2}[./\\-A-Za-z0-9]+)+$"
+              },
+              "namespace": {
+                "type": "string",
+                "description": "Optional Namespace to retrieve the events from. If not provided, will list events from all namespaces"
+              }
+            }
+          },
+          "name": "events_list",
+          "title": "Events: List"
+        },
+        {
+          "_meta": {
+            "io.kubernetes-mcp-server/rbac": {
+              "version": "v1alpha1",
+              "bounded": {
+                "requirements": [
+                  {
+                    "verbs": ["list"],
+                    "target": {
+                      "resource": {
+                        "resource": "namespaces"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": true,
+            "title": "Namespaces: List"
+          },
+          "description": "List all the Kubernetes namespaces in the current cluster",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "fieldSelector": {
+                "type": "string",
+                "description": "Optional Kubernetes field selector to filter namespaces by field values (e.g. 'metadata.name=default', 'status.phase=Active'). Supported fields: metadata.name, status.phase. See https://kubernetes.io/docs/concepts/overview/working-with-objects/field-selectors/",
+                "pattern": "^[.\\-A-Za-z0-9]+([=!,]{1,2}[./\\-A-Za-z0-9]+)+$"
+              }
+            }
+          },
+          "name": "namespaces_list",
+          "title": "Namespaces: List"
+        },
+        {
+          "_meta": {
+            "io.kubernetes-mcp-server/rbac": {
+              "version": "v1alpha1",
+              "bounded": {
+                "requirements": [
+                  {
+                    "verbs": ["get"],
+                    "target": {
+                      "resource": {
+                        "resource": "pods"
+                      }
+                    },
+                    "namespace": {
+                      "argument": "namespace"
+                    },
+                    "resourceName": {
+                      "argument": "name"
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": true,
+            "title": "Pods: Get"
+          },
+          "description": "Get a Kubernetes Pod in the current or provided namespace with the provided name",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Name of the Pod"
+              },
+              "namespace": {
+                "type": "string",
+                "description": "Namespace to get the Pod from"
+              }
+            },
+            "required": ["name"]
+          },
+          "name": "pods_get",
+          "title": "Pods: Get"
+        },
+        {
+          "_meta": {
+            "io.kubernetes-mcp-server/rbac": {
+              "version": "v1alpha1",
+              "bounded": {
+                "requirements": [
+                  {
+                    "verbs": ["list"],
+                    "target": {
+                      "resource": {
+                        "resource": "pods"
+                      }
+                    },
+                    "namespace": {
+                      "all": true
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": true,
+            "title": "Pods: List"
+          },
+          "description": "List all the Kubernetes pods in the current cluster from all namespaces",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "fieldSelector": {
+                "type": "string",
+                "description": "Optional Kubernetes field selector to filter pods by field values (e.g. 'status.phase=Running', 'spec.nodeName=node1'). Supported fields: metadata.name, metadata.namespace, spec.nodeName, spec.restartPolicy, spec.schedulerName, spec.serviceAccountName, status.phase (Pending/Running/Succeeded/Failed/Unknown), status.podIP, status.nominatedNodeName. Note: CrashLoopBackOff is a container state, not a pod phase, so it cannot be filtered directly. See https://kubernetes.io/docs/concepts/overview/working-with-objects/field-selectors/",
+                "pattern": "^[.\\-A-Za-z0-9]+([=!,]{1,2}[./\\-A-Za-z0-9]+)+$"
+              },
+              "labelSelector": {
+                "type": "string",
+                "description": "Optional Kubernetes label selector (e.g. 'app=myapp,env=prod' or 'app in (myapp,yourapp)'), use this option when you want to filter the pods by label",
+                "pattern": "^([/_.\\-A-Za-z0-9=, ()!])+$"
+              }
+            }
+          },
+          "name": "pods_list",
+          "title": "Pods: List"
+        },
+        {
+          "_meta": {
+            "io.kubernetes-mcp-server/rbac": {
+              "version": "v1alpha1",
+              "bounded": {
+                "requirements": [
+                  {
+                    "verbs": ["get"],
+                    "target": {
+                      "resource": {
+                        "resource": "pods"
+                      }
+                    },
+                    "namespace": {
+                      "argument": "namespace"
+                    },
+                    "resourceName": {
+                      "argument": "name"
+                    }
+                  },
+                  {
+                    "verbs": ["get"],
+                    "target": {
+                      "resource": {
+                        "resource": "pods",
+                        "subresource": "log"
+                      }
+                    },
+                    "namespace": {
+                      "argument": "namespace"
+                    },
+                    "resourceName": {
+                      "argument": "name"
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": true,
+            "title": "Pods: Log"
+          },
+          "description": "Get the logs of a Kubernetes Pod in the current or provided namespace with the provided name",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "container": {
+                "type": "string",
+                "description": "Name of the Pod container to get the logs from (Optional)"
+              },
+              "name": {
+                "type": "string",
+                "description": "Name of the Pod to get the logs from"
+              },
+              "namespace": {
+                "type": "string",
+                "description": "Namespace to get the Pod logs from"
+              },
+              "previous": {
+                "type": "boolean",
+                "description": "Return previous terminated container logs (Optional)"
+              },
+              "tail": {
+                "type": "integer",
+                "description": "Number of lines to retrieve from the end of the logs (Optional, default: 100)",
+                "default": 100,
+                "minimum": 0
+              }
+            },
+            "required": ["name"]
+          },
+          "name": "pods_log",
+          "title": "Pods: Log"
+        }
+      ],
+      "response": null
+    },
+    "single-no-default": {
+      "descriptors": [
+        {
+          "_meta": {
+            "io.kubernetes-mcp-server/rbac": {
+              "version": "v1alpha1",
+              "bounded": {
+                "requirements": [
+                  {
+                    "verbs": ["list"],
+                    "target": {
+                      "resource": {
+                        "resource": "events"
+                      }
+                    },
+                    "namespace": {
+                      "argument": "namespace"
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": true,
+            "title": "Events: List"
+          },
+          "description": "List Kubernetes events (warnings, errors, state changes) for debugging and troubleshooting in the current cluster from all namespaces",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "fieldSelector": {
+                "type": "string",
+                "description": "Optional Kubernetes field selector to filter events by field values (e.g. 'type=Warning', 'involvedObject.name=my-pod'). Supported fields: involvedObject.kind, involvedObject.name, involvedObject.namespace, involvedObject.uid, involvedObject.apiVersion, involvedObject.resourceVersion, involvedObject.fieldPath, reason, reportingComponent, source, type. See https://kubernetes.io/docs/concepts/overview/working-with-objects/field-selectors/",
+                "pattern": "^[.\\-A-Za-z0-9]+([=!,]{1,2}[./\\-A-Za-z0-9]+)+$"
+              },
+              "namespace": {
+                "type": "string",
+                "description": "Optional Namespace to retrieve the events from. If not provided, will list events from all namespaces"
+              }
+            }
+          },
+          "name": "events_list",
+          "title": "Events: List"
+        },
+        {
+          "_meta": {
+            "io.kubernetes-mcp-server/rbac": {
+              "version": "v1alpha1",
+              "bounded": {
+                "requirements": [
+                  {
+                    "verbs": ["list"],
+                    "target": {
+                      "resource": {
+                        "resource": "namespaces"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": true,
+            "title": "Namespaces: List"
+          },
+          "description": "List all the Kubernetes namespaces in the current cluster",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "fieldSelector": {
+                "type": "string",
+                "description": "Optional Kubernetes field selector to filter namespaces by field values (e.g. 'metadata.name=default', 'status.phase=Active'). Supported fields: metadata.name, status.phase. See https://kubernetes.io/docs/concepts/overview/working-with-objects/field-selectors/",
+                "pattern": "^[.\\-A-Za-z0-9]+([=!,]{1,2}[./\\-A-Za-z0-9]+)+$"
+              }
+            }
+          },
+          "name": "namespaces_list",
+          "title": "Namespaces: List"
+        },
+        {
+          "_meta": {
+            "io.kubernetes-mcp-server/rbac": {
+              "version": "v1alpha1",
+              "bounded": {
+                "requirements": [
+                  {
+                    "verbs": ["get"],
+                    "target": {
+                      "resource": {
+                        "resource": "pods"
+                      }
+                    },
+                    "namespace": {
+                      "argument": "namespace"
+                    },
+                    "resourceName": {
+                      "argument": "name"
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": true,
+            "title": "Pods: Get"
+          },
+          "description": "Get a Kubernetes Pod in the current or provided namespace with the provided name",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Name of the Pod"
+              },
+              "namespace": {
+                "type": "string",
+                "description": "Namespace to get the Pod from"
+              }
+            },
+            "required": ["name"]
+          },
+          "name": "pods_get",
+          "title": "Pods: Get"
+        },
+        {
+          "_meta": {
+            "io.kubernetes-mcp-server/rbac": {
+              "version": "v1alpha1",
+              "bounded": {
+                "requirements": [
+                  {
+                    "verbs": ["list"],
+                    "target": {
+                      "resource": {
+                        "resource": "pods"
+                      }
+                    },
+                    "namespace": {
+                      "all": true
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": true,
+            "title": "Pods: List"
+          },
+          "description": "List all the Kubernetes pods in the current cluster from all namespaces",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "fieldSelector": {
+                "type": "string",
+                "description": "Optional Kubernetes field selector to filter pods by field values (e.g. 'status.phase=Running', 'spec.nodeName=node1'). Supported fields: metadata.name, metadata.namespace, spec.nodeName, spec.restartPolicy, spec.schedulerName, spec.serviceAccountName, status.phase (Pending/Running/Succeeded/Failed/Unknown), status.podIP, status.nominatedNodeName. Note: CrashLoopBackOff is a container state, not a pod phase, so it cannot be filtered directly. See https://kubernetes.io/docs/concepts/overview/working-with-objects/field-selectors/",
+                "pattern": "^[.\\-A-Za-z0-9]+([=!,]{1,2}[./\\-A-Za-z0-9]+)+$"
+              },
+              "labelSelector": {
+                "type": "string",
+                "description": "Optional Kubernetes label selector (e.g. 'app=myapp,env=prod' or 'app in (myapp,yourapp)'), use this option when you want to filter the pods by label",
+                "pattern": "^([/_.\\-A-Za-z0-9=, ()!])+$"
+              }
+            }
+          },
+          "name": "pods_list",
+          "title": "Pods: List"
+        },
+        {
+          "_meta": {
+            "io.kubernetes-mcp-server/rbac": {
+              "version": "v1alpha1",
+              "bounded": {
+                "requirements": [
+                  {
+                    "verbs": ["get"],
+                    "target": {
+                      "resource": {
+                        "resource": "pods"
+                      }
+                    },
+                    "namespace": {
+                      "argument": "namespace"
+                    },
+                    "resourceName": {
+                      "argument": "name"
+                    }
+                  },
+                  {
+                    "verbs": ["get"],
+                    "target": {
+                      "resource": {
+                        "resource": "pods",
+                        "subresource": "log"
+                      }
+                    },
+                    "namespace": {
+                      "argument": "namespace"
+                    },
+                    "resourceName": {
+                      "argument": "name"
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": true,
+            "title": "Pods: Log"
+          },
+          "description": "Get the logs of a Kubernetes Pod in the current or provided namespace with the provided name",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "container": {
+                "type": "string",
+                "description": "Name of the Pod container to get the logs from (Optional)"
+              },
+              "name": {
+                "type": "string",
+                "description": "Name of the Pod to get the logs from"
+              },
+              "namespace": {
+                "type": "string",
+                "description": "Namespace to get the Pod logs from"
+              },
+              "previous": {
+                "type": "boolean",
+                "description": "Return previous terminated container logs (Optional)"
+              },
+              "tail": {
+                "type": "integer",
+                "description": "Number of lines to retrieve from the end of the logs (Optional, default: 100)",
+                "default": 100,
+                "minimum": 0
+              }
+            },
+            "required": ["name"]
+          },
+          "name": "pods_log",
+          "title": "Pods: Log"
+        }
+      ],
+      "response": null
+    },
+    "empty": {
+      "startupFailure": "MCP connection closed",
+      "diagnostic": "Error: unable to create kubernetes target provider: no current-context is set and no contexts are defined in kubeconfig."
+    },
+    "disabled": {
+      "descriptors": [
+        {
+          "_meta": {
+            "io.kubernetes-mcp-server/rbac": {
+              "version": "v1alpha1",
+              "bounded": {
+                "requirements": [
+                  {
+                    "verbs": ["list"],
+                    "target": {
+                      "resource": {
+                        "resource": "events"
+                      }
+                    },
+                    "namespace": {
+                      "argument": "namespace"
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": true,
+            "title": "Events: List"
+          },
+          "description": "List Kubernetes events (warnings, errors, state changes) for debugging and troubleshooting in the current cluster from all namespaces",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "fieldSelector": {
+                "type": "string",
+                "description": "Optional Kubernetes field selector to filter events by field values (e.g. 'type=Warning', 'involvedObject.name=my-pod'). Supported fields: involvedObject.kind, involvedObject.name, involvedObject.namespace, involvedObject.uid, involvedObject.apiVersion, involvedObject.resourceVersion, involvedObject.fieldPath, reason, reportingComponent, source, type. See https://kubernetes.io/docs/concepts/overview/working-with-objects/field-selectors/",
+                "pattern": "^[.\\-A-Za-z0-9]+([=!,]{1,2}[./\\-A-Za-z0-9]+)+$"
+              },
+              "namespace": {
+                "type": "string",
+                "description": "Optional Namespace to retrieve the events from. If not provided, will list events from all namespaces"
+              }
+            }
+          },
+          "name": "events_list",
+          "title": "Events: List"
+        },
+        {
+          "_meta": {
+            "io.kubernetes-mcp-server/rbac": {
+              "version": "v1alpha1",
+              "bounded": {
+                "requirements": [
+                  {
+                    "verbs": ["list"],
+                    "target": {
+                      "resource": {
+                        "resource": "namespaces"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": true,
+            "title": "Namespaces: List"
+          },
+          "description": "List all the Kubernetes namespaces in the current cluster",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "fieldSelector": {
+                "type": "string",
+                "description": "Optional Kubernetes field selector to filter namespaces by field values (e.g. 'metadata.name=default', 'status.phase=Active'). Supported fields: metadata.name, status.phase. See https://kubernetes.io/docs/concepts/overview/working-with-objects/field-selectors/",
+                "pattern": "^[.\\-A-Za-z0-9]+([=!,]{1,2}[./\\-A-Za-z0-9]+)+$"
+              }
+            }
+          },
+          "name": "namespaces_list",
+          "title": "Namespaces: List"
+        },
+        {
+          "_meta": {
+            "io.kubernetes-mcp-server/rbac": {
+              "version": "v1alpha1",
+              "bounded": {
+                "requirements": [
+                  {
+                    "verbs": ["get"],
+                    "target": {
+                      "resource": {
+                        "resource": "pods"
+                      }
+                    },
+                    "namespace": {
+                      "argument": "namespace"
+                    },
+                    "resourceName": {
+                      "argument": "name"
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": true,
+            "title": "Pods: Get"
+          },
+          "description": "Get a Kubernetes Pod in the current or provided namespace with the provided name",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Name of the Pod"
+              },
+              "namespace": {
+                "type": "string",
+                "description": "Namespace to get the Pod from"
+              }
+            },
+            "required": ["name"]
+          },
+          "name": "pods_get",
+          "title": "Pods: Get"
+        },
+        {
+          "_meta": {
+            "io.kubernetes-mcp-server/rbac": {
+              "version": "v1alpha1",
+              "bounded": {
+                "requirements": [
+                  {
+                    "verbs": ["list"],
+                    "target": {
+                      "resource": {
+                        "resource": "pods"
+                      }
+                    },
+                    "namespace": {
+                      "all": true
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": true,
+            "title": "Pods: List"
+          },
+          "description": "List all the Kubernetes pods in the current cluster from all namespaces",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "fieldSelector": {
+                "type": "string",
+                "description": "Optional Kubernetes field selector to filter pods by field values (e.g. 'status.phase=Running', 'spec.nodeName=node1'). Supported fields: metadata.name, metadata.namespace, spec.nodeName, spec.restartPolicy, spec.schedulerName, spec.serviceAccountName, status.phase (Pending/Running/Succeeded/Failed/Unknown), status.podIP, status.nominatedNodeName. Note: CrashLoopBackOff is a container state, not a pod phase, so it cannot be filtered directly. See https://kubernetes.io/docs/concepts/overview/working-with-objects/field-selectors/",
+                "pattern": "^[.\\-A-Za-z0-9]+([=!,]{1,2}[./\\-A-Za-z0-9]+)+$"
+              },
+              "labelSelector": {
+                "type": "string",
+                "description": "Optional Kubernetes label selector (e.g. 'app=myapp,env=prod' or 'app in (myapp,yourapp)'), use this option when you want to filter the pods by label",
+                "pattern": "^([/_.\\-A-Za-z0-9=, ()!])+$"
+              }
+            }
+          },
+          "name": "pods_list",
+          "title": "Pods: List"
+        },
+        {
+          "_meta": {
+            "io.kubernetes-mcp-server/rbac": {
+              "version": "v1alpha1",
+              "bounded": {
+                "requirements": [
+                  {
+                    "verbs": ["get"],
+                    "target": {
+                      "resource": {
+                        "resource": "pods"
+                      }
+                    },
+                    "namespace": {
+                      "argument": "namespace"
+                    },
+                    "resourceName": {
+                      "argument": "name"
+                    }
+                  },
+                  {
+                    "verbs": ["get"],
+                    "target": {
+                      "resource": {
+                        "resource": "pods",
+                        "subresource": "log"
+                      }
+                    },
+                    "namespace": {
+                      "argument": "namespace"
+                    },
+                    "resourceName": {
+                      "argument": "name"
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": true,
+            "title": "Pods: Log"
+          },
+          "description": "Get the logs of a Kubernetes Pod in the current or provided namespace with the provided name",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "container": {
+                "type": "string",
+                "description": "Name of the Pod container to get the logs from (Optional)"
+              },
+              "name": {
+                "type": "string",
+                "description": "Name of the Pod to get the logs from"
+              },
+              "namespace": {
+                "type": "string",
+                "description": "Namespace to get the Pod logs from"
+              },
+              "previous": {
+                "type": "boolean",
+                "description": "Return previous terminated container logs (Optional)"
+              },
+              "tail": {
+                "type": "integer",
+                "description": "Number of lines to retrieve from the end of the logs (Optional, default: 100)",
+                "default": 100,
+                "minimum": 0
+              }
+            },
+            "required": ["name"]
+          },
+          "name": "pods_log",
+          "title": "Pods: Log"
+        }
+      ],
+      "response": null
+    },
+    "routing": {
+      "tool": "pods_list",
+      "arguments": [
+        {
+          "context": "alpha"
+        },
+        {
+          "context": "beta"
+        }
+      ],
+      "requests": [
+        {
+          "target": "alpha",
+          "method": "GET",
+          "path": "/api?timeout=10s"
+        },
+        {
+          "target": "alpha",
+          "method": "GET",
+          "path": "/apis?timeout=10s"
+        },
+        {
+          "target": "alpha",
+          "method": "GET",
+          "path": "/api/v1?timeout=10s"
+        },
+        {
+          "target": "alpha",
+          "method": "GET",
+          "path": "/api/v1/namespaces/default/pods"
+        },
+        {
+          "target": "beta",
+          "method": "GET",
+          "path": "/api?timeout=10s"
+        },
+        {
+          "target": "beta",
+          "method": "GET",
+          "path": "/apis?timeout=10s"
+        },
+        {
+          "target": "beta",
+          "method": "GET",
+          "path": "/api/v1?timeout=10s"
+        },
+        {
+          "target": "beta",
+          "method": "GET",
+          "path": "/api/v1/namespaces/default/pods"
+        }
+      ],
+      "distinctMarkersVerified": true
+    }
+  }
+}

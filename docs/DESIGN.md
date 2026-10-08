@@ -8,7 +8,7 @@
 **Kubernetes Integration:** Kubernetes MCP Server  
 **Primary Domain:** Kubernetes Incident Diagnosis
 
-This document describes the V0.1 target. The current implementation still depends on Pi 0.87.1; the planned MCP integration includes the upgrade to Pi 0.99 and its MCP package.
+This document describes the V0.1 target. The current implementation uses Pi runtime `@earendil-works/pi-coding-agent` 0.99.0 and MCP client `@earendil-works/pi-mcp` 0.99.0, upgraded during Phase 1.
 
 ---
 
@@ -2088,6 +2088,8 @@ opens a Pi-based TUI and can invoke Kubernetes MCP tools.
 ---
 
 # 64. Phase 2 — Cluster Context Management
+
+Detailed implementation plan: [Phase 2 Implementation Slices](./PHASE2_IMPLEMENTATION_SLICES.md).
 
 Deliver:
 

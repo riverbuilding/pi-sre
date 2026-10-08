@@ -1,0 +1,36 @@
+{
+  "apiVersion": "v1",
+  "kind": "Config",
+  "clusters": [
+    {
+      "name": "alpha",
+      "cluster": {
+        "server": "http://127.0.0.1:{{ALPHA_PORT}}"
+      }
+    },
+    {
+      "name": "beta",
+      "cluster": {
+        "server": "http://127.0.0.1:{{BETA_PORT}}"
+      }
+    }
+  ],
+  "contexts": [
+    {
+      "name": "alpha",
+      "context": {
+        "cluster": "alpha",
+        "user": ""
+      }
+    },
+    {
+      "name": "beta",
+      "context": {
+        "cluster": "beta",
+        "user": ""
+      }
+    }
+  ],
+  "users": [],
+  "current-context": "alpha"
+}

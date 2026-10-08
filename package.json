@@ -19,6 +19,7 @@
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",
     "test:unit": "vitest run tests/unit --passWithNoTests",
+    "test:contracts": "PI_SRE_CONTRACT_SERVER=kubernetes-mcp-server vitest run tests/unit/mcp/capture-phase2-server.test.ts",
     "test:integration": "vitest run tests/integration --passWithNoTests",
     "test:e2e": "vitest run tests/e2e --passWithNoTests",
     "lint": "eslint .",

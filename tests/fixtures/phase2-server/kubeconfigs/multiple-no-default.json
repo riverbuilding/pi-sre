@@ -1,0 +1,38 @@
+{
+  "apiVersion": "v1",
+  "kind": "Config",
+  "clusters": [
+    {
+      "name": "alpha",
+      "cluster": {
+        "server": "https://alpha.example.invalid"
+      }
+    },
+    {
+      "name": "beta",
+      "cluster": {
+        "server": "https://beta.example.invalid"
+      }
+    }
+  ],
+  "contexts": [
+    {
+      "name": "alpha",
+      "context": {
+        "cluster": "alpha",
+        "user": "",
+        "namespace": "ns-alpha"
+      }
+    },
+    {
+      "name": "beta",
+      "context": {
+        "cluster": "beta",
+        "user": "",
+        "namespace": "ns-beta"
+      }
+    }
+  ],
+  "users": [],
+  "current-context": ""
+}
