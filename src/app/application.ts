@@ -3,6 +3,7 @@ import { mkdir } from "node:fs/promises";
 import { InteractiveMode } from "@earendil-works/pi-coding-agent";
 
 import type { SreConfig } from "../config/config.js";
+import type { StartupClusterIntent } from "../cluster/context-resolver.js";
 import { McpController } from "./mcp-controller.js";
 import type { ToolDiscoveryReport } from "../mcp/tool-discovery.js";
 import { createSreRuntime, PI_AGENT_DIR_ENV } from "../runtime/pi-runtime.js";
@@ -29,8 +30,16 @@ export class SreApplication {
   private closePromise: Promise<void> | undefined;
   private started = false;
   private previousPiAgentDir: string | undefined;
+  readonly startupClusterIntent: StartupClusterIntent;
 
-  constructor(private readonly config: SreConfig) {
+  constructor(
+    private readonly config: SreConfig,
+    intent: StartupClusterIntent = {},
+  ) {
+    // Selection intent is session-owned; Slice 3 resolves it after MCP enumeration.
+    this.startupClusterIntent = Object.freeze(
+      intent.cluster === undefined ? {} : { cluster: intent.cluster },
+    );
     this.mcp = new McpController(config, this.cancellation.signal);
   }
 

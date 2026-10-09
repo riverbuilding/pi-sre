@@ -78,7 +78,32 @@ describe("loadSreConfig", () => {
 
     const config = await load();
     expect(config.kubernetes.mcp.args).toEqual(["--config", mcpConfigPath]);
+    expect(config.kubernetes.defaultCluster).toBeUndefined();
   });
+
+  it("allows an omitted default without inventing a cluster", async () => {
+    await writeFile(configPath, validYaml.replace("  defaultCluster: staging\n", ""));
+    expect((await load()).kubernetes.defaultCluster).toBeUndefined();
+  });
+
+  it("preserves exact configured context names", async () => {
+    await writeFile(
+      configPath,
+      validYaml.replace("defaultCluster: staging", 'defaultCluster: " staging "'),
+    );
+    expect((await load()).kubernetes.defaultCluster).toBe(" staging ");
+  });
+
+  it.each(["", "   ", "alpha\n", "alpha\u202e", "é".repeat(513)])(
+    "rejects blank, unsafe or oversized configured defaults",
+    async (name) => {
+      await writeFile(
+        configPath,
+        validYaml.replace("defaultCluster: staging", `defaultCluster: ${JSON.stringify(name)}`),
+      );
+      await expect(load()).rejects.toThrow("kubernetes.defaultCluster");
+    },
+  );
 
   it("loads explicit model-facing result budgets", async () => {
     await writeFile(

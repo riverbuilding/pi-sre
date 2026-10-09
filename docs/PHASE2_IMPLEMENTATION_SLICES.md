@@ -1,6 +1,6 @@
 # Phase 2 Implementation Slices
 
-**Status:** Slice 0 complete (2026-10-07); Slice 1 complete (2026-10-08); Slices 2–9 planned
+**Status:** Slice 0 complete (2026-10-07); Slice 1 complete (2026-10-08); Slice 2 complete (2026-10-09); Slices 3–9 planned
 
 **Applies to:** Pi SRE V0.1, Phase 2 — Cluster Context Management
 
@@ -220,6 +220,10 @@ Unit tests enforce the Slice 0 fixtures, captured response, immutability, descri
 - No direct kubeconfig read or additional MCP process is introduced.
 
 ## 8. Slice 2 — Resolve Startup Scope and Add `--cluster`
+
+**Completed (2026-10-09):** Both CLI forms validate and preserve exact selection intent, passed through `main.ts` into an immutable application-owned copy. Help bypasses configuration and MCP startup while still rejecting invalid arguments. The Pi-independent resolver enforces CLI > config > MCP default > unbound, retains selection provenance and requested names, and returns actionable unknown-selection errors without fallback. Configured defaults retain exact identity and reject blank, unsafe, or oversized names; the example YAML now makes the default opt-in.
+
+Table-driven resolver, CLI, config, application ownership, and packed-executable help checks cover this slice. Startup enumeration, invoking the resolver in the running application, and publishing authoritative scope state remain Slice 3 work. Diagnostic tool exposure is unchanged.
 
 **Outcome:** Every startup has a deterministic bound or explicitly unbound result.
 

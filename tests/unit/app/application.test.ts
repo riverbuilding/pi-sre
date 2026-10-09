@@ -121,6 +121,17 @@ describe("SreApplication", () => {
     expect(mocks.createRuntime).not.toHaveBeenCalled();
   });
 
+  it("owns an immutable copy of startup intent independently for each application", async () => {
+    const intent = { cluster: "alpha" };
+    const app = new SreApplication(config(), intent);
+    const other = new SreApplication(config(), { cluster: "beta" });
+    intent.cluster = "changed";
+    expect(app.startupClusterIntent).toEqual({ cluster: "alpha" });
+    expect(Object.isFrozen(app.startupClusterIntent)).toBe(true);
+    expect(other.startupClusterIntent).toEqual({ cluster: "beta" });
+    await Promise.all([app.close(), other.close()]);
+  });
+
   it("uses the Pi SRE home and disposes once when the mode returns", async () => {
     process.env[PI_AGENT_DIR_ENV] = "existing-pi-location";
     const app = new SreApplication(config());

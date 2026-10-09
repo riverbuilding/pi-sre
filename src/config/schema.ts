@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isValidContextSelection } from "../cluster/context-name.js";
 
 const nonBlank = z.string().trim().min(1);
 
@@ -15,7 +16,7 @@ export type ResultPolicy = z.output<typeof resultPolicySchema>;
 export const sreConfigSchema = z.strictObject({
   results: resultPolicySchema.default(DEFAULT_RESULT_POLICY),
   kubernetes: z.strictObject({
-    defaultCluster: nonBlank.optional(),
+    defaultCluster: z.string().refine(isValidContextSelection).optional(),
     mcp: z.strictObject({
       transport: z.literal("stdio"),
       command: nonBlank,

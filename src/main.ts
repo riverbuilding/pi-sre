@@ -12,7 +12,7 @@ async function main(): Promise<void> {
   }
 
   const config = await loadSreConfig();
-  await new SreApplication(config).run();
+  await new SreApplication(config, args).run();
 }
 
 main().catch((error: unknown) => {

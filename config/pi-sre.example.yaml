@@ -1,7 +1,9 @@
 # Copy to ~/.pi-sre/config.yaml or pass its path with PI_SRE_CONFIG.
 # This template intentionally enables diagnostic, read-only operation only.
 kubernetes:
-  defaultCluster: staging
+  # Opt in only with an exact context returned by Kubernetes MCP.
+  # An unavailable default is a selection error; it never falls back.
+  # defaultCluster: staging
   mcp:
     transport: stdio
     command: kubernetes-mcp-server

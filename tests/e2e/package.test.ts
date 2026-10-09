@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, readdir, rm, symlink } from "node:fs/promises";
+import { access, mkdtemp, readFile, readdir, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -29,14 +29,29 @@ it("packs a built executable that launches outside the source checkout", async (
     await symlink(join(root, "node_modules"), join(installed, "node_modules"), "dir");
     const executable = join(installed, "dist", "main.js");
     expect(await readFile(executable, "utf8")).toMatch(/^#!\/usr\/bin\/env node\n/);
-    const { stdout, stderr } = await run(process.execPath, [executable, "--help"], {
+    const appHome = join(home, "app");
+    const options = {
       cwd: home,
-      env: { ...process.env, PI_SRE_HOME: join(home, "app") },
+      env: {
+        ...process.env,
+        PI_SRE_HOME: appHome,
+        PI_SRE_CONFIG: join(home, "missing.yaml"),
+        PI_SRE_MCP_COMMAND: join(home, "missing-mcp-server"),
+      },
       timeout: 10_000,
+    };
+    for (const args of [["--help"], ["--cluster", "alpha", "--help"], ["-h", "--cluster=alpha"]]) {
+      const { stdout, stderr } = await run(process.execPath, [executable, ...args], options);
+      expect(stdout).toContain("Pi SRE — read-only Kubernetes incident diagnosis");
+      expect(stdout).toContain("/mcp_restart");
+      expect(stdout).toContain("--cluster=<name>");
+      expect(stderr).toBe("");
+    }
+    await expect(run(process.execPath, [executable, "--cluster="], options)).rejects.toMatchObject({
+      code: 1,
+      stderr: expect.stringContaining("--cluster requires"),
     });
-    expect(stdout).toContain("Pi SRE — read-only Kubernetes incident diagnosis");
-    expect(stdout).toContain("/mcp_restart");
-    expect(stderr).toBe("");
+    await expect(access(appHome)).rejects.toMatchObject({ code: "ENOENT" });
     expect(
       await readFile(join(installed, "config", "kubernetes-mcp.example.toml"), "utf8"),
     ).toContain("read_only = true");
