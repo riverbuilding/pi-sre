@@ -6,7 +6,7 @@ The implementation follows the architecture in [docs/DESIGN.md](docs/DESIGN.md).
 
 Slice 9 completes the [Phase 1 acceptance gate and live smoke test](docs/PHASE1_ACCEPTANCE.md). Automated checks cover the packed CLI and fake MCP agent loop; the user confirmed completion of the manual live Kubernetes smoke test on 2026-10-07. Phase 1 is complete and ready for Phase 2 cluster-context management.
 
-The [Phase 2 implementation slices](docs/PHASE2_IMPLEMENTATION_SLICES.md) plan context discovery, startup selection, explicit scope enforcement, cluster commands and status, MCP recovery, and live targeting acceptance.
+The [Phase 2 implementation slices](docs/PHASE2_IMPLEMENTATION_SLICES.md) cover context discovery, startup selection, explicit scope enforcement, cluster commands and status, MCP recovery, and live targeting acceptance. Slice 1 provides a validated MCP context adapter and immutable registry with exact lookup, consistent defaults, complete-response limits, and safe endpoint metadata. Startup selection and TUI integration remain later slices.
 
 ## Prerequisites
 

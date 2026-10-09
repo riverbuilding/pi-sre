@@ -1,6 +1,6 @@
 # Phase 2 Implementation Slices
 
-**Status:** Slice 0 complete (2026-10-07); Slices 1–9 planned
+**Status:** Slice 0 complete (2026-10-07); Slice 1 complete (2026-10-08); Slices 2–9 planned
 
 **Applies to:** Pi SRE V0.1, Phase 2 — Cluster Context Management
 
@@ -195,6 +195,10 @@ Keep selected context, selection source (`cli`, `config`, `mcp-default`, or `use
 - Public Pi APIs support the proposed UX without private-field mutation or method reassignment.
 
 ## 7. Slice 1 — Validate Context Enumeration and Build the Registry
+
+**Completed (2026-10-08):** `src/mcp/context-discovery.ts` validates the discovered read-only enumeration descriptor, calls it on the supplied managed connection, and validates the complete raw response against the frozen wire contract and limits. `ClusterContextRegistry` provides frozen entries, deterministic exact-name ordering, exact lookup, and explicit default metadata. Identity controls are rejected; endpoint metadata retains only a safe HTTP(S) origin without userinfo, paths, queries, or fragments. Unsupported endpoints are withheld. Errors distinguish incompatibility, invalid inventory, and classified tool/transport failures; caller cancellation propagates.
+
+Unit tests enforce the Slice 0 fixtures, captured response, immutability, descriptor gates, metadata safety, UTF-8 and complete-result limits. Fake-MCP integration tests cover same-connection enumeration, empty success, malformed response, authentication failure, timeout, and cancellation. Startup invocation and scope selection remain Slices 2–3; no diagnostic tools are newly exposed.
 
 **Outcome:** Pi SRE can obtain a complete, validated context inventory without a model turn or live-cluster unit tests.
 
