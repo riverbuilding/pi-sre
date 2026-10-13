@@ -72,7 +72,7 @@ describe("application lifecycle with real Pi and managed MCP", () => {
     await rm(home, { recursive: true, force: true });
   });
 
-  function config(scenario = "success"): SreConfig {
+  function config(scenario = "contexts-success"): SreConfig {
     return {
       paths: createApplicationPaths(home),
       kubernetes: {
@@ -134,6 +134,10 @@ describe("application lifecycle with real Pi and managed MCP", () => {
             type: "warning",
             message: expect.stringContaining("tools are unavailable"),
           }),
+          expect.objectContaining({
+            type: "warning",
+            message: expect.stringContaining("/mcp_restart"),
+          }),
         ],
       }),
     ]);
@@ -190,7 +194,7 @@ describe("application lifecycle with real Pi and managed MCP", () => {
       const later = await tool.execute("later-call", {}, caller.signal, undefined, context);
       expect(later).toMatchObject({ isError: true });
     });
-    await new SreApplication(config("call-timeout")).run();
+    await new SreApplication(config("contexts-call-timeout")).run();
     await ui.run.mock.results[0]?.value;
     await expectChildExited();
   });

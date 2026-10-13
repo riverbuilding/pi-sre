@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   mcpClose: vi.fn<() => Promise<void>>(),
   mcpConnect: vi.fn(),
   mcpListTools: vi.fn(),
+  mcpCallTool: vi.fn(),
   modeInit: vi.fn<() => Promise<void>>(),
   modeRun: vi.fn<() => Promise<void>>(),
   createRuntime: vi.fn(),
@@ -73,9 +74,19 @@ describe("SreApplication", () => {
     mocks.dispose.mockReset().mockResolvedValue();
     mocks.mcpClose.mockReset().mockResolvedValue();
     mocks.mcpListTools.mockReset().mockResolvedValue([]);
-    mocks.mcpConnect
-      .mockReset()
-      .mockResolvedValue({ state: "ready", close: mocks.mcpClose, listTools: mocks.mcpListTools });
+    mocks.mcpCallTool.mockReset().mockResolvedValue({
+      content: [],
+      structuredContent: {
+        defaultContext: "alpha",
+        contexts: [{ name: "alpha", server: "https://example.invalid", default: true }],
+      },
+    });
+    mocks.mcpConnect.mockReset().mockResolvedValue({
+      state: "ready",
+      close: mocks.mcpClose,
+      listTools: mocks.mcpListTools,
+      callTool: mocks.mcpCallTool,
+    });
     mocks.modeInit.mockReset().mockResolvedValue();
     mocks.modeRun.mockReset().mockResolvedValue();
     mocks.createRuntime
@@ -132,6 +143,40 @@ describe("SreApplication", () => {
     await Promise.all([app.close(), other.close()]);
   });
 
+  it("resolves CLI scope before runtime creation and invalidates it on close", async () => {
+    mocks.mcpListTools.mockResolvedValue([
+      {
+        name: "configuration_contexts_list",
+        inputSchema: { type: "object", properties: {} },
+        annotations: { readOnlyHint: true, destructiveHint: false },
+      },
+    ]);
+    mocks.mcpCallTool.mockResolvedValue({
+      content: [],
+      structuredContent: {
+        defaultContext: "alpha",
+        contexts: ["alpha", "beta"].map((name) => ({
+          name,
+          server: "https://example.invalid",
+          default: name === "alpha",
+        })),
+      },
+    });
+    const app = new SreApplication(config(), { cluster: "beta" });
+    mocks.createRuntime.mockImplementation(() => {
+      expect(app.clusterContext.captureScope()).toMatchObject({ context: "beta", source: "cli" });
+      return { disposeSession: mocks.dispose, session: { abort: mocks.abort } };
+    });
+    await app.run();
+    expect(mocks.mcpCallTool).toHaveBeenCalledExactlyOnceWith(
+      "configuration_contexts_list",
+      {},
+      expect.any(AbortSignal),
+    );
+    expect(app.clusterContext.captureScope()).toBeUndefined();
+    expect(mocks.mcpClose).toHaveBeenCalledOnce();
+  });
+
   it("uses the Pi SRE home and disposes once when the mode returns", async () => {
     process.env[PI_AGENT_DIR_ENV] = "existing-pi-location";
     const app = new SreApplication(config());
@@ -179,6 +224,10 @@ describe("SreApplication", () => {
             message:
               "Kubernetes MCP connection failed during startup. Kubernetes tools are unavailable. Check the MCP configuration and use /mcp_restart to retry.",
           },
+          {
+            type: "warning",
+            message: "Kubernetes MCP connection failed during startup. Use /mcp_restart to retry.",
+          },
         ],
       },
     ]);
@@ -190,8 +239,8 @@ describe("SreApplication", () => {
     mocks.mcpListTools.mockResolvedValue([
       {
         name: "configuration_contexts_list",
-        inputSchema: { type: "object" },
-        annotations: { readOnlyHint: true },
+        inputSchema: { type: "object", properties: {} },
+        annotations: { readOnlyHint: true, destructiveHint: false },
       },
       {
         name: "configuration_view",
@@ -213,6 +262,11 @@ describe("SreApplication", () => {
             type: "info",
             message:
               "Kubernetes MCP discovery: 1 approved, 0 deferred, 1 rejected. 1 read-only tools registered.",
+          },
+          {
+            type: "info",
+            message:
+              "Cluster: alpha (mcp-default) | Namespace: * | READ ONLY. Cluster scope selected (authentication and authorization are not verified).",
           },
         ],
       },
@@ -247,9 +301,14 @@ describe("SreApplication", () => {
       {
         startupDiagnostics: [
           {
+            type: "info",
+            message:
+              "Kubernetes MCP discovery: 1 approved, 0 deferred, 0 rejected. 0 read-only tools registered.",
+          },
+          {
             type: "warning",
             message:
-              "Kubernetes MCP tool schema cannot be adapted safely. Kubernetes tools are unavailable. Check the MCP configuration and use /mcp_restart to retry.",
+              "Kubernetes MCP context enumeration requires a compatible read-only configuration_contexts_list tool. Check MCP configuration and use /mcp_restart to retry.",
           },
         ],
       },
@@ -270,6 +329,10 @@ describe("SreApplication", () => {
             type: "warning",
             message:
               "Kubernetes MCP tool discovery failed. Kubernetes tools are unavailable. Check the MCP configuration and use /mcp_restart to retry.",
+          },
+          {
+            type: "warning",
+            message: "Kubernetes MCP tool discovery failed. Use /mcp_restart to retry.",
           },
         ],
       },

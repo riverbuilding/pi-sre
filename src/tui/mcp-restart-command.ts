@@ -3,6 +3,14 @@ import type { McpController } from "../app/mcp-controller.js";
 
 /** Pi's public registerTool refreshes the registry; hidden tools are unreachable. */
 export function registerMcpRecovery(pi: ExtensionAPI, controller: McpController): void {
+  let releaseWork: (() => void) | undefined;
+  pi.on("agent_start", () => {
+    releaseWork ??= controller.clusterContext.beginAgentWork();
+  });
+  pi.on("agent_end", () => {
+    releaseWork?.();
+    releaseWork = undefined;
+  });
   const registered = new Map<string, ToolDefinition>();
   const unsubscribe = controller.subscribe(({ tools }) => {
     const names = new Set(tools.map((tool) => tool.name));
@@ -14,7 +22,11 @@ export function registerMcpRecovery(pi: ExtensionAPI, controller: McpController)
       pi.registerTool(tool);
     }
   });
-  pi.on("session_shutdown", unsubscribe);
+  pi.on("session_shutdown", () => {
+    unsubscribe();
+    releaseWork?.();
+    releaseWork = undefined;
+  });
   pi.registerCommand("mcp_restart", {
     description: "Retry Kubernetes MCP access (--force replaces a healthy connection)",
     handler: async (args, ctx) => {
@@ -27,7 +39,12 @@ export function registerMcpRecovery(pi: ExtensionAPI, controller: McpController)
         ctx.ui.notify("Kubernetes MCP connecting…", "info");
       }
       const state = await controller.restart(argument === "--force");
-      ctx.ui.notify(state.message, state.status === "ready" ? "info" : "warning");
+      ctx.ui.notify(
+        state.message,
+        state.status === "ready" && controller.clusterContext.state.status !== "enumeration-failed"
+          ? "info"
+          : "warning",
+      );
     },
   });
 }

@@ -26,7 +26,7 @@ export class SreApplication {
     // run() observes cleanup failures; signal callbacks must not float rejections.
     void this.close().catch(() => undefined);
   };
-  private readonly mcp: McpController;
+  private readonly mcpController: McpController;
   private closePromise: Promise<void> | undefined;
   private started = false;
   private previousPiAgentDir: string | undefined;
@@ -36,15 +36,24 @@ export class SreApplication {
     private readonly config: SreConfig,
     intent: StartupClusterIntent = {},
   ) {
-    // Selection intent is session-owned; Slice 3 resolves it after MCP enumeration.
+    // Copy selection intent before the owned MCP lifecycle resolves startup scope.
     this.startupClusterIntent = Object.freeze(
       intent.cluster === undefined ? {} : { cluster: intent.cluster },
     );
-    this.mcp = new McpController(config, this.cancellation.signal);
+    this.mcpController = new McpController(
+      config,
+      this.cancellation.signal,
+      undefined,
+      this.startupClusterIntent,
+    );
+  }
+
+  get clusterContext() {
+    return this.mcpController.clusterContext;
   }
 
   get toolDiscoveryReport(): ToolDiscoveryReport | undefined {
-    return this.mcp.discoveryReport;
+    return this.mcpController.discoveryReport;
   }
 
   async run(): Promise<void> {
@@ -74,9 +83,9 @@ export class SreApplication {
   private async initialize(): Promise<void> {
     await mkdir(this.config.paths.home, { recursive: true, mode: 0o700 });
     if (this.cancellation.signal.aborted) return;
-    const state = await this.mcp.restart(false, true);
+    const state = await this.mcpController.restart(false, true);
     const startupDiagnostics = this.startupDiagnostics;
-    const report = this.mcp.discoveryReport;
+    const report = this.mcpController.discoveryReport;
     if (report) {
       const counts = { exposed: 0, deferred: 0, rejected: 0 };
       for (const decision of report.decisions) counts[decision.status]++;
@@ -87,9 +96,22 @@ export class SreApplication {
     } else {
       startupDiagnostics.push({ type: "warning", message: state.message });
     }
+    const scope = this.mcpController.clusterContext.state;
+    startupDiagnostics.push({
+      type: scope.status === "bound" ? "info" : "warning",
+      message:
+        scope.status === "bound"
+          ? `Cluster: ${scope.context.name} (${scope.scope.source}) | Namespace: * | READ ONLY. ${scope.message}`
+          : scope.message,
+    });
     if (this.cancellation.signal.aborted) return;
     try {
-      this.runtime = await createSreRuntime(this.config, state.tools, () => this.close(), this.mcp);
+      this.runtime = await createSreRuntime(
+        this.config,
+        state.tools,
+        () => this.close(),
+        this.mcpController,
+      );
     } catch (error) {
       throw new SreApplicationError("Pi SRE runtime startup failed.", error);
     }
@@ -127,7 +149,7 @@ export class SreApplication {
           failures.push(error);
         }
         try {
-          await this.mcp.close();
+          await this.mcpController.close();
         } catch (error) {
           failures.push(error);
         }

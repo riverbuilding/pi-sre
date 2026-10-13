@@ -1,5 +1,9 @@
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 
+import { ClusterContextManager } from "../cluster/context-manager.js";
+import type { StartupClusterIntent } from "../cluster/context-resolver.js";
+import { discoverClusterContexts, ContextDiscoveryError } from "../mcp/context-discovery.js";
+
 import type { SreConfig } from "../config/config.js";
 import { loadSreConfig, SreConfigError } from "../config/loader.js";
 import { ManagedMcpConnection, McpStartupError, type McpConnection } from "../mcp/connection.js";
@@ -14,6 +18,7 @@ export interface McpControllerSnapshot {
 
 /** Owns connection generations; a captured tool can never cross to a replacement process. */
 export class McpController {
+  readonly clusterContext: ClusterContextManager;
   private readonly initialConfig: SreConfig;
   private readonly shutdown: AbortSignal;
   private readonly reloadConfig: () => Promise<SreConfig>;
@@ -38,7 +43,9 @@ export class McpController {
       loadSreConfig({
         env: { ...process.env, PI_SRE_CONFIG: initialConfig.paths.config },
       }),
+    intent: StartupClusterIntent = {},
   ) {
+    this.clusterContext = new ClusterContextManager(intent);
     this.initialConfig = initialConfig;
     this.shutdown = shutdown;
     this.reloadConfig = reloadConfig;
@@ -68,7 +75,12 @@ export class McpController {
   restart(force = false, initial = false): Promise<McpControllerSnapshot> {
     if (this.controllerClosePromise || this.shutdown.aborted) return Promise.resolve(this.current);
     if (this.pending) return this.pending;
-    if (!force && this.connection?.state === "ready") return Promise.resolve(this.current);
+    if (
+      !force &&
+      this.connection?.state === "ready" &&
+      this.clusterContext.state.status !== "enumeration-failed"
+    )
+      return Promise.resolve(this.current);
     this.pending = this.replace(initial).finally(() => {
       this.pending = undefined;
     });
@@ -86,6 +98,7 @@ export class McpController {
   }
 
   private async replace(initial: boolean): Promise<McpControllerSnapshot> {
+    const generation = this.clusterContext.beginConnection();
     this.publish({ status: "connecting", message: "Kubernetes MCP connecting…", tools: [] });
     this.report = undefined;
     let discoveryStarted = false;
@@ -128,12 +141,33 @@ export class McpController {
         },
         close: () => connection.close(),
       };
-      const tools = report.exposed.map((tool) => createMcpToolBridge(tool, scoped, config.results));
+      let enumerationError: ContextDiscoveryError | undefined;
+      try {
+        const registry = await discoverClusterContexts(scoped, report, signal);
+        signal.throwIfAborted();
+        if (connection.state !== "ready") throw new Error("Connection dropped during enumeration.");
+        this.clusterContext.acceptRegistry(generation, registry, config.kubernetes.defaultCluster);
+      } catch (error) {
+        if (!(error instanceof ContextDiscoveryError)) throw error;
+        signal.throwIfAborted();
+        enumerationError = error;
+        this.clusterContext.failEnumeration(
+          generation,
+          error.kind,
+          `${error.message} Check MCP configuration and use /mcp_restart to retry.`,
+        );
+      }
+      const tools = enumerationError
+        ? []
+        : report.exposed.map((tool) => createMcpToolBridge(tool, scoped, config.results));
       signal.throwIfAborted();
       if (connection.state !== "ready") throw new Error("Connection dropped during discovery.");
       this.stopObserving = connection.onClose?.(() => {
         this.connectionCancellation.abort();
         this.report = undefined;
+        this.clusterContext.markUnavailable(
+          "Kubernetes MCP transport unavailable. Use /mcp_restart to retry.",
+        );
         this.publish({
           status: "unavailable",
           message: "Kubernetes MCP transport unavailable. Use /mcp_restart to retry.",
@@ -143,7 +177,9 @@ export class McpController {
       this.report = report;
       return this.publish({
         status: "ready",
-        message: `Kubernetes MCP ready: ${tools.length} approved read-only tools.`,
+        message: enumerationError
+          ? this.clusterContext.state.message
+          : `Kubernetes MCP ready: ${tools.length} approved read-only tools.`,
         tools,
       });
     } catch (error) {
@@ -158,6 +194,7 @@ export class McpController {
               : discoveryStarted
                 ? "Kubernetes MCP tool discovery failed."
                 : "Kubernetes MCP connection failed during startup.";
+      this.clusterContext.markUnavailable(`${message} Use /mcp_restart to retry.`);
       return this.publish({
         status: "unavailable",
         message: `${message} Kubernetes tools are unavailable. Check the MCP configuration and use /mcp_restart to retry.`,
@@ -168,10 +205,13 @@ export class McpController {
 
   close(): Promise<void> {
     this.controllerClosePromise ??= (async () => {
+      this.clusterContext.markUnavailable("Kubernetes MCP closing; cluster scope unavailable.");
+      this.publish({ status: "unavailable", message: "Kubernetes MCP closing.", tools: [] });
       this.connectionCancellation.abort();
       await this.pending;
       await this.retire();
       this.publish({ status: "unavailable", message: "Kubernetes MCP closed.", tools: [] });
+      this.clusterContext.dispose();
       this.listeners.clear();
     })();
     return this.controllerClosePromise;

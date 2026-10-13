@@ -21,7 +21,10 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
   const pids: string[] = [];
   let reloadHome: string | undefined;
 
-  async function configure(scenario = "bridge", command = process.execPath): Promise<void> {
+  async function configure(
+    scenario = "contexts-runtime",
+    command = process.execPath,
+  ): Promise<void> {
     const pid = join(home, `child-${generation++}.pid`);
     pids.push(pid);
     await writeFile(
@@ -95,7 +98,7 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
   });
 
   it("recovers from startup and repeated retry failures without replacing the session", async () => {
-    await configure("bridge", "/no/such/mcp");
+    await configure("contexts-runtime", "/no/such/mcp");
     await start();
     const session = runtime.session;
     session.sessionManager.appendCustomEntry("preserved", { value: 42 });
@@ -114,6 +117,8 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
     expect(JSON.stringify(await invoke())).toContain("prod");
     let turns = 0;
     session.agent.streamFunction = (model, context) => {
+      expect(controller.clusterContext.isAgentActive).toBe(true);
+      expect(() => controller.clusterContext.select("prod")).toThrow("active agent");
       const first = turns++ === 0;
       if (!first) {
         expect(context.messages.find((message) => message.role === "toolResult")).toMatchObject({
@@ -161,13 +166,19 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
     };
     await session.agent.prompt("List configured contexts");
     expect(turns).toBe(2);
+    expect(controller.clusterContext.isAgentActive).toBe(false);
     const messages = [...session.agent.state.messages];
     await command("--force");
     expect(session.agent.state.messages).toEqual(messages);
 
     session.setActiveToolsByName(["bash", "read", "pods_list", "configuration_contexts_list"]);
     expect(session.getActiveToolNames()).toEqual(["configuration_contexts_list"]);
+    controller.clusterContext.select("prod");
+    const scope = controller.clusterContext.captureScope();
     await runtime.newSession();
+    expect(controller.clusterContext.captureScope()).toBe(scope);
+    await runtime.session.reload();
+    expect(controller.clusterContext.captureScope()).toBe(scope);
     expect(runtime.session.getActiveToolNames()).toEqual(["configuration_contexts_list"]);
     await configure("empty-tools");
     await command("--force");
@@ -185,7 +196,7 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
   });
 
   it("cancels an active call before forced replacement and blocks captured stale tools", async () => {
-    await configure("call-timeout");
+    await configure("contexts-call-timeout");
     await start();
     const old = runtime.session.getToolDefinition("configuration_contexts_list");
     const active = invoke(old);

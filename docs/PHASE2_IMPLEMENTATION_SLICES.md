@@ -1,6 +1,6 @@
 # Phase 2 Implementation Slices
 
-**Status:** Slice 0 complete (2026-10-07); Slice 1 complete (2026-10-08); Slice 2 complete (2026-10-09); Slices 3–9 planned
+**Status:** Slice 0 complete (2026-10-07); Slice 1 complete (2026-10-08); Slice 2 complete (2026-10-09); Slice 3 complete (2026-10-09); Slices 4–9 planned
 
 **Applies to:** Pi SRE V0.1, Phase 2 — Cluster Context Management
 
@@ -244,6 +244,14 @@ Table-driven resolver, CLI, config, application ownership, and packed-executable
 - Help remains usable without loading application configuration or starting MCP.
 
 ## 9. Slice 3 — Own Cluster State and Integrate Startup
+
+**Completed (2026-10-09):** The session-owned `ClusterContextManager` publishes immutable, discriminated scope state with selection provenance, connection generation, registry revision, subscriptions, and immutable dispatch snapshots. Programmatic selection validates exact membership, rejects stale revisions and active agent work, and preserves state on invalid or same-name selections. Pi lifecycle hooks track agent work without deriving authority from conversation history.
+
+The owned MCP startup path now discovers descriptors, enumerates once on that same connection, resolves startup inputs, and only then publishes tools. Transport readiness remains separate from enumeration and selection readiness; invalid, incompatible, timed-out, and authentication-failed enumeration has safe, specific diagnostics and no exposed tools. The TUI still opens in degraded states. Restart, transport loss, and close invalidate scope; replacement retains exact selection intent and never applies new defaults to a resolved unbound session. Pending startup resolution uses refreshed configuration on successful retry. More extensive recovery acceptance remains Slice 8.
+
+Unit and real-Pi/fake-stdio integration tests cover state isolation, startup precedence, single application-side enumeration, distinct operational states, revision/generation guards, active-turn enforcement, conversation replacement/reload, and existing cleanup/cancellation behavior. Production diagnostic tools remain deferred; `/cluster`, `/context`, continuous status, model scope guidance, and bridge context enforcement remain later slices.
+
+Validation: `npm run format:check`, `npm run lint`, `npm run check`, `npm test`, and `npm run build` passed. The offline suite covers this slice; the executable-dependent contract probes and live scope acceptance are not claimed by this work.
 
 **Outcome:** The running application has one authoritative scope manager coordinated with the MCP lifecycle.
 

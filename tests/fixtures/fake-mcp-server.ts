@@ -1,4 +1,4 @@
-import { writeFileSync } from "node:fs";
+import { appendFileSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 
 interface FixtureParams {
@@ -79,6 +79,25 @@ function callToolResult(scenario: string, params?: FixtureParams): Record<string
           content: [{ type: "text", text: "401 Unauthorized token=PRIVATE_FIXTURE" }],
           isError: true,
         };
+      case "contexts-no-default":
+        return {
+          content: [],
+          structuredContent: {
+            contexts: VALID_CONTEXTS.map((entry) => ({ ...entry, default: false })),
+          },
+        };
+      case "contexts-runtime":
+        return {
+          content: [],
+          structuredContent: {
+            defaultContext: "dev",
+            contexts: ["dev", "prod"].map((name) => ({
+              name,
+              server: "https://example.invalid",
+              default: name === "dev",
+            })),
+          },
+        };
       default:
         return {
           content: [{ type: "text", text: "untrusted presentation" }],
@@ -122,6 +141,7 @@ function callToolResult(scenario: string, params?: FixtureParams): Record<string
   }
 }
 
+let toolCalls = 0;
 const input = createInterface({ input: process.stdin });
 input.on("line", (line) => {
   if (scenario === "timeout" || scenario === "malformed") return;
@@ -133,6 +153,14 @@ input.on("line", (line) => {
     id: number;
     params?: FixtureParams;
   };
+  if (method === "tools/call") {
+    toolCalls++;
+    if (process.argv[3]) appendFileSync(`${process.argv[3]}.calls`, `${JSON.stringify(params)}\n`);
+  }
+  if (method === "tools/call" && scenario === "contexts-call-timeout" && toolCalls > 1) {
+    if (process.argv[3]) writeFileSync(`${process.argv[3]}.call`, "started");
+    return;
+  }
   if (method === "tools/call" && (scenario === "call-timeout" || scenario === "contexts-timeout")) {
     if (process.argv[3]) writeFileSync(`${process.argv[3]}.call`, "started");
     return;
