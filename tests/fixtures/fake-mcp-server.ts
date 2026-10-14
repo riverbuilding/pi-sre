@@ -1,5 +1,6 @@
 import { appendFileSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
+import { scopedPodTool } from "./scoped-tool.js";
 
 interface FixtureParams {
   readonly cursor?: string;
@@ -29,6 +30,18 @@ if (scenario === "exit") process.exit(7);
 if (scenario === "malformed") process.stdout.write("this is not json\n");
 
 function listToolsResult(scenario: string, params?: FixtureParams): Record<string, unknown> {
+  if (scenario.startsWith("scoped-")) {
+    return {
+      tools: [
+        {
+          name: "configuration_contexts_list",
+          inputSchema: { type: "object", properties: {} },
+          annotations: { readOnlyHint: true, destructiveHint: false },
+        },
+        scopedPodTool,
+      ],
+    };
+  }
   if (scenario === "paginated" && !params?.cursor) {
     return {
       tools: [
@@ -64,6 +77,36 @@ function listToolsResult(scenario: string, params?: FixtureParams): Record<strin
 }
 
 function callToolResult(scenario: string, params?: FixtureParams): Record<string, unknown> {
+  if (scenario.startsWith("scoped-")) {
+    if (params?.name === "configuration_contexts_list") {
+      return {
+        content: [],
+        structuredContent: { defaultContext: "alpha", contexts: VALID_CONTEXTS },
+      };
+    }
+    if (
+      params?.name !== "pods_list" ||
+      !["alpha", "beta"].includes(String(params.arguments?.context))
+    ) {
+      return { content: [{ type: "text", text: "Invalid arguments" }], isError: true };
+    }
+    if (scenario === "scoped-error") {
+      return {
+        content: [{ type: "text", text: "401 Unauthorized token=PRIVATE_FIXTURE" }],
+        isError: true,
+      };
+    }
+    if (scenario === "scoped-malformed") return { content: [{ type: "text", text: 1 }] };
+    return {
+      content: [],
+      structuredContent: {
+        pods:
+          scenario === "scoped-empty"
+            ? []
+            : [{ name: `${String(params.arguments?.context)}-pod`, token: "PRIVATE_FIXTURE" }],
+      },
+    };
+  }
   if (scenario.startsWith("contexts-")) {
     if (
       params?.name !== "configuration_contexts_list" ||
@@ -161,6 +204,8 @@ input.on("line", (line) => {
     if (process.argv[3]) writeFileSync(`${process.argv[3]}.call`, "started");
     return;
   }
+  if (method === "tools/call" && scenario === "scoped-timeout" && params?.name === "pods_list")
+    return;
   if (method === "tools/call" && (scenario === "call-timeout" || scenario === "contexts-timeout")) {
     if (process.argv[3]) writeFileSync(`${process.argv[3]}.call`, "started");
     return;

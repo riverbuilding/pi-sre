@@ -100,7 +100,10 @@ describe("MCP tool bridge", () => {
       details: { failureCategory: "invalid-arguments" },
     });
     expect(callTool).not.toHaveBeenCalled();
-    for (const unsafe of ["pods_list", "configuration_view", "bash"]) {
+    expect(() => createMcpToolBridge({ ...descriptor, name: "pods_list" }, { callTool })).toThrow(
+      "requires an application-owned scope binding",
+    );
+    for (const unsafe of ["configuration_view", "bash"]) {
       expect(() => createMcpToolBridge({ ...descriptor, name: unsafe }, { callTool })).toThrow(
         "not approved",
       );

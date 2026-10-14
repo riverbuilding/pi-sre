@@ -16,6 +16,11 @@ export type ToolFailureCategory =
   | "authorization-failed"
   | "invalid-arguments"
   | "tool-execution-failed"
+  | "tool-not-approved"
+  | "scope-unbound"
+  | "scope-unavailable"
+  | "stale-scope"
+  | "incompatible-schema"
   | "timeout";
 
 export interface NormalizedMcpResult {
@@ -56,6 +61,15 @@ const TRUNCATION_NOTICE = "\n[Result truncated]";
 const EMPTY_SUCCESS = "Tool completed successfully with no content.";
 
 const FAILURE_MESSAGES: Record<ToolFailureCategory, string> = {
+  "tool-not-approved": "This Kubernetes MCP tool is not approved for execution.",
+  "scope-unbound":
+    "Cluster NOT SELECTED. Use /cluster or --cluster <name> before querying Kubernetes.",
+  "scope-unavailable":
+    "Selected cluster context is unavailable. Check MCP status and use /cluster or /mcp_restart.",
+  "stale-scope":
+    "Cluster scope or MCP connection changed. The stale operation result was withheld; retry with the current scope.",
+  "incompatible-schema":
+    "The Kubernetes MCP tool schema cannot accept the selected explicit context. Check server compatibility.",
   "transport-unavailable":
     "Kubernetes MCP transport is unavailable. Check the MCP connection and restart pi-sre.",
   "authentication-failed": "Kubernetes authentication failed. Check the configured credentials.",
@@ -119,7 +133,7 @@ export function normalizeToolFailure(
 }
 
 /** Shared item budget across all arrays/object fields; no raw object enters details. */
-function renderStructured(
+function sanitizeAndSerializeStructuredResult(
   value: Record<string, JsonValue>,
   policy: ResultPolicy,
 ): { text: string; truncated: boolean } {
@@ -187,7 +201,7 @@ export function normalizeMcpResult(
     return normalizeToolFailure(classifyToolFailure(messages.join("\n")), policy);
   }
   if (structured.success) {
-    const rendered = renderStructured(structured.data, policy);
+    const rendered = sanitizeAndSerializeStructuredResult(structured.data, policy);
     return {
       ...bounded(rendered.text, rendered.truncated, policy),
       status: "success",

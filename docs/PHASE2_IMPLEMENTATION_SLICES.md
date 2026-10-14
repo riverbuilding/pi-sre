@@ -1,6 +1,6 @@
 # Phase 2 Implementation Slices
 
-**Status:** Slice 0 complete (2026-10-07); Slice 1 complete (2026-10-08); Slice 2 complete (2026-10-09); Slice 3 complete (2026-10-09); Slices 4–9 planned
+**Status:** Slice 0 complete (2026-10-07); Slice 1 complete (2026-10-08); Slice 2 complete (2026-10-09); Slice 3 complete (2026-10-09); Slice 4 complete (2026-10-13); Slices 5–9 planned
 
 **Applies to:** Pi SRE V0.1, Phase 2 — Cluster Context Management
 
@@ -274,7 +274,19 @@ Validation: `npm run format:check`, `npm run lint`, `npm run check`, `npm test`,
 
 ## 10. Slice 4 — Enforce Scope in the Tool Bridge
 
+**Completed (2026-10-13):** The bridge retains the server input schema and derives a separate model-facing schema without application-owned `context`. Pi's public `prepareArguments` hook strips attempted context overrides before Pi validates arguments; the execution handler independently strips them for direct callers. Each execution rechecks tool approval, connection readiness/generation, model arguments, and scope binding, then injects the exact immutable dispatch context and validates the final server arguments. Scoped direct calls hold the manager's active-work guard until transport settles. Cancellation and scope/generation freshness checks withhold late payloads after connection replacement or loss.
+
+Results include originating context, connection generation, registry revision, read-only state, and an applicable namespace argument in safe details and bounded model-facing text. An omitted namespace is explicitly described as server/context policy, without claiming all-namespace coverage. Existing normalization, redaction, timeouts, item/text budgets, and disabled raw retention remain in force. Local failures distinguish unbound/unavailable scope, stale work, incompatible context constraints, invalid arguments, and transport/tool failures.
+
+`evaluateToolExecutionPolicy` permits the scoped `pods_list` bridge capability, while discovery still defers all production cluster-dependent tools. Only test-owned tool registration exercises the capability in this slice; application tool publication remains unchanged except for supplying its generation binding. Other diagnostic tools wait for Slice 7 review.
+
+Unit tests cover the frozen 0.0.67 descriptor, synthetic required/enum constraints, namespace independence, execution-policy rechecks, zero-request failures, cancellation, idle selection, stale-result suppression, and bounded/redacted presentation. Real Pi agent-loop/fake-stdio tests verify exact selected-context transport arguments with omitted and foreign model context, discovery deferral, empty success, malformed results, authentication failure, timeout, and cancellation.
+
+Validation: `npm run format:check`, `npm run lint`, `npm run check`, `npm test` (350 passed; 7 executable-dependent contract tests skipped), and `npm run build` passed. Live cluster targeting and production exposure remain later-slice acceptance work.
+
 **Outcome:** One scoped read-only tool works end to end in deterministic integration tests, and attempted model scope overrides cannot alter its target. Production exposure waits for the visible scope UX in Slice 6 and the per-tool review in Slice 7.
+
+See [Slice 4 clarifications](./PHASE2_SLICE4_CLARIFICATIONS.md) for server and model-facing schema terminology, execution-time policy checks, and context versus namespace ownership.
 
 ### Work
 

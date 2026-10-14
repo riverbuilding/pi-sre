@@ -159,7 +159,12 @@ export class McpController {
       }
       const tools = enumerationError
         ? []
-        : report.exposed.map((tool) => createMcpToolBridge(tool, scoped, config.results));
+        : report.exposed.map((tool) =>
+            createMcpToolBridge(tool, scoped, config.results, {
+              manager: this.clusterContext,
+              connectionGeneration: generation,
+            }),
+          );
       signal.throwIfAborted();
       if (connection.state !== "ready") throw new Error("Connection dropped during discovery.");
       this.stopObserving = connection.onClose?.(() => {

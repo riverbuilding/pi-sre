@@ -20,6 +20,15 @@ export function isPhase1AllowedMcpTool(name: string): name is Phase1AllowedMcpTo
 }
 
 export function evaluateToolPolicy(tool: McpToolDescriptor): ToolPolicyDecision {
+  return evaluatePolicy(tool, false);
+}
+
+/** Bridge capability only; discovery still defers production diagnostics until Slice 7. */
+export function evaluateToolExecutionPolicy(tool: McpToolDescriptor): ToolPolicyDecision {
+  return evaluatePolicy(tool, true);
+}
+
+function evaluatePolicy(tool: McpToolDescriptor, scopedExecution: boolean): ToolPolicyDecision {
   if (!isPhase1AllowedMcpTool(tool.name) && !CLUSTER_DEPENDENT_TOOLS.has(tool.name)) {
     return { status: "rejected", reason: "not-allowlisted" };
   }
@@ -29,7 +38,7 @@ export function evaluateToolPolicy(tool: McpToolDescriptor): ToolPolicyDecision 
   if (tool.annotations.destructiveHint === true) {
     return { status: "rejected", reason: "destructive" };
   }
-  if (CLUSTER_DEPENDENT_TOOLS.has(tool.name)) {
+  if (CLUSTER_DEPENDENT_TOOLS.has(tool.name) && !(scopedExecution && tool.name === "pods_list")) {
     return { status: "deferred", reason: "cluster-context-required" };
   }
   return { status: "exposed" };
