@@ -1,6 +1,6 @@
 # Phase 2 Implementation Slices
 
-**Status:** Slice 0 complete (2026-10-07); Slice 1 complete (2026-10-08); Slice 2 complete (2026-10-09); Slice 3 complete (2026-10-09); Slice 4 complete (2026-10-13); Slices 5–9 planned
+**Status:** Slice 0 complete (2026-10-07); Slice 1 complete (2026-10-08); Slice 2 complete (2026-10-09); Slice 3 complete (2026-10-09); Slice 4 complete (2026-10-13); Slice 5 complete (2026-10-14); Slices 6–9 planned
 
 **Applies to:** Pi SRE V0.1, Phase 2 — Cluster Context Management
 
@@ -56,7 +56,7 @@ The installed Pi runtime and MCP client are both 0.99.0, upgraded during Phase 1
 - MCP-backed context enumeration and a validated context registry;
 - application-owned active-cluster state and selection provenance;
 - deterministic startup resolution and recoverable selection errors;
-- `--cluster`, `/cluster`, and operational `/context`;
+- `--cluster`, `/cluster`, and operational `/cluster --status`;
 - a continuously visible cluster, namespace, read-only, and MCP status;
 - explicit context injection into a small approved diagnostic tool surface;
 - protection against model-controlled context and cross-cluster call races;
@@ -100,7 +100,8 @@ Syntactically invalid CLI arguments fail before application startup. A context n
 ### Selection and concurrency
 
 - `/cluster <name>` changes active application state only after exact registry validation.
-- `/cluster` without arguments opens Pi's selector; cancellation changes nothing.
+- `/cluster` without arguments opens Pi's context picker showing the current selection; cancellation changes nothing.
+- `/cluster --status` reports current operational scope and connection details without changing selection. Status reporting shares the `/cluster` command; there is no separate `/context` command. Selection remains Slice 5 work; status reporting and the persistent footer remain Slice 6 work.
 - Selection requires a current registry from a ready connection. Cached names during disconnection are informational only.
 - Reject a cluster change while the agent is generating, executing tools, or otherwise running an agent loop. Guide the user to wait or cancel, then retry. Recheck after any awaited selector interaction.
 - Application enforcement also protects programmatic callers; a UI-only idle check is insufficient.
@@ -158,8 +159,8 @@ src/
 │   ├── system-prompt.ts               # operational scope guidance
 │   └── pi-runtime.ts                  # SRE extension registration
 └── tui/
-    ├── cluster-command.ts             # thin selector/command wiring
-    ├── context-command.ts             # operational status rendering
+    ├── cluster-command.ts             # selection and status command wiring
+    ├── cluster-status.ts              # operational status rendering
     ├── status-widget.ts               # continuously visible scope
     └── mcp-restart-command.ts          # existing recovery command
 ```
@@ -183,7 +184,7 @@ Keep selected context, selection source (`cli`, `config`, `mcp-default`, or `use
 - Verify how the server exposes explicit `context` for candidate diagnostic tools, including any required server configuration. If the supported setup cannot enumerate contexts or honor explicit context, report that compatibility blocker instead of falling back to implicit scope.
 - Define the narrow supported response forms: prefer validated structured content; parse text only when it matches an explicitly supported, fixture-backed format. Never infer contexts from prose or parse kubeconfig in Pi SRE.
 - Set application-side limits for context response bytes, entries, and field lengths. Exceeding a limit fails enumeration visibly; do not create an authoritative registry from truncated data.
-- Verify Pi 0.99 public APIs for selection, status, agent-idle checks, model-context hooks, and command dispatch. Check `/context` against built-in commands and prove the requested operational command is reachable.
+- Verify Pi 0.99 public APIs for selection, status, agent-idle checks, model-context hooks, and command dispatch. Verify `/cluster` command dispatch against built-in commands; the original Slice 0 `/context` probe is historical API evidence, while the merged `/cluster --status` behavior is covered in Slice 6.
 - Freeze the startup, switching, recovery, and model-context contracts in Section 4.
 
 ### Acceptance criteria and tests
@@ -249,7 +250,7 @@ Table-driven resolver, CLI, config, application ownership, and packed-executable
 
 The owned MCP startup path now discovers descriptors, enumerates once on that same connection, resolves startup inputs, and only then publishes tools. Transport readiness remains separate from enumeration and selection readiness; invalid, incompatible, timed-out, and authentication-failed enumeration has safe, specific diagnostics and no exposed tools. The TUI still opens in degraded states. Restart, transport loss, and close invalidate scope; replacement retains exact selection intent and never applies new defaults to a resolved unbound session. Pending startup resolution uses refreshed configuration on successful retry. More extensive recovery acceptance remains Slice 8.
 
-Unit and real-Pi/fake-stdio integration tests cover state isolation, startup precedence, single application-side enumeration, distinct operational states, revision/generation guards, active-turn enforcement, conversation replacement/reload, and existing cleanup/cancellation behavior. Production diagnostic tools remain deferred; `/cluster`, `/context`, continuous status, model scope guidance, and bridge context enforcement remain later slices.
+Unit and real-Pi/fake-stdio integration tests cover state isolation, startup precedence, single application-side enumeration, distinct operational states, revision/generation guards, active-turn enforcement, conversation replacement/reload, and existing cleanup/cancellation behavior. Production diagnostic tools remain deferred; `/cluster`, `/cluster --status`, continuous status, model scope guidance, and bridge context enforcement remain later slices.
 
 Validation: `npm run format:check`, `npm run lint`, `npm run check`, `npm test`, and `npm run build` passed. The offline suite covers this slice; the executable-dependent contract probes and live scope acceptance are not claimed by this work.
 
@@ -309,11 +310,20 @@ See [Slice 4 clarifications](./PHASE2_SLICE4_CLARIFICATIONS.md) for server and m
 
 ## 11. Slice 5 — Add `/cluster` and Safe Runtime Switching
 
+**Completed (2026-10-14):** `/cluster` opens Pi's public context picker with the current selection in its title; `/cluster <exact-name>` commits through the application-owned manager. Names are passed without trimming or case folding. Successful selection shows the exact name, provenance, namespace policy, and read-only state without claiming verified Kubernetes access. Cancellation, unknown names, and same-name selections preserve state. Empty, unavailable, and failed inventories give operational guidance without offering cached choices.
+
+The cluster extension owns per-session agent-work guards. Fixed scope policy lives in the stable system prompt; initial scope and semantic scope/availability changes are appended as persistent custom messages via Pi's public API. These messages remain in history so later model requests extend the previous prefix instead of relocating a transient guidance message on every call. Unchanged state and reloads add no duplicate messages. Active-turn changes use Pi's steering queue to preserve tool-call/result ordering; a turn-start hook restores a missing or outdated snapshot after compaction/navigation. Messages inform the model; the manager and tool bridge independently enforce targeting. Selection checks Pi idleness before and after the picker; the manager checks active work, current registry authority, and captured revision before synchronous commit. Restart and selection races cannot commit stale choices. Commands and guards survive session replacement/reload without restarting MCP or replacing prior observations. Production diagnostics remain deferred until Slice 7; their existing captured handlers enforce current scope at dispatch.
+
+Real-Pi/fake-stdio integration tests cover direct selection, picker choice/cancellation, invalid and same-name selection, startup selection-error recovery, empty/failed/unavailable enumeration, stale picker choices after restart, active work, and extension reload. The test-owned scoped pod bridge proves active-turn switching is refused and an idle switch routes the next agent-loop call to the new exact context while preserving prior observations, transcript, and a synthetic kubeconfig fixture. Recorded MCP requests contain only enumeration and read-only pod calls. Live terminal and cross-cluster acceptance remain later-slice work; `/cluster --status` and the persistent footer remain Slice 6.
+
+Validation after the scope-message review: focused tests passed, followed by `npm run format:check`, `npm run lint`, `npm run check`, `npm test` (360 passed, 7 executable-dependent contract tests skipped), and `npm run build`. Request-prefix assertions cover unchanged tool-loop requests, an idle switch, and active connection loss. Lifecycle tests cover initial snapshots, reload deduplication, compaction restoration, and shutdown cleanup; no live provider cache hit rate is claimed.
+
 **Outcome:** The user can select a context through the TUI while the application enforces stable scope during active work.
 
 ### Work
 
-- Register `/cluster <exact-name>` and the no-argument selector using public Pi APIs.
+- `/cluster` → show a context picker using public Pi TUI APIs, showing the current selection.
+- `/cluster <exact-name>` → select that context directly, after validating it exists.
 - Show selection and provenance clearly; preserve state on selector cancellation or invalid input.
 - Reject switching during an active agent loop or MCP transition. Revalidate readiness, registry revision, and idle state after the selector returns.
 - Commit the new selection synchronously through the application manager before publishing status or accepting new diagnostic work.
@@ -330,15 +340,15 @@ See [Slice 4 clarifications](./PHASE2_SLICE4_CLARIFICATIONS.md) for server and m
 
 ## 12. Slice 6 — Make Operational Scope Visible to User and Model
 
-**Outcome:** User status, `/context`, model guidance, and execution use the same authoritative scope.
+**Outcome:** User status, `/cluster --status`, model guidance, and execution use the same authoritative scope.
 
 ### Work
 
-- Register operational `/context` to report selected context, selection source, namespace policy, read-only state, registry state, and MCP state. Show only sanitized endpoint metadata if useful; never credentials or kubeconfig.
+- Add the `--status` flag to the existing `/cluster` command to report selected context, selection source, namespace policy, read-only state, registry state, and MCP state without changing selection, including when unbound or unavailable. Show only sanitized endpoint metadata if useful; never credentials or kubeconfig.
 - Use Pi's public status/footer APIs to display `context | Namespace: * | READ ONLY | MCP status` continuously.
 - Distinguish `NOT SELECTED`, `NOT CONFIGURED`, and unavailable/failed enumeration. If displaying a previous selection while disconnected, label it unavailable rather than ready.
 - Keep the scope and read-only indication readable on narrow terminals; verify wrapping/truncation does not hide the safety state.
-- Supply current operational scope through a public Pi prompt/context hook. Refresh guidance for each model request so connection loss or restart during a turn cannot leave a stale access claim.
+- Keep fixed operational rules in the stable system prompt. Publish scope/availability changes as persistent application messages; use public Pi steering for active-turn updates and restore a missing snapshot after compaction or navigation. Do not append transient guidance or rewrite the prompt on every model request. Scope enforcement remains in the manager and tool bridge.
 - Explain that selection is application-owned, historical observations belong to their recorded context, cross-cluster searching is prohibited, and unbound calls are blocked.
 - Dispose subscriptions on session replacement, extension reload, and shutdown; preserve Pi's model/session UI and resource isolation.
 
@@ -416,7 +426,7 @@ Add deterministic full-path tests for startup precedence, invalid selection, emp
 1. Record package revision, Node/Pi/MCP versions, OS/terminal, and model identifier without credentials. Use the installed package outside the checkout.
 2. Prepare two distinguishable MCP contexts backed by read-only credentials and fixtures. Prefer two local kind clusters for cross-cluster proof. The Phase 1 namespace contexts point at one cluster and alone do not prove different cluster routing.
 3. Confirm the actual MCP server exposes context enumeration and explicit context parameters. Establish distinct non-sensitive resource markers in each cluster through the test setup, outside Pi SRE.
-4. Launch with `--cluster <A>`. Check `/context`, footer, and a model-driven pod/event observation; assert that only A's marker appears.
+4. Launch with `--cluster <A>`. Check `/cluster --status`, footer, and a model-driven pod/event observation; assert that only A's marker appears.
 5. While idle, select B with `/cluster` and repeat. Confirm B's marker, retained conversation, and unchanged kubeconfig content/current context.
 6. Attempt a switch during a pending model/tool operation. Confirm refusal and preservation of that operation's original scope.
 7. Exercise CLI precedence, configured default, MCP fallback, unknown CLI/config names, and unbound/no-default behavior using dedicated safe configurations.
@@ -432,7 +442,7 @@ Create `docs/PHASE2_ACCEPTANCE.md` in this slice with pass/fail evidence and lim
 
 - Contexts come only from validated MCP enumeration on the application-owned connection.
 - Startup precedence and invalid-selection behavior are deterministic.
-- `--cluster`, `/cluster`, and operational `/context` work in the installed application.
+- `--cluster`, `/cluster`, and operational `/cluster --status` work in the installed application.
 - Selected cluster, namespace policy, read-only mode, and MCP availability are continuously visible.
 - Every approved cluster-dependent request contains the authoritative explicit context.
 - Model arguments, stale tool handlers, active-turn switches, and recovery cannot alter a call's target.

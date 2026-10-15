@@ -9,6 +9,7 @@ import {
 
 import type { McpController } from "../app/mcp-controller.js";
 import { registerMcpRecovery } from "../tui/mcp-restart-command.js";
+import { registerClusterScope } from "../tui/cluster-extension.js";
 import type { SreConfig } from "../config/config.js";
 import { createSreResourceLoaderOptions } from "./resource-loader.js";
 import { SreRuntime } from "./sre-runtime.js";
@@ -39,7 +40,10 @@ export async function createSreRuntime(
                 {
                   name: "pi-sre-mcp-recovery",
                   hidden: true,
-                  factory: (pi: ExtensionAPI) => registerMcpRecovery(pi, mcpController),
+                  factory: (pi: ExtensionAPI) => {
+                    registerMcpRecovery(pi, mcpController);
+                    registerClusterScope(pi, mcpController.clusterContext);
+                  },
                 },
               ]
             : []),

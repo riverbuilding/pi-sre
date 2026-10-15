@@ -93,9 +93,13 @@ Verified against installed declaration files and implementation, with an offline
 | Turn-start prompt policy    | `before_agent_start` exposes mutable `systemPromptOptions`; its `systemPrompt` string is readonly. A turn-start hook alone cannot refresh scope between tool-loop requests.                                                                                                                     |
 | Subscription lifecycle      | `pi.on` returns an unsubscribe function; `session_shutdown` is available for session-scoped cleanup.                                                                                                                                                                                            |
 
+The original Slice 0 probe used a separate `/context` command. The current command design merges status reporting into `/cluster --status`; selection remains Slice 5 work and status/footer reporting remains Slice 6 work. The evidence below records the original probe, not verification of the merged status flag.
+
 There is **no built-in `/context` command** in Pi 0.99.0's installed slash-command inventory or interactive interception table. The test registers `/context` and `/cluster` through an isolated inline extension and dispatches both via the real public session API. It verifies arguments, selection/cancellation, status calls, idle reporting, refreshed context-hook output, and no model transcript. Interactive source inspection checks `/context` is not intercepted. Physical terminal layout and active-turn application switching enforcement remain later-slice acceptance work.
 
 No private fields, runtime method reassignment, or production command registration are needed for these contracts. Historical conversation text remains nonauthoritative.
+
+The `context` probe records API capability, not the current production message strategy. Following Slice 5 review, fixed scope rules stay in the stable system prompt, and initial scope plus semantic changes are persisted through `pi.sendMessage`. Active-turn updates use steering; a turn-start hook restores snapshots removed by compaction/navigation. No production `context` handler appends scope guidance on every LLM request. The manager and bridge remain the scope authority.
 
 ## Frozen application behavior
 

@@ -651,6 +651,9 @@ Active Cluster
 Available clusters come from MCP.
 
 Active cluster is application/session state owned by Pi SRE.
+Its identity is the exact selected MCP Kubernetes context name.
+A Kubernetes cluster is the system being investigated; a Kubernetes context is a named access configuration for reaching it.
+Multiple contexts can refer to the same cluster and remain distinct selectable targets. Pi SRE does not deduplicate them by server endpoint.
 
 Example:
 
@@ -899,7 +902,7 @@ Pi SRE provides a runtime command:
 /cluster
 ```
 
-Without an argument it opens an interactive context selector.
+Without an argument it opens a context picker using public Pi TUI APIs. The picker shows the current selection.
 
 Example:
 
@@ -917,7 +920,15 @@ With an argument:
 /cluster prod-eu
 ```
 
-the active cluster changes immediately.
+the exact context name is validated against the current MCP registry, then selected when switching is allowed. Active work and MCP transitions block switching.
+
+To inspect the current scope without selecting a context:
+
+```text
+/cluster --status
+```
+
+This displays operational scope and connection details as described in Section 51. Selection and status share the `/cluster` command; there is no separate `/context` command.
 
 ---
 
@@ -1651,7 +1662,7 @@ Initial commands:
 
 ```text
 /cluster
-/context
+/cluster --status
 /incident
 /evidence
 ```
@@ -1666,9 +1677,9 @@ Potential later commands:
 
 ---
 
-# 51. `/context`
+# 51. `/cluster --status`
 
-`/context` should display operational context clearly.
+`/cluster --status` displays the selected context, selection source, namespace policy, read-only state, registry state, and MCP state without changing selection. It remains useful when scope is unbound or MCP is unavailable. Only sanitized endpoint metadata may be shown.
 
 Example:
 
@@ -1745,7 +1756,7 @@ Display:
 ```text
 Kubernetes MCP unavailable.
 
-Use /context for connection details.
+Use /cluster --status for connection details.
 ```
 
 The agent should not hallucinate infrastructure access.
@@ -1993,7 +2004,7 @@ pi-sre/
 │   └── tui/
 │       ├── extension.ts
 │       ├── cluster-command.ts
-│       ├── context-command.ts
+│       ├── cluster-status.ts
 │       └── status-widget.ts
 │
 ├── skills/
@@ -2101,7 +2112,7 @@ ClusterContextManager
 config.defaultCluster
 MCP default fallback
 /cluster
-/context
+/cluster --status
 TUI cluster footer
 context injection into MCP calls
 ```
@@ -2178,7 +2189,7 @@ Add:
 
 ```text
 /cluster
-/context
+/cluster --status
 /incident
 /evidence
 

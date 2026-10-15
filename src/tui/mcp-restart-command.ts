@@ -3,14 +3,6 @@ import type { McpController } from "../app/mcp-controller.js";
 
 /** Pi's public registerTool refreshes the registry; hidden tools are unreachable. */
 export function registerMcpRecovery(pi: ExtensionAPI, controller: McpController): void {
-  let releaseWork: (() => void) | undefined;
-  pi.on("agent_start", () => {
-    releaseWork ??= controller.clusterContext.beginAgentWork();
-  });
-  pi.on("agent_end", () => {
-    releaseWork?.();
-    releaseWork = undefined;
-  });
   const registered = new Map<string, ToolDefinition>();
   const unsubscribe = controller.subscribe(({ tools }) => {
     const names = new Set(tools.map((tool) => tool.name));
@@ -24,8 +16,6 @@ export function registerMcpRecovery(pi: ExtensionAPI, controller: McpController)
   });
   pi.on("session_shutdown", () => {
     unsubscribe();
-    releaseWork?.();
-    releaseWork = undefined;
   });
   pi.registerCommand("mcp_restart", {
     description: "Retry Kubernetes MCP access (--force replaces a healthy connection)",

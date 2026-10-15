@@ -1,16 +1,12 @@
-import {
-  DefaultResourceLoader,
-  type createAgentSessionServices,
-} from "@earendil-works/pi-coding-agent";
+import type { createAgentSessionServices } from "@earendil-works/pi-coding-agent";
 
 import { createSreSystemPrompt } from "./system-prompt.js";
 
 type ResourceLoaderOptions = NonNullable<
   Parameters<typeof createAgentSessionServices>[0]["resourceLoaderOptions"]
 >;
-type LoaderConstructionOptions = ConstructorParameters<typeof DefaultResourceLoader>[0];
 
-/** Shared V0.1 resource policy for Pi's service factory and standalone loader tests. */
+/** V0.1 resource policy for Pi's service factory. */
 export function createSreResourceLoaderOptions(): ResourceLoaderOptions {
   return {
     // Loaded now: the Pi SRE prompt is supplied in code, so project or agent-home
@@ -29,19 +25,4 @@ export function createSreResourceLoaderOptions(): ResourceLoaderOptions {
     // Keep Pi's project/global skill discovery off until that loading path exists.
     noSkills: true,
   };
-}
-
-/**
- * Construct Pi's loader with the V0.1 SRE resource boundary.
- * Loaded now: the code-owned SRE system prompt. The runtime separately adds its
- * own inline shell guard extension.
- * Excluded: project/global context files, extensions, prompt templates, themes,
- * appended prompts, and Pi-discovered skills.
- * Planned for Phase 4: explicitly owned SRE diagnostic skills, without enabling
- * project/global skill discovery.
- */
-export function createSreResourceLoader(
-  options: Pick<LoaderConstructionOptions, "cwd" | "agentDir" | "settingsManager">,
-): DefaultResourceLoader {
-  return new DefaultResourceLoader({ ...createSreResourceLoaderOptions(), ...options });
 }

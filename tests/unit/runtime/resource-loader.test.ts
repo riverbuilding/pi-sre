@@ -2,9 +2,10 @@ import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { createAgentSessionServices } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createSreResourceLoader } from "../../../src/runtime/resource-loader.js";
+import { createSreResourceLoaderOptions } from "../../../src/runtime/resource-loader.js";
 import { createSreSystemPrompt } from "../../../src/runtime/system-prompt.js";
 
 describe("Pi SRE resource boundary", () => {
@@ -54,9 +55,14 @@ describe("Pi SRE resource boundary", () => {
     await writeFile(join(projectPi, "skills", "hostile", "SKILL.md"), "PROJECT_SKILL_MARKER");
     await writeFile(join(appHome, "skills", "hostile", "SKILL.md"), "GLOBAL_SKILL_MARKER");
 
-    const loader = createSreResourceLoader({ cwd: project, agentDir: appHome });
+    const { resourceLoader: loader } = await createAgentSessionServices({
+      cwd: project,
+      agentDir: appHome,
+      resourceLoaderOptions: createSreResourceLoaderOptions(),
+    });
     for (let pass = 0; pass < 2; pass += 1) {
-      await loader.reload();
+      // The service factory performs the initial load; verify an explicit reload too.
+      if (pass > 0) await loader.reload();
 
       // Loaded now.
       expect(loader.getSystemPrompt()).toBe(createSreSystemPrompt());

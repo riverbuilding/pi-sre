@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { stringify } from "yaml";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 
 import { McpController } from "../../src/app/mcp-controller.js";
@@ -45,15 +45,21 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
       }),
     );
   }
-  async function start(): Promise<void> {
+  async function start(cluster?: string): Promise<void> {
     const load = () =>
       loadSreConfig({
         env: { PI_SRE_HOME: reloadHome ?? home, PI_SRE_CONFIG: join(home, "config.yaml") },
       });
     const config = await load();
-    controller = new McpController(config, new AbortController().signal, load);
+    controller = new McpController(
+      config,
+      new AbortController().signal,
+      load,
+      cluster === undefined ? {} : { cluster },
+    );
     await controller.restart(false, true);
     runtime = await createSreRuntime(config, [], undefined, controller);
+    await runtime.session.bindExtensions({});
   }
   async function command(args = ""): Promise<void> {
     // This is the same extension command dispatch used by Pi's terminal.
@@ -111,7 +117,7 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
     await configure();
     await command();
     expect(runtime.session).toBe(session);
-    expect(session.sessionManager.getEntries()).toEqual(entries);
+    expect(session.sessionManager.getEntries().slice(0, entries.length)).toEqual(entries);
     expect(session.getActiveToolNames()).toEqual(["configuration_contexts_list"]);
     expect(await invoke()).toMatchObject({ isError: false });
     expect(JSON.stringify(await invoke())).toContain("prod");
@@ -169,7 +175,7 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
     expect(controller.clusterContext.isAgentActive).toBe(false);
     const messages = [...session.agent.state.messages];
     await command("--force");
-    expect(session.agent.state.messages).toEqual(messages);
+    expect(session.agent.state.messages.slice(0, messages.length)).toEqual(messages);
 
     session.setActiveToolsByName(["bash", "read", "pods_list", "configuration_contexts_list"]);
     expect(session.getActiveToolNames()).toEqual(["configuration_contexts_list"]);
@@ -177,7 +183,18 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
     const scope = controller.clusterContext.captureScope();
     await runtime.newSession();
     expect(controller.clusterContext.captureScope()).toBe(scope);
+    await runtime.session.bindExtensions({
+      uiContext: runtime.session.extensionRunner.getUIContext(),
+    });
+    expect(runtime.session.messages).toMatchObject([
+      {
+        role: "custom",
+        content: expect.stringContaining('Cluster: "prod"; selection source: user'),
+      },
+    ]);
+    const newSessionMessages = [...runtime.session.messages];
     await runtime.session.reload();
+    expect(runtime.session.messages).toEqual(newSessionMessages);
     expect(controller.clusterContext.captureScope()).toBe(scope);
     expect(runtime.session.getActiveToolNames()).toEqual(["configuration_contexts_list"]);
     await configure("empty-tools");
@@ -194,6 +211,157 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
     expect(controller.snapshot).toBe(state);
     expect(await invoke()).toMatchObject({ isError: false });
   });
+
+  it("selects exact names and picker choices without replacing the conversation or MCP", async () => {
+    await configure();
+    await start();
+    const session = runtime.session;
+    session.sessionManager.appendCustomEntry("preserved", { value: 42 });
+    const entries = session.sessionManager.getEntries();
+    const connection = controller.snapshot;
+    const yaml = await readFile(join(home, "config.yaml"), "utf8");
+    const toml = await readFile(join(home, "kubernetes-mcp.toml"), "utf8");
+    const select = vi.fn().mockResolvedValueOnce("dev").mockResolvedValueOnce(undefined);
+    const notify = vi.fn();
+    await session.bindExtensions({
+      uiContext: { ...session.extensionRunner.getUIContext(), select, notify },
+    });
+    await session.prompt("/cluster prod");
+    expect(controller.clusterContext.captureScope()).toMatchObject({
+      context: "prod",
+      source: "user",
+    });
+    expect(notify).toHaveBeenLastCalledWith(expect.stringContaining('"prod" (user)'), "info");
+    const selected = controller.clusterContext.state;
+    await session.prompt("/cluster prod");
+    await session.prompt("/cluster missing");
+    expect(controller.clusterContext.state).toBe(selected);
+    await session.prompt("/cluster");
+    expect(select).toHaveBeenLastCalledWith(
+      'Cluster (current: "prod")',
+      ["dev", "prod"],
+      undefined,
+    );
+    expect(controller.clusterContext.captureScope()?.context).toBe("dev");
+    const picked = controller.clusterContext.state;
+    await session.prompt("/cluster");
+    expect(controller.clusterContext.state).toBe(picked);
+    expect(await session.extensionRunner.emitContext([])).toEqual([]);
+    expect(session.messages.at(-1)).toMatchObject({
+      role: "custom",
+      customType: "pi-sre-cluster-scope",
+      content: expect.stringContaining('Cluster: "dev"; selection source: user'),
+    });
+    expect(runtime.session).toBe(session);
+    expect(controller.snapshot).toBe(connection);
+    expect(session.sessionManager.getEntries().slice(0, entries.length)).toEqual(entries);
+    expect(session.messages).toHaveLength(3);
+    expect(session.getActiveToolNames()).toEqual(["configuration_contexts_list"]);
+    expect(await readFile(join(home, "config.yaml"), "utf8")).toBe(yaml);
+    expect(await readFile(join(home, "kubernetes-mcp.toml"), "utf8")).toBe(toml);
+  });
+
+  it("rejects stale picker choices and rechecks active work after the picker returns", async () => {
+    await configure();
+    await start();
+    const session = runtime.session;
+    const notify = vi.fn();
+    const choice = Promise.withResolvers<string | undefined>();
+    const select = vi.fn(() => choice.promise);
+    await session.bindExtensions({
+      uiContext: { ...session.extensionRunner.getUIContext(), select, notify },
+    });
+    const selecting = session.prompt("/cluster");
+    await expect.poll(() => select.mock.calls.length).toBe(1);
+    await command("--force");
+    const replaced = controller.clusterContext.state;
+    choice.resolve("prod");
+    await selecting;
+    expect(controller.clusterContext.state).toBe(replaced);
+    expect(notify).toHaveBeenLastCalledWith(expect.stringContaining("state changed"), "warning");
+
+    const activeChoice = Promise.withResolvers<string | undefined>();
+    select.mockImplementation(() => activeChoice.promise);
+    const pending = session.prompt("/cluster");
+    await expect.poll(() => select.mock.calls.length).toBe(2);
+    const release = controller.clusterContext.beginAgentWork();
+    try {
+      activeChoice.resolve("prod");
+      await pending;
+      await session.prompt("/cluster prod");
+      expect(controller.clusterContext.state).toBe(replaced);
+      expect(notify).toHaveBeenLastCalledWith(
+        expect.stringContaining("active agent turn"),
+        "warning",
+      );
+    } finally {
+      release();
+    }
+  });
+
+  it("keeps cluster selection available after degraded startup and extension reload", async () => {
+    await configure("contexts-runtime", "/no/such/mcp");
+    await start();
+    const select = vi.fn();
+    const notify = vi.fn();
+    await runtime.session.bindExtensions({
+      uiContext: { ...runtime.session.extensionRunner.getUIContext(), select, notify },
+    });
+    const unavailable = controller.clusterContext.state;
+    await runtime.session.prompt("/cluster prod");
+    await runtime.session.prompt("/cluster");
+    expect(controller.clusterContext.state).toBe(unavailable);
+    expect(select).not.toHaveBeenCalled();
+    expect(notify).toHaveBeenLastCalledWith(
+      expect.stringContaining("current MCP context registry"),
+      "warning",
+    );
+    expect(await runtime.session.extensionRunner.emitContext([])).toEqual([]);
+    expect(runtime.session.messages.at(-1)).toMatchObject({
+      role: "custom",
+      content: expect.stringContaining("Cluster-dependent calls are blocked"),
+    });
+    await configure();
+    await command();
+    await runtime.session.prompt("/cluster prod");
+    await runtime.session.reload();
+    await runtime.session.prompt("/cluster dev");
+    expect(controller.clusterContext.captureScope()).toMatchObject({
+      context: "dev",
+      source: "user",
+    });
+    expect(runtime.session.extensionRunner.getCommandDiagnostics()).toEqual([]);
+  });
+
+  it("recovers from a startup selection error with an exact user selection", async () => {
+    await configure();
+    await start("absent");
+    expect(controller.clusterContext.state.status).toBe("selection-error");
+    await runtime.session.prompt("/cluster prod");
+    expect(controller.clusterContext.captureScope()).toMatchObject({
+      context: "prod",
+      source: "user",
+    });
+  });
+
+  it.each(["contexts-empty", "contexts-malformed", "contexts-error"])(
+    "does not offer a picker or change scope after %s enumeration",
+    async (scenario) => {
+      await configure(scenario);
+      await start();
+      const select = vi.fn();
+      const notify = vi.fn();
+      await runtime.session.bindExtensions({
+        uiContext: { ...runtime.session.extensionRunner.getUIContext(), select, notify },
+      });
+      const state = controller.clusterContext.state;
+      await runtime.session.prompt("/cluster");
+      await runtime.session.prompt("/cluster alpha");
+      expect(controller.clusterContext.state).toBe(state);
+      expect(select).not.toHaveBeenCalled();
+      expect(notify).toHaveBeenLastCalledWith(expect.any(String), "warning");
+    },
+  );
 
   it("cancels an active call before forced replacement and blocks captured stale tools", async () => {
     await configure("contexts-call-timeout");

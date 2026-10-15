@@ -2,114 +2,158 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { AgentSessionRuntime } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it } from "vitest";
+import {
+  createAgentSessionFromServices,
+  createAgentSessionServices,
+  SessionManager,
+  type AgentSession,
+} from "@earendil-works/pi-coding-agent";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ClusterContextManager } from "../../src/cluster/context-manager.js";
-import { createApplicationPaths, type SreConfig } from "../../src/config/config.js";
 import { DEFAULT_RESULT_POLICY } from "../../src/config/schema.js";
 import { ManagedMcpConnection } from "../../src/mcp/connection.js";
 import { discoverClusterContexts } from "../../src/mcp/context-discovery.js";
 import { createMcpToolBridge } from "../../src/mcp/tool-bridge.js";
 import { discoverMcpTools } from "../../src/mcp/tool-discovery.js";
-import { createSreRuntime } from "../../src/runtime/pi-runtime.js";
+import { createSreResourceLoaderOptions } from "../../src/runtime/resource-loader.js";
+import { registerClusterScope } from "../../src/tui/cluster-extension.js";
 import { scopedPodTool } from "../fixtures/scoped-tool.js";
 
 const fixture = fileURLToPath(new URL("../fixtures/fake-mcp-server.ts", import.meta.url));
 
 describe("Slice 4 scoped bridge over Pi and stdio MCP", () => {
-  it.each([{}, { context: "alpha", labelSelector: "app=api" }])(
-    "injects the exact selected context in an agent-loop call with arguments %j",
-    async (args) => {
-      const home = await mkdtemp(join(tmpdir(), "pi-sre-scoped-"));
+  describe("agent-loop scope", () => {
+    let home: string;
+    let callsPath: string;
+    let connection: ManagedMcpConnection | undefined;
+    let session: AgentSession | undefined;
+    let manager: ClusterContextManager;
+    let generation: number;
+
+    beforeEach(async () => {
+      home = await mkdtemp(join(tmpdir(), "pi-sre-scoped-"));
       const pid = join(home, "mcp.pid");
-      const config: SreConfig = {
-        paths: createApplicationPaths(home),
-        kubernetes: {
-          mcp: {
-            transport: "stdio",
-            command: process.execPath,
-            args: ["--import", "tsx", fixture, "scoped-success", pid],
-            cwd: process.cwd(),
-            startupTimeoutMs: 2_000,
-            toolCallTimeoutMs: 500,
-          },
+      callsPath = `${pid}.calls`;
+      connection = await ManagedMcpConnection.connect({
+        transport: "stdio",
+        command: process.execPath,
+        args: ["--import", "tsx", fixture, "scoped-success", pid],
+        cwd: process.cwd(),
+        startupTimeoutMs: 2_000,
+        toolCallTimeoutMs: 500,
+      });
+      const report = await discoverMcpTools(connection);
+      expect(report.exposed.map((tool) => tool.name)).toEqual(["configuration_contexts_list"]);
+      expect(report.decisions).toContainEqual({
+        name: "pods_list",
+        status: "deferred",
+        reason: "cluster-context-required",
+      });
+      manager = new ClusterContextManager({ cluster: "beta" });
+      generation = manager.beginConnection();
+      manager.acceptRegistry(generation, await discoverClusterContexts(connection, report));
+      const tool = createMcpToolBridge(scopedPodTool, connection, DEFAULT_RESULT_POLICY, {
+        manager,
+        connectionGeneration: generation,
+      });
+      const services = await createAgentSessionServices({
+        cwd: home,
+        agentDir: home,
+        resourceLoaderOptions: {
+          ...createSreResourceLoaderOptions(),
+          extensionFactories: [
+            { name: "test-scoped-cluster", factory: (pi) => registerClusterScope(pi, manager) },
+          ],
         },
-        investigation: { defaultTimeRange: "30m", maxToolCalls: 40 },
-        safety: { mode: "read-only" },
-        results: DEFAULT_RESULT_POLICY,
-      };
-      let connection: ManagedMcpConnection | undefined;
-      let runtime: AgentSessionRuntime | undefined;
-      try {
-        connection = await ManagedMcpConnection.connect(config.kubernetes.mcp);
-        const report = await discoverMcpTools(connection);
-        expect(report.exposed.map((tool) => tool.name)).toEqual(["configuration_contexts_list"]);
-        expect(report.decisions).toContainEqual({
-          name: "pods_list",
-          status: "deferred",
-          reason: "cluster-context-required",
-        });
-        const manager = new ClusterContextManager({ cluster: "beta" });
-        const generation = manager.beginConnection();
-        manager.acceptRegistry(generation, await discoverClusterContexts(connection, report));
-        const tool = createMcpToolBridge(scopedPodTool, connection, config.results, {
-          manager,
-          connectionGeneration: generation,
-        });
-        runtime = await createSreRuntime(config, [tool]);
-        const session = runtime.session;
-        let turns = 0;
-        session.agent.streamFunction = (model, context) => {
-          const first = turns++ === 0;
-          if (!first) {
-            const result = context.messages.find((message) => message.role === "toolResult");
-            expect(result).toMatchObject({ toolName: "pods_list", isError: false });
-            expect(JSON.stringify(result)).toContain("beta-pod");
-            expect(JSON.stringify(result)).toContain('context=\\"beta\\"');
-            expect(JSON.stringify(result)).not.toContain("PRIVATE_FIXTURE");
-          }
-          type Stream = Awaited<ReturnType<typeof session.agent.streamFunction>>;
-          type Message = Awaited<ReturnType<Stream["result"]>>;
-          const message: Message = {
-            role: "assistant",
-            api: model.api,
-            provider: model.provider,
-            model: model.id,
-            content: first
-              ? [{ type: "toolCall", id: "pods", name: "pods_list", arguments: args }]
-              : [{ type: "text", text: "Observed beta-pod in the selected context." }],
-            stopReason: first ? "toolUse" : "stop",
-            timestamp: Date.now(),
-            usage: {
-              input: 0,
-              output: 0,
-              cacheRead: 0,
-              cacheWrite: 0,
-              totalTokens: 0,
-              cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-            },
-          };
-          return {
-            async *[Symbol.asyncIterator]() {
-              yield { type: "done", reason: message.stopReason, message };
-            },
-            async result() {
-              return message;
-            },
-          } as unknown as Stream;
+      });
+      ({ session } = await createAgentSessionFromServices({
+        services,
+        sessionManager: SessionManager.inMemory(home),
+        noTools: "builtin",
+        customTools: [tool],
+      }));
+      // The model stream is simulated; only credential preflight is bypassed.
+      vi.spyOn(session.modelRuntime, "hasConfiguredAuth").mockReturnValue(true);
+      await session.bindExtensions({ uiContext: session.extensionRunner.getUIContext() });
+    });
+
+    afterEach(async () => {
+      await session?.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
+      await session?.dispose();
+      vi.restoreAllMocks();
+      await connection?.close();
+      await rm(home, { recursive: true, force: true });
+      session = undefined;
+      connection = undefined;
+    });
+
+    type StreamFunction = AgentSession["agent"]["streamFunction"];
+    type ModelContext = Parameters<StreamFunction>[1];
+
+    function simulatePodInvestigation(
+      activeSession: AgentSession,
+      args: Record<string, string> = {},
+      onRequest?: (context: ModelContext) => void,
+    ): void {
+      let turns = 0;
+      activeSession.agent.streamFunction = (model, context) => {
+        onRequest?.(context);
+        const first = turns++ === 0;
+        type Stream = Awaited<ReturnType<StreamFunction>>;
+        type Message = Awaited<ReturnType<Stream["result"]>>;
+        const message: Message = {
+          role: "assistant",
+          api: model.api,
+          provider: model.provider,
+          model: model.id,
+          content: first
+            ? [{ type: "toolCall", id: "pods", name: "pods_list", arguments: args }]
+            : [{ type: "text", text: "Observed pods in the selected context." }],
+          stopReason: first ? "toolUse" : "stop",
+          timestamp: Date.now(),
+          usage: {
+            input: 0,
+            output: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            totalTokens: 0,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+          },
         };
-        await session.agent.prompt("Inspect pods in the selected cluster");
-        expect(turns).toBe(2);
-        expect(
-          session.agent.state.messages.find((message) => message.role === "toolResult"),
-        ).toMatchObject({
+        return {
+          async *[Symbol.asyncIterator]() {
+            yield { type: "done", reason: message.stopReason, message };
+          },
+          async result() {
+            return message;
+          },
+        } as unknown as Stream;
+      };
+    }
+
+    async function readCalls(): Promise<unknown[]> {
+      return (await readFile(callsPath, "utf8"))
+        .trim()
+        .split("\n")
+        .map((line): unknown => JSON.parse(line));
+    }
+
+    it.each([{}, { context: "alpha", labelSelector: "app=api" }])(
+      "injects the exact selected context in an agent-loop call with arguments %j",
+      async (args) => {
+        const activeSession = session!;
+        simulatePodInvestigation(activeSession, args);
+        await activeSession.prompt("Inspect pods in the selected cluster");
+
+        const result = activeSession.messages.find((message) => message.role === "toolResult");
+        expect(result).toMatchObject({
+          toolName: "pods_list",
+          isError: false,
           details: { scope: { context: "beta", connectionGeneration: generation, readOnly: true } },
         });
-        const calls = (await readFile(`${pid}.calls`, "utf8"))
-          .trim()
-          .split("\n")
-          .map((line): unknown => JSON.parse(line));
-        expect(calls).toEqual([
+        expect(JSON.stringify(result)).toContain("beta-pod");
+        expect(JSON.stringify(result)).not.toContain("PRIVATE_FIXTURE");
+        expect(await readCalls()).toEqual([
           { name: "configuration_contexts_list", arguments: {} },
           {
             name: "pods_list",
@@ -119,13 +163,86 @@ describe("Slice 4 scoped bridge over Pi and stdio MCP", () => {
             },
           },
         ]);
-      } finally {
-        await runtime?.dispose();
-        await connection?.close();
-        await rm(home, { recursive: true, force: true });
+      },
+    );
+
+    it("rejects cluster switching throughout an active agent turn", async () => {
+      const activeSession = session!;
+      const notify = vi.fn();
+      await activeSession.bindExtensions({
+        uiContext: { ...activeSession.extensionRunner.getUIContext(), notify },
+      });
+      const commands: Promise<void>[] = [];
+      simulatePodInvestigation(activeSession, {}, () => {
+        expect(manager.isAgentActive).toBe(true);
+        commands.push(activeSession.prompt("/cluster alpha"));
+      });
+      await activeSession.prompt("Inspect pods in beta");
+      await Promise.all(commands);
+
+      expect(commands).toHaveLength(2);
+      expect(notify.mock.calls).toEqual([
+        ["Wait for or cancel the active agent turn before selecting a cluster.", "warning"],
+        ["Wait for or cancel the active agent turn before selecting a cluster.", "warning"],
+      ]);
+      expect(manager.captureScope()?.context).toBe("beta");
+      expect(manager.isAgentActive).toBe(false);
+      expect(await readCalls()).toEqual([
+        { name: "configuration_contexts_list", arguments: {} },
+        { name: "pods_list", arguments: { context: "beta" } },
+      ]);
+    });
+
+    it("routes subsequent calls to the newly selected cluster while preserving prior history", async () => {
+      const activeSession = session!;
+      const requests: ModelContext["messages"][] = [];
+      const recordRequest = (context: ModelContext): void => {
+        requests.push(structuredClone(context.messages));
+      };
+      simulatePodInvestigation(activeSession, {}, recordRequest);
+      await activeSession.prompt("Inspect pods in beta");
+      const transcript = structuredClone(activeSession.messages);
+
+      await activeSession.prompt("/cluster alpha");
+      expect(activeSession.messages.slice(0, transcript.length)).toEqual(transcript);
+      expect(activeSession.messages).toHaveLength(transcript.length + 1);
+      expect(manager.captureScope()).toMatchObject({ context: "alpha", source: "user" });
+
+      simulatePodInvestigation(activeSession, {}, recordRequest);
+      await activeSession.prompt("Inspect pods after switching");
+      expect(requests).toHaveLength(4);
+      for (let index = 1; index < requests.length; index += 1) {
+        const previous = requests[index - 1]!;
+        expect(requests[index]!.slice(0, previous.length)).toEqual(previous);
       }
-    },
-  );
+      for (const [index, request] of requests.entries()) {
+        const scopeUpdates = request
+          .map((message) =>
+            typeof message.content === "string"
+              ? message.content
+              : message.content
+                  .filter((block) => block.type === "text")
+                  .map((block) => block.text)
+                  .join("\n"),
+          )
+          .filter((content) => content.includes("Application Kubernetes scope update:"));
+        expect(scopeUpdates).toHaveLength(index < 2 ? 1 : 2);
+        expect(scopeUpdates.at(-1)).toContain(`Cluster: "${index < 2 ? "beta" : "alpha"}"`);
+      }
+      expect(activeSession.messages.slice(0, transcript.length)).toEqual(transcript);
+      expect(
+        activeSession.messages.findLast((message) => message.role === "toolResult"),
+      ).toMatchObject({
+        isError: false,
+        details: { scope: { context: "alpha", connectionGeneration: generation, readOnly: true } },
+      });
+      expect(await readCalls()).toEqual([
+        { name: "configuration_contexts_list", arguments: {} },
+        { name: "pods_list", arguments: { context: "beta" } },
+        { name: "pods_list", arguments: { context: "alpha" } },
+      ]);
+    });
+  });
 
   it.each([
     ["scoped-empty", undefined],
