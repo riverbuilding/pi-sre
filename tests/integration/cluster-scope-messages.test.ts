@@ -19,8 +19,12 @@ describe("persistent scope updates", () => {
   let home: string;
   let session: AgentSession;
   let manager: ClusterContextManager;
+  const setWidget = vi.fn();
+  const notify = vi.fn();
 
   beforeEach(async () => {
+    setWidget.mockClear();
+    notify.mockClear();
     home = await mkdtemp(join(tmpdir(), "pi-sre-scope-messages-"));
     manager = new ClusterContextManager({ cluster: "alpha" });
     manager.acceptRegistry(
@@ -48,7 +52,60 @@ describe("persistent scope updates", () => {
     }));
     // Model streaming is simulated below; bypass only the credential preflight.
     vi.spyOn(session.modelRuntime, "hasConfiguredAuth").mockReturnValue(true);
-    await session.bindExtensions({ uiContext: session.extensionRunner.getUIContext() });
+    await session.bindExtensions({
+      uiContext: { ...session.extensionRunner.getUIContext(), setWidget, notify },
+    });
+  });
+
+  it("keeps status, widget, and persistent scope aligned without changing selection or history", async () => {
+    const checkStatus = async (cluster: string, mcp: string, registry: string) => {
+      const state = manager.state;
+      const messages = [...session.messages];
+      // Status remains usable during active work; selection still has its guard.
+      const release = manager.beginAgentWork();
+      try {
+        await session.prompt("/cluster --status");
+      } finally {
+        release();
+      }
+      expect(manager.state).toBe(state);
+      expect(session.messages).toEqual(messages);
+      expect(setWidget).toHaveBeenLastCalledWith(
+        "pi-sre-scope",
+        ["READ ONLY", `Cluster: ${cluster}`, "Namespace: *", `MCP: ${mcp} | Registry: ${registry}`],
+        { placement: "belowEditor" },
+      );
+      const status: unknown = notify.mock.lastCall?.[0];
+      expect(status).toEqual(expect.stringContaining(`Cluster: ${cluster}`));
+      expect(status).toEqual(expect.stringContaining(`MCP: ${mcp} | Registry: ${registry}`));
+      const snapshot = session.messages.at(-1);
+      expect(snapshot).toMatchObject({
+        role: "custom",
+        content: expect.stringContaining(`MCP: ${mcp} | Registry: ${registry}`),
+      });
+    };
+    await checkStatus('"alpha"', "ready", "validated (2 contexts)");
+    manager.select("beta");
+    await checkStatus('"beta"', "ready", "validated (2 contexts)");
+    const generation = manager.beginConnection();
+    await checkStatus("UNAVAILABLE", "connecting", "unavailable");
+    manager.failEnumeration(generation, "invalid-response", "Invalid registry");
+    await checkStatus("UNAVAILABLE", "ready", "failed (invalid-response)");
+    manager.markUnavailable("Connection lost");
+    await checkStatus("UNAVAILABLE", "unavailable", "unavailable");
+    manager.acceptRegistry(manager.beginConnection(), new ClusterContextRegistry([]));
+    // A previous exact selection stays an error instead of silently falling back.
+    await checkStatus("NOT SELECTED", "ready", "validated (0 contexts)");
+    expect(notify.mock.lastCall?.[0]).toContain(
+      'Requested context: "beta"; selection source: user',
+    );
+    await session.reload();
+    await checkStatus("NOT SELECTED", "ready", "validated (0 contexts)");
+    await session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
+    expect(setWidget).toHaveBeenLastCalledWith("pi-sre-scope", undefined);
+    const calls = setWidget.mock.calls.length;
+    manager.beginConnection();
+    expect(setWidget).toHaveBeenCalledTimes(calls);
   });
 
   afterEach(async () => {

@@ -1,12 +1,29 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 import type { ClusterContextManager } from "../cluster/context-manager.js";
+import {
+  createClusterScopeDescription,
+  createClusterStatusLines,
+} from "../runtime/cluster-guidance.js";
 
 /** The manager remains authoritative, including after an awaited picker. */
 export function registerClusterCommand(pi: ExtensionAPI, manager: ClusterContextManager): void {
   pi.registerCommand("cluster", {
-    description: "Select an exact Kubernetes context (no arguments opens the picker)",
+    description:
+      "Select an exact Kubernetes context (no arguments opens the picker; --status shows scope)",
     handler: async (args, ctx) => {
+      if (args === "--status") {
+        ctx.ui.notify(
+          [
+            ...createClusterStatusLines(manager.state),
+            createClusterScopeDescription(manager.state),
+            "Namespace * means no application restriction; each tool uses its own namespace policy.",
+            "Selection does not verify Kubernetes authentication or authorization.",
+          ].join("\n"),
+          "info",
+        );
+        return;
+      }
       if (!ctx.isIdle() || manager.isAgentActive) {
         ctx.ui.notify(
           "Wait for or cancel the active agent turn before selecting a cluster.",

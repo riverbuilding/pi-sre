@@ -1,7 +1,10 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 import type { ClusterContextManager } from "../cluster/context-manager.js";
-import { createClusterScopeDescription } from "../runtime/cluster-guidance.js";
+import {
+  createClusterScopeDescription,
+  createClusterStatusLines,
+} from "../runtime/cluster-guidance.js";
 import { registerClusterCommand } from "./cluster-command.js";
 
 /** Each Pi extension instance owns its agent-work guard and lifecycle. */
@@ -9,10 +12,13 @@ export function registerClusterScope(pi: ExtensionAPI, manager: ClusterContextMa
   let releaseWork: (() => void) | undefined;
   let unsubscribe: (() => void) | undefined;
   let lastDescription: string | undefined;
+  let clearDisplay: (() => void) | undefined;
   const customType = "pi-sre-cluster-scope";
 
   pi.on("session_start", (_event, ctx) => {
     unsubscribe?.();
+    clearDisplay?.();
+    clearDisplay = () => ctx.ui.setWidget("pi-sre-scope", undefined);
     const previous = ctx.sessionManager
       .buildSessionProjection()
       .messages.findLast(
@@ -23,6 +29,11 @@ export function registerClusterScope(pi: ExtensionAPI, manager: ClusterContextMa
         ? previous.content
         : undefined;
     unsubscribe = manager.subscribe((state) => {
+      // Pi's footer truncates a single status line. A wrapping public widget
+      // keeps READ ONLY on its own line while preserving Pi's model/session UI.
+      ctx.ui.setWidget("pi-sre-scope", createClusterStatusLines(state), {
+        placement: "belowEditor",
+      });
       const content = createClusterScopeDescription(state);
       if (content === lastDescription) return;
       lastDescription = content;
@@ -54,6 +65,8 @@ export function registerClusterScope(pi: ExtensionAPI, manager: ClusterContextMa
   pi.on("session_shutdown", () => {
     unsubscribe?.();
     unsubscribe = undefined;
+    clearDisplay?.();
+    clearDisplay = undefined;
     releaseWork?.();
     releaseWork = undefined;
   });

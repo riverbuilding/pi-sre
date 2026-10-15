@@ -1,6 +1,6 @@
 # Phase 2 Implementation Slices
 
-**Status:** Slice 0 complete (2026-10-07); Slice 1 complete (2026-10-08); Slice 2 complete (2026-10-09); Slice 3 complete (2026-10-09); Slice 4 complete (2026-10-13); Slice 5 complete (2026-10-14); Slices 6–9 planned
+**Status:** Slice 0 complete (2026-10-07); Slice 1 complete (2026-10-08); Slice 2 complete (2026-10-09); Slice 3 complete (2026-10-09); Slice 4 complete (2026-10-13); Slice 5 complete (2026-10-14); Slice 6 implemented (2026-10-15; live terminal verification pending); Slices 7–9 planned
 
 **Applies to:** Pi SRE V0.1, Phase 2 — Cluster Context Management
 
@@ -339,6 +339,8 @@ Validation after the scope-message review: focused tests passed, followed by `np
 - Tests compare the fixture kubeconfig before/after and prove no config mutation, write tool, or shell fallback occurs.
 
 ## 12. Slice 6 — Make Operational Scope Visible to User and Model
+
+**Implemented (2026-10-15):** `/cluster --status` reports authoritative scope and registry/MCP state during idle or active work without changing selection or transcript. A public wrapping widget below the editor keeps READ ONLY on its own line and updates with scope state, preserving Pi's footer/model UI. The command, widget, and persistent model snapshots share presentation helpers and omit endpoints. Reload and shutdown clear widget subscriptions; stable system rules and persistent/steered updates remain in place. Deterministic tests cover scope states, immediate updates, active-work reporting, reload/shutdown, and safe diagnostics. Physical terminal verification of narrow widths, dialogs, streaming, and restart remains pending.
 
 **Outcome:** User status, `/cluster --status`, model guidance, and execution use the same authoritative scope.
 
