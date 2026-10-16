@@ -1,17 +1,15 @@
 import type { McpToolDescriptor } from "../../src/mcp/tool-discovery.js";
+import captured from "./phase2-server-0.0.67.json" with { type: "json" };
 
-/** Test-owned contract: explicit routing and selectors, without production exposure. */
+const podTool = captured.cases["multiple-default"].descriptors.find(
+  (tool) => tool.name === "pods_list",
+);
+if (!podTool) throw new Error("Missing captured pods_list descriptor");
+
+/** Independent server capture, also usable by the lightweight stdio fixture process. */
 export const scopedPodTool: McpToolDescriptor = {
-  name: "pods_list",
-  description: "List pods read-only in the selected context.",
-  annotations: { readOnlyHint: true, destructiveHint: false },
-  inputSchema: {
-    type: "object",
-    properties: {
-      context: { type: "string", minLength: 1 },
-      labelSelector: { type: "string", pattern: "^[a-z=]+$" },
-    },
-    required: ["context"],
-    additionalProperties: false,
-  },
+  name: podTool.name,
+  description: podTool.description,
+  annotations: podTool.annotations,
+  inputSchema: { ...podTool.inputSchema, type: "object" },
 };

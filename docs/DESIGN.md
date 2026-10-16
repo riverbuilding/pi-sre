@@ -426,7 +426,7 @@ Pi SRE does not reinterpret each Kubernetes operation into a custom implementati
 
 1. creates and closes the Pi MCP client;
 2. calls `configuration_contexts_list` during startup and validates the response for cluster resolution;
-3. discovers server tools and applies the exact diagnostic allowlist;
+3. discovers server tools and validates each against its reviewed Pi SRE contract;
 4. adapts approved tool schemas to Pi tool definitions;
 5. validates each model call, resolves and injects its cluster scope, then calls MCP;
 6. converts results into evidence and compact model-facing output.
@@ -471,11 +471,11 @@ During startup:
 ```text
 connect through Pi MCP client
     ↓
-call configuration_contexts_list and resolve startup cluster
-    ↓
 list tools through Pi MCP client
     ↓
-validate descriptors and filter allowed tools
+validate descriptors against reviewed per-tool contracts
+    ↓
+call approved configuration_contexts_list and resolve startup cluster
     ↓
 adapt approved schemas to Pi tools
     ↓
@@ -493,7 +493,11 @@ interface SreMcpAdapter {
 }
 ```
 
-The example describes Pi SRE's boundary, not an additional MCP client implementation. Tool descriptions and schemas remain server-owned. Pi SRE validates untrusted descriptors and arguments before use.
+The example describes Pi SRE's boundary, not an additional MCP client implementation. The server owns transport schemas and Kubernetes execution. Pi SRE owns a declarative compatibility contract for every supported operation, including context enumeration, and uses one shared validator to check runtime descriptors and prepare argument schemas.
+
+Each contract owns the complete reviewed MCP interface schema: exact name, argument types, required fields, patterns, enums, formats, and server bounds, together with cluster dependence, safety annotations, and model-facing descriptions. An optional application-owned outputSchema describes reviewed structuredContent; the factory freezes it and provides a pure validateOutput type guard. If the server declares an outputSchema, the shared input/output comparator requires it to match the reviewed contract; absence remains supported. A declared output schema without an application output contract rejects that tool pending review. No general schema-document validator or runtime schema compilation is needed. The context-enumeration adapter uses this shared shape check, while retaining envelope handling, empty/error branches, inventory limits, identity rules, default consistency, and sanitization. Other tools receive output schemas only after their response shapes are reviewed. Application restrictions/defaults are separate from the contract. Runtime descriptors are compatibility evidence only. Execution-relevant fields must match the reviewed server shape; any constraint change rejects the affected tool pending review. Descriptions, titles, examples, and server defaults do not define application behavior. Harmless property ordering and equivalent omitted schema defaults are normalized.
+
+The contract module owns descriptor comparison, model/transport schema construction, and pure call argument validation. Its shared comparator walks only fields in the trusted contract, rejecting malformed or unexpected branches without a separate generic input-schema grammar. A unified contract factory derives both executable schemas once at initialization from the single reviewed input definition and deeply freezes the resulting contract. Runtime validation reuses those schemas; they hide application-owned context from the model and reject extra arguments. The bridge registers a deep copy with Pi to protect shared schemas from consumer changes. Call preparation separately copies arguments, removes model-supplied context, and supplies application defaults. Execution policy checks application retrieval limits: pod logs default to 100 lines during preparation, while policy rejects explicit tails outside 1–1,000. The model schema retains reviewed server bounds, and tool descriptions communicate application limits. The bridge composes these steps, injects the selected context, and validates final transport arguments. Scope checks, cancellation, stale-result isolation, and result reduction remain separate enforcement steps. See [MCP Tool Schema Contract](./MCP_TOOL_SCHEMAS.md) for compatibility rules and the code map.
 
 ---
 
@@ -2334,6 +2338,9 @@ Evaluation is a first-class system component.
 
 ### ADR-24
 V0.1 remains a single TypeScript project.
+
+### ADR-25
+Every supported MCP operation has a complete application-owned execution contract. One shared validator checks runtime descriptor compatibility and constructs call schemas exclusively from that contract; the bridge enforces application-owned scope and validates final transport arguments. Server discovery cannot expand the approved operation or argument surface.
 
 ---
 

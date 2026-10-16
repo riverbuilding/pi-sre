@@ -287,7 +287,7 @@ describe("SreApplication", () => {
           type: "object",
           properties: { name: { type: "string", format: "unsupported" } },
         },
-        annotations: { readOnlyHint: true },
+        annotations: { readOnlyHint: true, destructiveHint: false },
       },
     ]);
     await new SreApplication(config()).run();
@@ -303,7 +303,7 @@ describe("SreApplication", () => {
           {
             type: "info",
             message:
-              "Kubernetes MCP discovery: 1 approved, 0 deferred, 0 rejected. 0 read-only tools registered.",
+              "Kubernetes MCP discovery: 0 approved, 0 deferred, 1 rejected. 0 read-only tools registered.",
           },
           {
             type: "warning",

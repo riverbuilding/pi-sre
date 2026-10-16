@@ -1,6 +1,7 @@
 import { appendFileSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { scopedPodTool } from "./scoped-tool.js";
+import captured from "./phase2-server-0.0.67.json" with { type: "json" };
 
 interface FixtureParams {
   readonly cursor?: string;
@@ -30,6 +31,8 @@ if (scenario === "exit") process.exit(7);
 if (scenario === "malformed") process.stdout.write("this is not json\n");
 
 function listToolsResult(scenario: string, params?: FixtureParams): Record<string, unknown> {
+  if (scenario.startsWith("diagnostic-"))
+    return { tools: captured.cases["multiple-default"].descriptors };
   if (scenario.startsWith("scoped-")) {
     return {
       tools: [
@@ -56,27 +59,40 @@ function listToolsResult(scenario: string, params?: FixtureParams): Record<strin
   }
   if (scenario === "empty-tools") return { tools: [] };
 
-  // Context-discovery scenarios require the stricter descriptor contract.
-  // Other scenarios retain their original minimal Phase 1 descriptors.
-  const contextDiscovery = scenario.startsWith("contexts-");
+  // All scenarios advertise the same reviewed enumeration descriptor contract.
   return {
     tools: [
       {
         name: "configuration_contexts_list",
-        inputSchema: {
-          type: "object",
-          ...(contextDiscovery ? { properties: {} } : {}),
-        },
-        annotations: {
-          readOnlyHint: true,
-          ...(contextDiscovery ? { destructiveHint: false } : {}),
-        },
+        inputSchema: { type: "object", properties: {} },
+        annotations: { readOnlyHint: true, destructiveHint: false },
       },
     ],
   };
 }
 
 function callToolResult(scenario: string, params?: FixtureParams): Record<string, unknown> {
+  if (scenario.startsWith("diagnostic-")) {
+    if (params?.name === "configuration_contexts_list") {
+      return {
+        content: [],
+        structuredContent: {
+          ...(scenario === "diagnostic-unbound" ? {} : { defaultContext: "alpha" }),
+          contexts: VALID_CONTEXTS.map((entry) => ({
+            ...entry,
+            default: scenario !== "diagnostic-unbound" && entry.default,
+          })),
+        },
+      };
+    }
+    return {
+      content: [],
+      structuredContent: {
+        marker: `${String(params?.arguments?.context)}-${String(params?.name)}`,
+        token: "PRIVATE_FIXTURE",
+      },
+    };
+  }
   if (scenario.startsWith("scoped-")) {
     if (params?.name === "configuration_contexts_list") {
       return {

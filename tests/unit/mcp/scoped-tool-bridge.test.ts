@@ -4,13 +4,10 @@ import { ClusterContextManager } from "../../../src/cluster/context-manager.js";
 import { ClusterContextRegistry } from "../../../src/cluster/context-registry.js";
 import { DEFAULT_RESULT_POLICY } from "../../../src/config/schema.js";
 import { createMcpToolBridge } from "../../../src/mcp/tool-bridge.js";
-import {
-  evaluateToolPolicy,
-  evaluateToolExecutionPolicy,
-} from "../../../src/runtime/tool-policy.js";
+import { evaluateToolPolicy } from "../../../src/runtime/tool-policy.js";
 import * as toolPolicy from "../../../src/runtime/tool-policy.js";
 import capture from "../../fixtures/phase2-server-0.0.67.json" with { type: "json" };
-import { isSupportedInputSchema } from "../../../src/mcp/tool-schema.js";
+import { diagnosticTools } from "../../fixtures/diagnostic-tools.js";
 import { scopedPodTool } from "../../fixtures/scoped-tool.js";
 
 const registry = new ClusterContextRegistry(
@@ -40,8 +37,7 @@ describe("scoped MCP bridge", () => {
     const captured = capture.cases["multiple-default"].descriptors.find(
       (tool) => tool.name === "pods_list",
     );
-    if (!captured || !isSupportedInputSchema(captured.inputSchema))
-      throw new Error("Invalid captured descriptor");
+    if (!captured) throw new Error("Invalid captured descriptor");
     const { tool, callTool } = setup("beta", {
       name: captured.name,
       inputSchema: captured.inputSchema,
@@ -75,7 +71,7 @@ describe("scoped MCP bridge", () => {
   it("rechecks execution approval after registration", async () => {
     const { tool, callTool } = setup();
     const policy = vi
-      .spyOn(toolPolicy, "evaluateToolExecutionPolicy")
+      .spyOn(toolPolicy, "evaluateToolPolicy")
       .mockReturnValue({ status: "rejected", reason: "not-allowlisted" });
     try {
       expect(await tool.execute("call", {}, undefined, undefined, {} as never)).toMatchObject({
@@ -129,11 +125,9 @@ describe("scoped MCP bridge", () => {
     expect(callTool).not.toHaveBeenCalled();
   });
 
-  it("keeps production exposure deferred and rejects other diagnostics and unsafe tools", () => {
-    expect(evaluateToolPolicy(scopedPodTool).status).toBe("deferred");
-    expect(evaluateToolExecutionPolicy(scopedPodTool).status).toBe("exposed");
+  it("approves reviewed diagnostics and rejects unsafe tools", () => {
+    expect(evaluateToolPolicy(scopedPodTool).status).toBe("exposed");
     for (const descriptor of [
-      { ...scopedPodTool, name: "pods_log" },
       { ...scopedPodTool, name: "configuration_view" },
       { ...scopedPodTool, annotations: { readOnlyHint: false } },
       { ...scopedPodTool, annotations: { readOnlyHint: true, destructiveHint: true } },
@@ -152,7 +146,7 @@ describe("scoped MCP bridge", () => {
       expect(tool.parameters).toMatchObject({
         required: [],
         properties: {
-          labelSelector: { type: "string", pattern: "^[a-z=]+$" },
+          labelSelector: { type: "string", pattern: expect.any(String) },
         },
       });
       expect(JSON.stringify(tool.parameters)).not.toContain('"context"');
@@ -161,7 +155,7 @@ describe("scoped MCP bridge", () => {
       const result = await tool.execute("call", args, signal, undefined, {} as never);
       expect(callTool).toHaveBeenCalledWith("pods_list", { context: "alpha" }, signal);
       expect(args).toEqual(original);
-      expect(scopedPodTool.inputSchema.required).toEqual(["context"]);
+      expect(scopedPodTool.inputSchema.required).toBeUndefined();
       expect(result).toMatchObject({
         isError: false,
         details: { scope: { context: "alpha", readOnly: true } },
@@ -170,17 +164,9 @@ describe("scoped MCP bridge", () => {
     },
   );
 
-  it("preserves namespace independently using a synthetic namespace-capable contract", async () => {
-    const descriptor = {
-      ...scopedPodTool,
-      inputSchema: {
-        ...scopedPodTool.inputSchema,
-        properties: {
-          context: { type: "string" },
-          namespace: { type: "string", pattern: "^[a-z]+$" },
-        },
-      },
-    };
+  it("preserves namespace independently on events_list", async () => {
+    const descriptor = diagnosticTools.find((tool) => tool.name === "events_list");
+    if (!descriptor) throw new Error("Missing captured event tool");
     const { tool, callTool } = setup("beta", descriptor);
     const result = await tool.execute(
       "call",
@@ -190,7 +176,7 @@ describe("scoped MCP bridge", () => {
       {} as never,
     );
     expect(callTool).toHaveBeenCalledWith(
-      "pods_list",
+      "events_list",
       { context: "beta", namespace: "payments" },
       undefined,
     );
@@ -202,31 +188,24 @@ describe("scoped MCP bridge", () => {
     { type: "object" as const, properties: { context: { type: "integer" } } },
   ])("rejects undeclared or incompatible context schema %j", (inputSchema) => {
     expect(() => setup("alpha", { ...scopedPodTool, inputSchema })).toThrow(
-      "cannot be adapted safely",
+      "does not match the reviewed contract",
     );
   });
 
-  it("enforces server context constraints after injection and other required fields before it", async () => {
-    const { tool, callTool } = setup("beta", {
-      ...scopedPodTool,
-      inputSchema: {
-        type: "object",
-        properties: {
-          context: { type: "string", enum: ["alpha"] },
-          labelSelector: { type: "string" },
+  it("rejects unreviewed context restrictions before a handler can be registered", () => {
+    expect(() =>
+      setup("beta", {
+        ...scopedPodTool,
+        inputSchema: {
+          type: "object",
+          properties: {
+            context: { type: "string", enum: ["alpha"] },
+            labelSelector: { type: "string" },
+          },
+          required: ["context", "labelSelector"],
         },
-        required: ["context", "labelSelector"],
-      },
-    });
-    expect(await tool.execute("call", {}, undefined, undefined, {} as never)).toMatchObject({
-      details: { failureCategory: "invalid-arguments" },
-    });
-    expect(
-      await tool.execute("call", { labelSelector: "app=api" }, undefined, undefined, {} as never),
-    ).toMatchObject({
-      details: { failureCategory: "incompatible-schema" },
-    });
-    expect(callTool).not.toHaveBeenCalled();
+      }),
+    ).toThrow("does not match the reviewed contract");
   });
 
   it.each(["unbound", "missing", "unavailable", "stale", "invalid"])(
@@ -239,7 +218,7 @@ describe("scoped MCP bridge", () => {
       if (kind === "stale") manager.beginConnection();
       const result = await tool.execute(
         "call",
-        kind === "invalid" ? { labelSelector: "!" } : {},
+        kind === "invalid" ? { labelSelector: "?" } : {},
         undefined,
         undefined,
         {} as never,

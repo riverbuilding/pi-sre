@@ -1,16 +1,10 @@
+import { validateMcpToolContract, McpToolContractError } from "../runtime/tool-policy.js";
 import type { McpConnection } from "./connection.js";
-import {
-  isSupportedInputSchema,
-  isSupportedOutputSchema,
-  type McpInputSchema,
-  type McpOutputSchema,
-} from "./tool-schema.js";
-import { evaluateToolPolicy } from "../runtime/tool-policy.js";
 
 export interface McpToolDescriptor {
   readonly name: string;
   readonly description?: string;
-  readonly inputSchema: McpInputSchema;
+  readonly inputSchema: Readonly<Record<string, unknown>>;
   readonly annotations?: Readonly<{
     title?: string;
     readOnlyHint?: boolean;
@@ -18,20 +12,17 @@ export interface McpToolDescriptor {
     idempotentHint?: boolean;
     openWorldHint?: boolean;
   }>;
-  readonly outputSchema?: McpOutputSchema;
+  readonly outputSchema?: Readonly<Record<string, unknown>>;
 }
 
 export type ToolDiscoveryDecision =
   | { readonly name: string; readonly status: "exposed" }
   | {
-      readonly name: string;
-      readonly status: "deferred";
-      readonly reason: "cluster-context-required";
-    }
-  | {
       readonly name?: string;
       readonly status: "rejected";
+      readonly contractPath?: string;
       readonly reason:
+        | "incompatible-schema"
         | "invalid-descriptor"
         | "duplicate-name"
         | "not-allowlisted"
@@ -62,12 +53,11 @@ function parseDescriptor(value: unknown): McpToolDescriptor | undefined {
   if (typeof value.name !== "string" || !/^[A-Za-z][A-Za-z0-9_-]{0,127}$/.test(value.name))
     return undefined;
   if (value.description !== undefined && typeof value.description !== "string") return undefined;
-  // Every tool must declare an input schema describing its arguments.
-  if (!isSupportedInputSchema(value.inputSchema)) return undefined;
+  // Envelope shape only: all input fields and constraints are checked by McpToolContract.
+  if (!isRecord(value.inputSchema)) return undefined;
   if (!validAnnotations(value.annotations)) return undefined;
-  // Output schemas are optional; a declared one must describe a supported structured result.
-  if (value.outputSchema !== undefined && !isSupportedOutputSchema(value.outputSchema))
-    return undefined;
+  // Schema compatibility belongs to the reviewed contract, just as for inputs.
+  if (value.outputSchema !== undefined && !isRecord(value.outputSchema)) return undefined;
   return {
     name: value.name,
     ...(value.description === undefined ? {} : { description: value.description }),
@@ -108,9 +98,19 @@ export async function discoverMcpTools(
       decisions.push({ name: tool.name, status: "rejected", reason: "duplicate-name" });
       continue;
     }
-    const decision = evaluateToolPolicy(tool);
-    decisions.push({ name: tool.name, ...decision });
-    if (decision.status === "exposed") exposed.push(tool);
+    try {
+      validateMcpToolContract(tool);
+      decisions.push({ name: tool.name, status: "exposed" });
+      exposed.push(tool);
+    } catch (error) {
+      if (!(error instanceof McpToolContractError)) throw error;
+      decisions.push({
+        name: tool.name,
+        status: "rejected",
+        reason: error.reason,
+        ...(error.reason === "incompatible-schema" ? { contractPath: error.path } : {}),
+      });
+    }
   }
   return { exposed, decisions };
 }

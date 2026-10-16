@@ -1,159 +1,75 @@
 # MCP Tool Schema Contract
 
-This document describes the schema documents Pi SRE accepts during Phase 1 tool discovery. The implementation lives in [tool-schema.ts](../src/mcp/tool-schema.ts); [tool-discovery.ts](../src/mcp/tool-discovery.ts) validates the enclosing descriptor and applies tool policy.
+[tool-policy.ts](../src/runtime/tool-policy.ts) owns `McpToolContract` definitions and shared schema validation: input/output descriptor comparison, model/transport schema construction, call argument validation, and reviewed structured-output validation. [tool-call-preparation.ts](../src/runtime/tool-call-preparation.ts) owns argument copying, removal of model-supplied context, and application defaults. [tool-execution-policy.ts](../src/runtime/tool-execution-policy.ts) owns application retrieval limits. [tool-discovery.ts](../src/mcp/tool-discovery.ts) handles descriptor envelopes and duplicate names. Input and output declarations share the contract comparator; no generic schema-document validator is maintained.
 
-## Input and output have different roles
+## Design decision: per-tool contracts and one shared validator
 
-MCP tool descriptors declare an `inputSchema` for arguments and may declare an `outputSchema` for structured results. See the [MCP tool definition](https://modelcontextprotocol.io/specification/2025-06-18/server/tools#tool) and [output schema specification](https://modelcontextprotocol.io/specification/2025-06-18/server/tools#output-schema). These versioned references describe the object roots used by Pi SRE's current contract.
+Every supported tool has a complete application-owned input contract describing the reviewed MCP interface: exact arguments, types, required fields, selector patterns, and server numeric limits. The contract also records scope, safety annotations, and model-facing descriptions. Application defaults, argument rewriting, and execution limits are separate responsibilities; contracts have no `argumentOverrides`. For `pods_log`, the contract records the server tail minimum of 0; call preparation supplies 100 when omitted, and execution policy independently restricts calls to 1–1,000 lines without clamping explicit values.
 
-| Contract       | Presence in a descriptor | Describes                                         | Pi SRE validator          |
-| -------------- | ------------------------ | ------------------------------------------------- | ------------------------- |
-| `inputSchema`  | Required                 | The `arguments` object supplied to `tools/call`   | `isSupportedInputSchema`  |
-| `outputSchema` | Optional                 | The `structuredContent` object returned by a tool | `isSupportedOutputSchema` |
+Runtime descriptors provide compatibility evidence; they never supply executable constraints:
 
-Both validators require an object root and currently share the same supported nested types and keywords. They accept schema documents, not actual arguments or results. Passing `undefined` to either validator returns false; discovery permits an omitted output schema by skipping its validation. A declared `null` output schema is rejected.
+- Execution-relevant fields must match the reviewed contract. Added, removed, or changed arguments, required fields, patterns, formats, enums, bounds, and object openness reject the affected tool, including tighter changes.
+- Titles, descriptions, examples, and server defaults are inert metadata. They are ignored rather than recursively inspected or imported into executable schemas. Only reviewed application defaults are applied.
+- Property order is irrelevant. Omitted `required` means an empty list; omitted `additionalProperties` means true. Explicit malformed values such as null are rejected.
+- The comparison walks only nodes declared in the trusted contract. Unknown keywords, unexpected properties, malformed fields, and nested schemas are rejected before traversing unreviewed branches. Input traversal depth is therefore bounded by the contract, without a separate generic schema-document grammar.
+- `defineMcpToolContract` builds executable model and transport schemas once during module initialization, exclusively from the supplied application definition. `inputSchema` is the only handwritten input schema; `modelSchema` and `transportSchema` are derived fields. The factory copies the supplied definition and deeply freezes the contract and its schemas; the registry is frozen too. Both executable schemas forbid extra arguments. The model schema hides application-owned context; transport validation checks the final arguments after context injection.
+- Enumeration follows the same contract path: declared properties must be empty, destructive metadata must be false, and calls accept only an empty object.
 
-## Three levels to keep distinct
+Adding or upgrading a tool requires reviewing its complete contract and independent descriptor fixture together. Runtime schema drift cannot silently change application behavior.
 
-```text
-Tool descriptor
-  ├── inputSchema  ── describes ──> call arguments
-  └── outputSchema ── describes ──> result.structuredContent
+## Descriptor checks and call checks
 
-Pi SRE's TypeBox definitions validate the schema documents above.
-```
+There are two validation moments, implemented by the same contract module:
 
-For example, a tool may declare this input schema:
+1. `validateMcpToolContract` checks approval metadata and compares input and any declared output schema with the reviewed contract. A mismatch yields a safe contract location and rejects only that tool.
+2. The returned `ValidatedToolContract` reuses the contract's frozen schemas and exposes pure `validateModelArguments` and `validateTransportArguments` checks. Runtime descriptor validation does not reconstruct schemas. These checks never modify arguments or apply application defaults or retrieval limits. Transport validation checks complete arguments after the bridge injects selected scope. The bridge registers a deep copy of the model schema with Pi, so consumer changes cannot affect shared contract schemas.
 
-```json
-{
-  "type": "object",
-  "properties": { "namespace": { "type": "string", "minLength": 1 } },
-  "required": ["namespace"],
-  "additionalProperties": false
-}
-```
+The bridge composes call preparation, model-schema validation, and execution-policy checks for both Pi's preparation hook and direct execution. It then resolves and injects the selected context before final transport-schema validation and MCP dispatch. A policy rejection returns `invalid-arguments` and sends no request. The model schema retains reviewed server bounds (for example, tail minimum 0); tool descriptions communicate the stricter application log range. Scope, connection-generation, cancellation, and result-freshness guards remain independent. The bridge does not implement its own argument-schema validator. Input schemas are never adapted or compiled from runtime descriptors.
 
-An argument object satisfying that schema would be:
+Envelope failures, such as a missing/non-object `inputSchema` or malformed annotations, are `invalid-descriptor`. Input schema objects that fail the reviewed contract are `incompatible-schema`, including malformed schema fields and unreviewed keywords. Discovery still rejects every duplicate name before exposure.
 
-```json
-{ "namespace": "default" }
-```
+## Application output contracts and returned data
 
-Discovery checks that the schema document has a supported structure. The [tool bridge](../src/mcp/tool-bridge.ts) checks actual arguments against the adapted schema before transport. Validating actual structured results is a separate operation; accepting an output schema does not prove any returned data conforms to it. Slice 5 returns text and status details and does not expose the discovered output schema as a Pi result contract.
+`McpToolContract.outputSchema` optionally defines an application-reviewed schema for a tool's `structuredContent`. The factory copies and deeply freezes it once at initialization, alongside input schemas, and supplies a pure `contract.validateOutput(value)` type guard. No runtime server schema is executed. Without an output contract, this method returns false; it does not imply that a response has been validated.
 
-## Supported schema documents
+Only `configuration_contexts_list` currently has a reviewed output contract: `contexts` is a required array of objects with nonempty string `name`, string `server`, and boolean `default`; `defaultContext` is an optional string, including empty. Additional fields remain accepted but are discarded when the adapter constructs domain entries. Other tools have no invented output shape.
 
-Every schema node must be an object with one explicit string `type`. The root must use `"object"`; children may use any type below.
+The context adapter validates the complete result envelope and handles tool failures and the exact text-only empty-success branch before invoking the contract on structured data. A present malformed `structuredContent` never falls back to text. UTF-8 byte limits, inventory size, identity controls, duplicate names, default consistency, endpoint sanitization, and domain mapping remain adapter responsibilities. This replaces the adapter's separate inventory-shape schema while preserving its accepted responses and failure behavior. Generic tool-bridge presentation continues through the result normalizer; tool-specific adapters select the applicable structured-success branch for output contracts.
 
-| Type                | Permitted type-specific keywords                                           | Checks during discovery                                                                                                                         |
-| ------------------- | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `object`            | `properties`, `required`, `additionalProperties`                           | Properties map names to supported child schemas. Required names must refer to own declared properties. Additional properties must be a boolean. |
-| `array`             | `items`, `minItems`, `maxItems`                                            | Items must be one supported schema. Length limits must be nonnegative integers.                                                                 |
-| `string`            | `minLength`, `maxLength`, `pattern`, `format`                              | Length limits must be nonnegative integers. Pattern and format must be strings.                                                                 |
-| `number`, `integer` | `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `multipleOf` | Each declared constraint must be a finite number.                                                                                               |
-| `boolean`, `null`   | None                                                                       | Only common metadata is permitted.                                                                                                              |
+## Optional server output declarations
 
-Every type also permits these common fields:
+A descriptor’s optional `outputSchema` is compared with `McpToolContract.outputSchema` by the same trusted-contract comparator used for inputs, including nested array items. Execution-relevant fields must match exactly; metadata and property/required ordering follow the input rules, and omitted `additionalProperties` means true. This is structural compatibility against a reviewed template, not general JSON Schema equivalence or subsumption. Unknown fields and constraints reject only that tool with an `outputSchema` contract path; untrusted field names are never echoed. Traversal follows only trusted contract nodes, so unexpected nesting is rejected without a generic schema grammar or fixed depth limit.
 
-| Field                  | Supported shape               |
-| ---------------------- | ----------------------------- |
-| `title`, `description` | String                        |
-| `default`              | Any JSON value                |
-| `enum`                 | Nonempty array of JSON values |
-| `examples`             | Array of JSON values          |
+The pinned server’s six supported tools omit output declarations. Omission remains supported and does not disable application output validation. If a server declares an output schema for a tool without a reviewed application output contract, that tool is rejected pending review. Non-object declarations are malformed descriptor envelopes; object declarations that do not match are incompatible schemas. Runtime output schemas are never imported or executed. The same compatibility check runs for direct bridge/startup consumers, independently of discovery.
 
-Only `type` is always required. Arrays additionally require `items`. Objects may omit `properties`, but if `required` is declared, `properties` must also be declared, even for an empty required array.
-
-The root has depth 0. Each property schema or array item schema adds one level. Depth 12 is accepted; depth 13 is rejected. The bounded TypeBox definitions are constructed once and reused.
-
-Unknown fields are rejected. Examples include `$schema`, `$id`, `$ref`, `$defs`, `allOf`, `anyOf`, `oneOf`, `not`, conditional schemas, `patternProperties`, and tuple item arrays. Boolean schemas such as `true` and union types such as `["string", "null"]` are also outside this subset. A schema can be valid JSON Schema and still be unsupported by Pi SRE.
-
-This is a structural compatibility check, not a complete JSON Schema semantic validator. Discovery does not check whether a pattern compiles, a format name is recognized, enum/default values match the declared type, minimum and maximum agree, or `multipleOf` is positive. The bridge additionally rejects invalid patterns, unregistered TypeBox formats, nonpositive `multipleOf`, and reversed minimum/maximum, length, or item bounds. TypeBox 1 validates the accepted JSON Schema directly; the adapter supplies the dynamic record type after validating and cloning the schema. Actual arguments must satisfy both the type and enum constraints. Defaults and examples are metadata; the bridge never applies defaults, coerces values, or removes properties.
-
-The two uses of `additionalProperties: false` in the code have different targets: TypeBox's option rejects unknown fields in a schema document; the server's schema keyword restricts fields in the future arguments or result object. See [JSON Schema object keywords](https://json-schema.org/understanding-json-schema/reference/object).
-
-## Complete examples
-
-### Accepted input schema: no arguments
-
-```json
-{
-  "type": "object",
-  "properties": {},
-  "additionalProperties": false
-}
-```
-
-### Accepted output schema: structured context names
-
-This is an illustrative schema, not a claim about the exact Kubernetes MCP Server response.
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "contexts": { "type": "array", "items": { "type": "string" } }
-  },
-  "required": ["contexts"],
-  "additionalProperties": false
-}
-```
-
-A structured result satisfying it would contain:
-
-```json
-{ "contexts": ["staging", "production"] }
-```
-
-### Rejected input or output schema: undeclared required name
-
-```json
-{
-  "type": "object",
-  "properties": { "name": { "type": "string" } },
-  "required": ["namespace"]
-}
-```
-
-`namespace` has no declaration in `properties`.
-
-### Rejected output schema: array root
-
-```json
-{
-  "type": "array",
-  "items": { "type": "string" }
-}
-```
-
-An array is permitted as an object property, but neither input nor output permits it as the root.
-
-### Rejected input or output schema: unsupported reference
-
-```json
-{
-  "type": "object",
-  "properties": { "namespace": { "$ref": "#/$defs/namespace" } },
-  "$defs": { "namespace": { "type": "string" } }
-}
-```
-
-Reference resolution and definitions are outside the current subset.
-
-## Discovery and tool policy
-
-An invalid required input schema or a malformed declared output schema rejects the whole descriptor with `invalid-descriptor`. Discovery preserves accepted schema documents without applying defaults, coercing values, or removing unsupported fields.
-
-Schema acceptance is one gate. An exposed tool must also have a unique valid name, match the exact allowlist, declare `readOnlyHint: true`, and avoid `destructiveHint: true`. Known cluster-dependent diagnostic tools remain deferred until explicit cluster scope is implemented. These decisions belong to [tool-policy.ts](../src/runtime/tool-policy.ts), independently of the schema document validators.
+Actual MCP result envelopes are validated, classified, redacted, and bounded by [result-normalizer.ts](../src/mcp/result-normalizer.ts). [context-discovery.ts](../src/mcp/context-discovery.ts) composes the contract's output-shape validation with context-inventory semantics and limits.
 
 ## Code map
 
-| Code                                               | Responsibility                                                |
-| -------------------------------------------------- | ------------------------------------------------------------- |
-| `buildObjectSchemaDocument`                        | Object fields and the required-name refinement                |
-| `buildSchemaDocument`                              | Shared nested types, keywords, and depth limit                |
-| `InputSchemaDocument` / `isSupportedInputSchema`   | Required argument-schema contract                             |
-| `OutputSchemaDocument` / `isSupportedOutputSchema` | Declared structured-result-schema contract                    |
-| `parseDescriptor`                                  | Descriptor validation, including optional output handling     |
-| `discoverMcpTools`                                 | Discovery, duplicate rejection, sorting, and policy reporting |
+| Module                             | Responsibility                                                                                                  |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `runtime/tool-policy.ts`           | Reviewed MCP contracts, approval rules, descriptor comparison, frozen schemas, argument/output-shape validation |
+| `runtime/tool-call-preparation.ts` | Private argument copy, removal of model-supplied context, application defaults                                  |
+| `runtime/tool-execution-policy.ts` | Application retrieval limits, including positive log tail capped at 1,000 lines                                 |
+| `mcp/tool-discovery.ts`            | Descriptor envelopes, output declaration checks, duplicates, per-tool discovery decisions                       |
+| `mcp/tool-bridge.ts`               | Scope and lifecycle guards, invocation of contract methods, MCP calls, normalized results                       |
+| `mcp/context-discovery.ts`         | Context result envelope, output-contract invocation, inventory semantics, limits, sanitization, domain mapping  |
+| `mcp/result-normalizer.ts`         | MCP result validation, failure classification, redaction, presentation budgets                                  |
+
+## Reviewed diagnostic surface (Phase 2 Slice 7)
+
+The exact approved operations are `configuration_contexts_list` and the five diagnostics below. The sanitized [0.0.67 descriptor capture](../tests/fixtures/phase2-server-0.0.67.json) supplies every diagnostic fixture. All diagnostics are cluster-dependent, require a declared `context: string`, and inject application-owned context. The model schema omits context and its required entry, uses the reviewed constraints, and rejects additional properties even when the transport schema is permissive. A changed descriptor with an unreviewed declared argument or incompatible argument type is excluded pending review; new operation names remain excluded. Discovery rejects duplicate names, malformed schemas, missing read-only metadata, and destructive annotations independently.
+
+| Operation         | Reviewed model arguments                                                     | Required | Namespace behavior                                                                                                                                               |
+| ----------------- | ---------------------------------------------------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pods_list`       | `fieldSelector`, `labelSelector` strings                                     | None     | No namespace argument. Server attempts all namespaces but can fall back to its context/default namespace after an authorization check. Coverage is not asserted. |
+| `pods_get`        | `name`, `namespace` strings                                                  | `name`   | Omitted namespace uses server/context default. Pod resource only.                                                                                                |
+| `pods_log`        | `name`, `namespace`, `container` strings; `previous` boolean; `tail` integer | `name`   | Omitted namespace uses server/context default. Finite request, default 100 lines, allowed 1–1,000 lines.                                                         |
+| `events_list`     | `namespace`, `fieldSelector` strings                                         | None     | Explicit namespace is forwarded; omitted namespace uses server policy. All-namespace coverage is not asserted.                                                   |
+| `namespaces_list` | `fieldSelector` string                                                       | None     | Cluster-scoped namespace inventory.                                                                                                                              |
+
+The source review of [server pod handlers](https://github.com/containers/kubernetes-mcp-server/blob/v0.0.67/pkg/toolsets/core/pods.go), [pod operations](https://github.com/containers/kubernetes-mcp-server/blob/v0.0.67/pkg/kubernetes/pods.go), and [resource listing](https://github.com/containers/kubernetes-mcp-server/blob/v0.0.67/pkg/kubernetes/resources.go) confirms positive `tail` reaches Kubernetes `PodLogOptions.TailLines`, without follow enabled. Pi SRE rejects zero, negative, fractional, oversized, or nonnumeric tails before transport and always sends a positive explicit tail. The descriptor must match the reviewed tail schema; missing or changed support hides only the log tool. Existing timeout and cancellation apply. Line count does not bound bytes in one log line; this server has no reviewed byte-limit argument. Model result budgets remain a separate presentation limit, not a transport memory ceiling.
+
+Runtime publication hides diagnostics when scope is unbound, unavailable, or incompatible with the reviewed context constraint, including from Pi's tool picker. Selecting an exact context updates visibility without restarting MCP. Captured handlers independently validate scope, connection generation, arguments, and final contract-owned transport schema; late stale payloads are withheld. Result details retain the originating context and any explicit namespace. An omitted namespace is described as server/context policy, never inferred from the application's `*` display.
+
+`configuration_view`, exec/attach, writes, shell, generic resource/Secret access, and unreviewed arguments remain excluded. Server `read_only = true`, read-only Kubernetes RBAC, redaction, bounded model results, and disabled raw retention continue to apply. Pod specifications and log text may contain application data; pattern redaction cannot identify arbitrary sensitive values. No evidence store or raw-response persistence is introduced.

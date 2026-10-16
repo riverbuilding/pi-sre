@@ -43,11 +43,13 @@ describe("Slice 4 scoped bridge over Pi and stdio MCP", () => {
         toolCallTimeoutMs: 500,
       });
       const report = await discoverMcpTools(connection);
-      expect(report.exposed.map((tool) => tool.name)).toEqual(["configuration_contexts_list"]);
+      expect(report.exposed.map((tool) => tool.name)).toEqual([
+        "configuration_contexts_list",
+        "pods_list",
+      ]);
       expect(report.decisions).toContainEqual({
         name: "pods_list",
-        status: "deferred",
-        reason: "cluster-context-required",
+        status: "exposed",
       });
       manager = new ClusterContextManager({ cluster: "beta" });
       generation = manager.beginConnection();

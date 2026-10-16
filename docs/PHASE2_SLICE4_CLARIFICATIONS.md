@@ -2,6 +2,8 @@
 
 This note records the clarification requested before implementing Phase 2 Slice 4, updated with the completed bridge terminology. It explains the [implementation plan](./PHASE2_IMPLEMENTATION_SLICES.md#10-slice-4--enforce-scope-in-the-tool-bridge) and [verified server contracts](./PHASE2_CONTRACTS.md). Production diagnostic tools remain deferred until the later slices.
 
+**Current design update (2026-10-16):** The sections below record the historical Slice 4 approach. Complete application-owned contracts now define executable model/transport schemas, and runtime server descriptors are checked for exact execution-schema compatibility before exposure. Runtime constraint changes are rejected rather than imported. See [the current schema design](./MCP_TOOL_SCHEMAS.md#design-decision-per-tool-contracts-and-one-shared-validator). Scope, cancellation, and generation guards remain in place.
+
 ## 1. What is the original server schema?
 
 The **original server schema** is the tool's input schema supplied by Kubernetes MCP Server through MCP tool discovery. It defines the arguments the server accepts, including `context`, `namespace` where supported, required fields, and constraints such as enums and patterns.
@@ -19,7 +21,7 @@ This refers to the tool's input schema, not its optional output schema or the va
 | Arguments accepted by Kubernetes MCP Server | Server input schema / transport contract | `McpToolDescriptor.inputSchema`, typed as `McpInputSchema`                           |
 | Arguments exposed through Pi to the LLM     | Model-facing schema                      | `ToolDefinition.parameters`, currently the local variable `parameters` in the bridge |
 
-The definitions live in [tool-discovery.ts](../src/mcp/tool-discovery.ts), [tool-schema.ts](../src/mcp/tool-schema.ts), and [tool-bridge.ts](../src/mcp/tool-bridge.ts).
+The definitions live in [tool-discovery.ts](../src/mcp/tool-discovery.ts), [tool-policy.ts](../src/runtime/tool-policy.ts), and [tool-bridge.ts](../src/mcp/tool-bridge.ts).
 
 Before Slice 4, the bridge adapts the server input schema directly with `adaptMcpInputSchema(descriptor.inputSchema)` and uses the result as Pi's `parameters`. There is no separate project-specific model-schema type yet. Slice 4 introduces the separation needed to hide application-owned context from the model while retaining the complete transport contract.
 

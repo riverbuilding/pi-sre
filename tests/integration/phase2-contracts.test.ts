@@ -14,10 +14,10 @@ import { discoverMcpTools } from "../../src/mcp/tool-discovery.js";
 import { createSreResourceLoaderOptions } from "../../src/runtime/resource-loader.js";
 
 describe("Phase 2 frozen contracts", () => {
-  it("accepts the real descriptors while keeping diagnostic candidates unavailable", async () => {
+  it("accepts all reviewed real descriptors", async () => {
     const descriptors = captured.cases["multiple-default"].descriptors;
     const report = await discoverMcpTools({ listTools: async () => descriptors });
-    expect(report.exposed.map((tool) => tool.name)).toEqual(["configuration_contexts_list"]);
+    expect(report.exposed.map((tool) => tool.name)).toEqual(descriptors.map((tool) => tool.name));
     expect(report.decisions).not.toContainEqual(
       expect.objectContaining({ reason: "invalid-descriptor" }),
     );

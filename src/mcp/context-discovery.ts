@@ -1,15 +1,16 @@
 import { Buffer } from "node:buffer";
 
-import { Type } from "typebox";
-import { Value } from "typebox/value";
 import { z } from "zod";
 
 import { ClusterContextRegistry } from "../cluster/context-registry.js";
 import type { McpConnection } from "./connection.js";
 import { classifyToolFailure, type ToolFailureCategory } from "./result-normalizer.js";
 import type { ToolDiscoveryReport } from "./tool-discovery.js";
-import { isSupportedInputSchema } from "./tool-schema.js";
-import { evaluateToolPolicy } from "../runtime/tool-policy.js";
+import {
+  CONFIGURATION_CONTEXTS_LIST_CONTRACT,
+  validateMcpToolContract,
+  McpToolContractError,
+} from "../runtime/tool-policy.js";
 
 export const CONTEXT_ENUMERATION_LIMITS = Object.freeze({
   resultBytes: 1_048_576,
@@ -42,30 +43,6 @@ const TOOL_NAME = "configuration_contexts_list";
 const EMPTY_TEXT = "No contexts found in kubeconfig";
 // Names are opaque identifiers: reject terminal controls rather than rewrite identity.
 const controls = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
-const name = z
-  .string()
-  .min(1)
-  .refine(
-    (value) =>
-      Buffer.byteLength(value, "utf8") <= CONTEXT_ENUMERATION_LIMITS.nameBytes &&
-      !controls.test(value),
-  );
-const inventory = z.object({
-  defaultContext: z.union([z.literal(""), name]).optional(),
-  contexts: z
-    .array(
-      z.object({
-        name,
-        server: z
-          .string()
-          .refine(
-            (value) => Buffer.byteLength(value, "utf8") <= CONTEXT_ENUMERATION_LIMITS.serverBytes,
-          ),
-        default: z.boolean(),
-      }),
-    )
-    .max(CONTEXT_ENUMERATION_LIMITS.entries),
-});
 // Enumeration supports the captured text blocks; other presentation formats confer no authority.
 const envelope = z.object({
   content: z.array(z.object({ type: z.literal("text"), text: z.string() })),
@@ -114,9 +91,24 @@ export function parseContextRegistry(raw: unknown): ClusterContextRegistry {
     }
     throw new ContextDiscoveryError("invalid-response");
   }
-  const validated = inventory.safeParse(result.structuredContent);
-  if (!validated.success) throw new ContextDiscoveryError("invalid-response");
-  const { contexts, defaultContext } = validated.data;
+  const structured = result.structuredContent;
+  if (!CONFIGURATION_CONTEXTS_LIST_CONTRACT.validateOutput(structured))
+    throw new ContextDiscoveryError("invalid-response");
+  const { contexts, defaultContext } = structured;
+  if (
+    contexts.length > CONTEXT_ENUMERATION_LIMITS.entries ||
+    (defaultContext !== undefined &&
+      (Buffer.byteLength(defaultContext, "utf8") > CONTEXT_ENUMERATION_LIMITS.nameBytes ||
+        controls.test(defaultContext))) ||
+    contexts.some(
+      (context) =>
+        Buffer.byteLength(context.name, "utf8") > CONTEXT_ENUMERATION_LIMITS.nameBytes ||
+        controls.test(context.name) ||
+        Buffer.byteLength(context.server, "utf8") > CONTEXT_ENUMERATION_LIMITS.serverBytes,
+    )
+  ) {
+    throw new ContextDiscoveryError("invalid-response");
+  }
   const names = new Set(contexts.map((context) => context.name));
   const defaults = contexts.filter((context) => context.default);
   if (
@@ -145,17 +137,12 @@ export async function discoverClusterContexts(
   signal?.throwIfAborted();
   const candidates = report.exposed.filter((tool) => tool.name === TOOL_NAME);
   const tool = candidates[0];
-  if (
-    candidates.length !== 1 ||
-    !tool ||
-    evaluateToolPolicy(tool).status !== "exposed" ||
-    tool.annotations?.destructiveHint !== false ||
-    !isSupportedInputSchema(tool.inputSchema) ||
-    !tool.inputSchema.properties ||
-    Object.keys(tool.inputSchema.properties).length !== 0 ||
-    !Value.Check(Type.Unsafe(tool.inputSchema), {})
-  ) {
-    throw new ContextDiscoveryError("incompatible-tool");
+  if (candidates.length !== 1 || !tool) throw new ContextDiscoveryError("incompatible-tool");
+  try {
+    validateMcpToolContract(tool);
+  } catch (error) {
+    if (!(error instanceof McpToolContractError)) throw error;
+    throw new ContextDiscoveryError("incompatible-tool", undefined, { cause: error });
   }
   let raw: unknown;
   try {

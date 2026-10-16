@@ -1,3 +1,8 @@
+import {
+  getMcpToolContract,
+  acceptsToolContext,
+  McpToolContractError,
+} from "../runtime/tool-policy.js";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 
 import { ClusterContextManager } from "../cluster/context-manager.js";
@@ -8,7 +13,7 @@ import type { SreConfig } from "../config/config.js";
 import { loadSreConfig, SreConfigError } from "../config/loader.js";
 import { ManagedMcpConnection, McpStartupError, type McpConnection } from "../mcp/connection.js";
 import { discoverMcpTools, type ToolDiscoveryReport } from "../mcp/tool-discovery.js";
-import { createMcpToolBridge, McpToolBridgeError } from "../mcp/tool-bridge.js";
+import { createMcpToolBridge } from "../mcp/tool-bridge.js";
 
 export interface McpControllerSnapshot {
   readonly status: "connecting" | "ready" | "unavailable";
@@ -29,6 +34,7 @@ export class McpController {
   private pending: Promise<McpControllerSnapshot> | undefined;
   private controllerClosePromise: Promise<void> | undefined;
   private stopObserving: (() => void) | undefined;
+  private availableTools: readonly ToolDefinition[] = [];
   private report: ToolDiscoveryReport | undefined;
   private current: McpControllerSnapshot = {
     status: "unavailable",
@@ -49,6 +55,9 @@ export class McpController {
     this.initialConfig = initialConfig;
     this.shutdown = shutdown;
     this.reloadConfig = reloadConfig;
+    this.clusterContext.subscribe(() => {
+      if (this.current.status === "ready") this.publishReady();
+    });
   }
 
   get snapshot(): McpControllerSnapshot {
@@ -70,6 +79,31 @@ export class McpController {
     this.current = state;
     for (const listener of this.listeners) listener(state);
     return state;
+  }
+
+  private publishReady(): McpControllerSnapshot {
+    const scope = this.clusterContext.captureScope();
+    const tools = this.availableTools.filter((tool) => {
+      if (!getMcpToolContract(tool.name)?.clusterDependent) return true;
+      const descriptor = this.report?.exposed.find((entry) => entry.name === tool.name);
+      return (
+        scope !== undefined &&
+        descriptor !== undefined &&
+        acceptsToolContext(descriptor, scope.context)
+      );
+    });
+    const message =
+      this.clusterContext.state.status === "enumeration-failed"
+        ? this.clusterContext.state.message
+        : `Kubernetes MCP ready: ${tools.length} approved read-only tools.`;
+    if (
+      this.current.status === "ready" &&
+      this.current.message === message &&
+      tools.length === this.current.tools.length &&
+      tools.every((tool, index) => tool === this.current.tools[index])
+    )
+      return this.current;
+    return this.publish({ status: "ready", message, tools });
   }
 
   restart(force = false, initial = false): Promise<McpControllerSnapshot> {
@@ -101,6 +135,7 @@ export class McpController {
     const generation = this.clusterContext.beginConnection();
     this.publish({ status: "connecting", message: "Kubernetes MCP connecting…", tools: [] });
     this.report = undefined;
+    this.availableTools = [];
     let discoveryStarted = false;
     try {
       await this.retire();
@@ -180,13 +215,8 @@ export class McpController {
         });
       });
       this.report = report;
-      return this.publish({
-        status: "ready",
-        message: enumerationError
-          ? this.clusterContext.state.message
-          : `Kubernetes MCP ready: ${tools.length} approved read-only tools.`,
-        tools,
-      });
+      this.availableTools = tools;
+      return this.publishReady();
     } catch (error) {
       await this.retire();
       const message =
@@ -194,7 +224,7 @@ export class McpController {
           ? "Kubernetes MCP configuration invalid or session paths changed. Check YAML and read-only TOML; restart pi-sre if application home changed."
           : error instanceof McpStartupError
             ? error.diagnostic
-            : error instanceof McpToolBridgeError
+            : error instanceof McpToolContractError
               ? error.message
               : discoveryStarted
                 ? "Kubernetes MCP tool discovery failed."

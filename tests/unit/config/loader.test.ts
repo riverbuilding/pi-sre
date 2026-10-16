@@ -6,10 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { createApplicationPaths } from "../../../src/config/config.js";
 import { loadSreConfig, SreConfigError } from "../../../src/config/loader.js";
-import {
-  isPhase1AllowedMcpTool,
-  PHASE1_ALLOWED_MCP_TOOLS,
-} from "../../../src/runtime/tool-policy.js";
+import { getMcpToolContract, MCP_TOOL_CONTRACTS } from "../../../src/runtime/tool-policy.js";
 
 const validYaml = `
 kubernetes:
@@ -259,12 +256,14 @@ describe("loadSreConfig", () => {
   });
 });
 
-describe("Phase 1 MCP allowlist", () => {
-  it("exposes only context enumeration", () => {
-    expect(PHASE1_ALLOWED_MCP_TOOLS).toEqual(["configuration_contexts_list"]);
-    expect(isPhase1AllowedMcpTool("configuration_contexts_list")).toBe(true);
-    expect(isPhase1AllowedMcpTool("configuration_view")).toBe(false);
-    expect(isPhase1AllowedMcpTool("targets_list")).toBe(false);
-    expect(isPhase1AllowedMcpTool("pods_list")).toBe(false);
+describe("MCP inventory contract", () => {
+  it("keeps only context enumeration independent of cluster scope", () => {
+    expect(
+      MCP_TOOL_CONTRACTS.filter((tool) => !tool.clusterDependent).map((tool) => tool.name),
+    ).toEqual(["configuration_contexts_list"]);
+    expect(getMcpToolContract("configuration_contexts_list")?.clusterDependent).toBe(false);
+    expect(getMcpToolContract("configuration_view")).toBeUndefined();
+    expect(getMcpToolContract("targets_list")).toBeUndefined();
+    expect(getMcpToolContract("pods_list")?.clusterDependent).toBe(true);
   });
 });

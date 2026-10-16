@@ -1,62 +1,17 @@
-import { Value } from "typebox/value";
 import { describe, expect, it, vi } from "vitest";
 
-import { adaptMcpInputSchema, createMcpToolBridge } from "../../../src/mcp/tool-bridge.js";
+import { createMcpToolBridge } from "../../../src/mcp/tool-bridge.js";
+import { validateMcpToolContract } from "../../../src/runtime/tool-policy.js";
+import { scopedPodTool } from "../../fixtures/scoped-tool.js";
 import type { McpToolDescriptor } from "../../../src/mcp/tool-discovery.js";
 
 const descriptor: McpToolDescriptor = {
   name: "configuration_contexts_list",
-  inputSchema: { type: "object", additionalProperties: false },
-  annotations: { readOnlyHint: true },
+  inputSchema: { type: "object", properties: {}, additionalProperties: true },
+  annotations: { readOnlyHint: true, destructiveHint: false },
 };
 
 describe("MCP tool bridge", () => {
-  it("adapts the supported JSON Schema subset without changing argument semantics", () => {
-    const schema = adaptMcpInputSchema({
-      type: "object",
-      properties: {
-        name: { type: "string", minLength: 1, enum: ["dev", "prod"] },
-        count: { type: "integer", minimum: 1, maximum: 3 },
-        ratio: { type: "number", exclusiveMinimum: 0, multipleOf: 0.5 },
-        enabled: { type: "boolean", default: true },
-        names: { type: "array", items: { type: "string" }, minItems: 1 },
-        target: {
-          type: "object",
-          properties: { namespace: { type: "string", pattern: "^[a-z]+$" } },
-          required: ["namespace"],
-          additionalProperties: false,
-        },
-        empty: { type: "null" },
-      },
-      required: ["name", "target"],
-      additionalProperties: false,
-    });
-    const valid = {
-      name: "dev",
-      count: 2,
-      ratio: 1.5,
-      enabled: false,
-      names: ["a"],
-      target: { namespace: "demo" },
-      empty: null,
-    };
-    expect(Value.Check(schema, valid)).toBe(true);
-    expect(Value.Check(schema, { name: "dev", target: { namespace: "demo" } })).toBe(true);
-    for (const invalid of [
-      { ...valid, name: "other" },
-      { ...valid, count: 2.5 },
-      { ...valid, count: 4 },
-      { ...valid, ratio: 0 },
-      { ...valid, ratio: 0.7 },
-      { ...valid, enabled: "false" },
-      { ...valid, names: [] },
-      { ...valid, target: {} },
-      { ...valid, target: { namespace: "123" } },
-      { ...valid, extra: 1 },
-    ])
-      expect(Value.Check(schema, invalid)).toBe(false);
-  });
-
   it.each([
     { type: "object", properties: { name: { $ref: "#/$defs/name" } } },
     { type: "object", properties: { name: { type: "string", pattern: "[" } } },
@@ -64,20 +19,19 @@ describe("MCP tool bridge", () => {
     { type: "object", properties: { count: { type: "number", multipleOf: 0 } } },
     { type: "object", properties: { count: { type: "number", minimum: 5, maximum: 1 } } },
   ])("fails closed for non-executable schema %j", (schema) => {
-    expect(() => adaptMcpInputSchema(schema)).toThrow("cannot be adapted safely");
+    expect(() =>
+      validateMcpToolContract({
+        ...descriptor,
+        inputSchema: { ...schema, type: "object" },
+      }),
+    ).toThrow("does not match the reviewed contract");
   });
 
   it("keeps names reversible and forwards arguments and the exact caller signal", async () => {
     const callTool = vi.fn().mockResolvedValue({ content: [{ type: "text", text: "dev, prod" }] });
-    const tool = createMcpToolBridge(
-      {
-        ...descriptor,
-        inputSchema: { type: "object", properties: { detailed: { type: "boolean" } } },
-      },
-      { callTool },
-    );
+    const tool = createMcpToolBridge(descriptor, { callTool });
     const signal = new AbortController().signal;
-    const args = { detailed: false };
+    const args = {};
     const result = await tool.execute("call-1", args, signal, undefined, {} as never);
     expect(callTool).toHaveBeenCalledWith("configuration_contexts_list", args, signal);
     expect(result).toEqual({
@@ -100,7 +54,7 @@ describe("MCP tool bridge", () => {
       details: { failureCategory: "invalid-arguments" },
     });
     expect(callTool).not.toHaveBeenCalled();
-    expect(() => createMcpToolBridge({ ...descriptor, name: "pods_list" }, { callTool })).toThrow(
+    expect(() => createMcpToolBridge(scopedPodTool, { callTool })).toThrow(
       "requires an application-owned scope binding",
     );
     for (const unsafe of ["configuration_view", "bash"]) {

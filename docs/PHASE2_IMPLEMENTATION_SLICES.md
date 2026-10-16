@@ -1,6 +1,6 @@
 # Phase 2 Implementation Slices
 
-**Status:** Slice 0 complete (2026-10-07); Slice 1 complete (2026-10-08); Slice 2 complete (2026-10-09); Slice 3 complete (2026-10-09); Slice 4 complete (2026-10-13); Slice 5 complete (2026-10-14); Slice 6 implemented (2026-10-15; live terminal verification pending); Slices 7–9 planned
+**Status:** Slice 0 complete (2026-10-07); Slice 1 complete (2026-10-08); Slice 2 complete (2026-10-09); Slice 3 complete (2026-10-09); Slice 4 complete (2026-10-13); Slice 5 complete (2026-10-14); Slice 6 implemented (2026-10-15; live terminal verification pending); Slice 7 implemented (2026-10-15); Slices 8–9 planned
 
 **Applies to:** Pi SRE V0.1, Phase 2 — Cluster Context Management
 
@@ -113,7 +113,7 @@ Phase 3 will capture this scope in `Incident.scope`. At that point `/cluster` es
 
 ### Model and transport arguments
 
-The server input schema remains the authoritative transport contract. Derive a separate model-facing schema that omits the application-owned `context` property and its required entry, preserving all other constraints.
+**Schema ownership update (2026-10-16):** Complete reviewed application contracts are authoritative for call validation. Runtime descriptors must match their execution-relevant fields before exposure; they do not contribute executable constraints. Derive model and transport schemas from the reviewed contract, hiding application-owned `context` from the model. See [the schema design](./MCP_TOOL_SCHEMAS.md#design-decision-per-tool-contracts-and-one-shared-validator). Slice boundaries and scope enforcement remain unchanged; the Slice 4 completion record below describes its original implementation.
 
 For cluster-dependent tools, at execution:
 
@@ -121,7 +121,7 @@ For cluster-dependent tools, at execution:
 2. Remove any supplied `context` from untrusted model arguments and validate the remaining arguments against the model-facing schema.
 3. Require a valid application-owned scope snapshot for cluster-dependent tools.
 4. Inject its exact context, overwriting any model-supplied value.
-5. Validate the complete arguments against the original MCP schema before transport.
+5. Validate the complete arguments against the reviewed application-owned transport schema before transport.
 6. Forward cancellation and timeout; check cancellation/generation again before publishing the result.
 
 A declared compatible `context` parameter is required for every exposed cluster-dependent tool. A tool without one remains unavailable, even if the schema permits arbitrary additional properties. Pi SRE never depends on the server's implicit current context. `configuration_contexts_list` remains a non-cluster-dependent operation and does not change active selection when the model calls it.
@@ -363,6 +363,8 @@ Validation after the scope-message review: focused tests passed, followed by `np
 - Live terminal verification covers narrow width, selection dialogs, streaming, restart, and read-only visibility.
 
 ## 13. Slice 7 — Enable the Reviewed Diagnostic Tool Surface
+
+**Implemented (2026-10-15):** Enabled the five captured diagnostic operations through the existing managed connection and scoped bridge. Discovery rejects incompatible tools individually, requires explicit context, and limits schemas/arguments to the reviewed surface. Runtime publication hides diagnostics until bound and reacts to selection/loss; captured handlers still enforce scope independently. Pod logs explicitly send 100 lines by default and enforce 1–1,000 lines, with no follow or unreviewed arguments. Namespace coverage remains explicit or described as server/context policy. See [the reviewed tool contracts](./MCP_TOOL_SCHEMAS.md#reviewed-diagnostic-surface-phase-2-slice-7) for source review, bounds, and limitations. Deterministic tests assert every final diagnostic request and visibility through the controller, Pi registry, and stdio. Live cross-cluster acceptance remains Slice 9 work.
 
 **Outcome:** A small useful set of read-only tools is available only when its scope contract is safe.
 

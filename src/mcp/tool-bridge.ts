@@ -1,7 +1,4 @@
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { Type, type TUnsafe } from "typebox";
-import { Format } from "typebox/format";
-import { Value } from "typebox/value";
 import { DEFAULT_RESULT_POLICY, type ResultPolicy } from "../config/schema.js";
 import type { ClusterContextManager, ClusterScopeSnapshot } from "../cluster/context-manager.js";
 import {
@@ -14,9 +11,10 @@ import {
 
 import type { McpConnection } from "./connection.js";
 import type { McpToolDescriptor } from "./tool-discovery.js";
-import { isSupportedInputSchema } from "./tool-schema.js";
+import { evaluateToolPolicy, validateMcpToolContract } from "../runtime/tool-policy.js";
+import { prepareMcpToolArguments } from "../runtime/tool-call-preparation.js";
+import { allowsMcpToolExecution } from "../runtime/tool-execution-policy.js";
 import { redactDiagnosticText } from "./redaction.js";
-import { evaluateToolExecutionPolicy } from "../runtime/tool-policy.js";
 
 export interface ToolScopeBinding {
   readonly manager: ClusterContextManager;
@@ -43,61 +41,6 @@ export interface McpToolDetails {
   readonly truncated: boolean;
   readonly failureCategory?: ToolFailureCategory;
   readonly scope?: McpToolScope;
-}
-
-export class McpToolBridgeError extends Error {
-  constructor(options?: ErrorOptions) {
-    super("Kubernetes MCP tool schema cannot be adapted safely.", options);
-    this.name = "McpToolBridgeError";
-  }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function checkExecutableSchema(schema: Readonly<Record<string, unknown>>): void {
-  if (typeof schema.pattern === "string") new RegExp(schema.pattern);
-  if (typeof schema.format === "string" && !Format.Has(schema.format)) {
-    throw new McpToolBridgeError();
-  }
-  if (typeof schema.multipleOf === "number" && schema.multipleOf <= 0) {
-    throw new McpToolBridgeError();
-  }
-  for (const [min, max] of [
-    ["minimum", "maximum"],
-    ["minLength", "maxLength"],
-    ["minItems", "maxItems"],
-  ] as const) {
-    const lower = schema[min];
-    const upper = schema[max];
-    if (typeof lower === "number" && typeof upper === "number" && lower > upper) {
-      throw new McpToolBridgeError();
-    }
-  }
-  // The structural gate has already validated these children; narrow again at
-  // this dynamic boundary rather than asserting their types.
-  if (isRecord(schema.properties)) {
-    for (const child of Object.values(schema.properties)) {
-      if (isRecord(child)) checkExecutableSchema(child);
-    }
-  }
-  if (isRecord(schema.items)) checkExecutableSchema(schema.items);
-}
-
-/** TypeBox 1 supports JSON Schema directly; no general schema conversion is needed. */
-export function adaptMcpInputSchema(value: unknown): TUnsafe<Record<string, unknown>> {
-  if (!isSupportedInputSchema(value)) throw new McpToolBridgeError();
-  try {
-    const schema = structuredClone(value);
-    checkExecutableSchema(schema);
-    // Unsafe supplies the static type only, after runtime schema validation.
-    // Value.Check still enforces every JSON Schema constraint on actual arguments.
-    return Type.Unsafe<Record<string, unknown>>(schema);
-  } catch (error) {
-    if (error instanceof McpToolBridgeError) throw error;
-    throw new McpToolBridgeError({ cause: error });
-  }
 }
 
 function bridgeResult(
@@ -142,54 +85,39 @@ export function createMcpToolBridge(
   policy: ResultPolicy = DEFAULT_RESULT_POLICY,
   binding?: ToolScopeBinding,
 ): ToolDefinition {
-  // Capture the validated descriptor: external mutation cannot change a registered contract.
-  const tool = structuredClone(descriptor);
-  const clusterDependent = tool.name === "pods_list";
-  if (evaluateToolExecutionPolicy(tool).status !== "exposed") {
-    throw new Error("Kubernetes MCP tool is not approved for execution.");
-  }
+  const validated = validateMcpToolContract(descriptor);
+  // Capture only approval metadata; executable input schemas belong to the contract.
+  const tool = {
+    name: descriptor.name,
+    ...(descriptor.annotations ? { annotations: { ...descriptor.annotations } } : {}),
+  };
+  const { contract, modelParameters } = validated;
+  const clusterDependent = contract.clusterDependent;
   if (clusterDependent && !binding) {
     throw new Error(
       "Cluster-dependent Kubernetes MCP tool requires an application-owned scope binding.",
     );
   }
 
-  const modelParameters = adaptMcpInputSchema(tool.inputSchema);
-  if (clusterDependent) {
-    if (!isRecord(modelParameters)) throw new McpToolBridgeError();
-    const properties = modelParameters.properties;
-    if (
-      !isRecord(properties) ||
-      !Object.hasOwn(properties, "context") ||
-      !isRecord(properties.context) ||
-      properties.context.type !== "string"
-    ) {
-      throw new McpToolBridgeError();
-    }
-    delete properties.context;
-    if (Array.isArray(modelParameters.required)) {
-      modelParameters.required = modelParameters.required.filter((name) => name !== "context");
-    }
-  }
   const mapping: ToolNameMapping = { piName: tool.name, mcpName: tool.name };
+  function prepareArguments(value: unknown): Record<string, unknown> | undefined {
+    const args = prepareMcpToolArguments(contract, value);
+    if (!args || !validated.validateModelArguments(args)) return undefined;
+    return allowsMcpToolExecution(tool.name, args) ? args : undefined;
+  }
   return {
     name: mapping.piName,
     label: mapping.piName,
-    description: tool.description ?? "Query Kubernetes through an approved read-only MCP tool.",
-    parameters: modelParameters,
-    ...(clusterDependent
-      ? {
-          prepareArguments(args: unknown) {
-            if (!isRecord(args)) throw new Error("Invalid arguments for the Kubernetes MCP tool.");
-            const prepared = { ...args };
-            delete prepared.context;
-            return prepared;
-          },
-        }
-      : {}),
+    description: contract.description,
+    parameters: structuredClone(modelParameters),
+    prepareArguments(args: unknown) {
+      const prepared = prepareArguments(args);
+      if (!prepared) throw new Error("Invalid arguments for the Kubernetes MCP tool.");
+      return prepared;
+    },
     async execute(_toolCallId, params, signal) {
       signal?.throwIfAborted();
-      if (evaluateToolExecutionPolicy(tool).status !== "exposed") {
+      if (evaluateToolPolicy(tool).status !== "exposed") {
         return bridgeResult(normalizeToolFailure("tool-not-approved", policy), mapping);
       }
       if (binding && binding.manager.state.connectionGeneration !== binding.connectionGeneration) {
@@ -198,12 +126,8 @@ export function createMcpToolBridge(
       if (connection.state && connection.state !== "ready") {
         return bridgeResult(normalizeToolFailure("transport-unavailable", policy), mapping);
       }
-      if (!isRecord(params)) {
-        return bridgeResult(normalizeToolFailure("invalid-arguments", policy), mapping);
-      }
-      const args = structuredClone(params);
-      if (clusterDependent) delete args.context;
-      if (!Value.Check(modelParameters, args)) {
+      const args = prepareArguments(params);
+      if (!args) {
         return bridgeResult(normalizeToolFailure("invalid-arguments", policy), mapping);
       }
       let snapshot: ClusterScopeSnapshot | undefined;
@@ -233,8 +157,7 @@ export function createMcpToolBridge(
           registryRevision: snapshot.registryRevision,
         };
       }
-      const serverParameters = adaptMcpInputSchema(tool.inputSchema);
-      if (!Value.Check(serverParameters, args)) {
+      if (!validated.validateTransportArguments(args)) {
         return bridgeResult(
           normalizeToolFailure("incompatible-schema", policy),
           mapping,
