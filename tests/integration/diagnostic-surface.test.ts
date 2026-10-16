@@ -14,7 +14,7 @@ const fixture = fileURLToPath(new URL("../fixtures/fake-mcp-server.ts", import.m
 const names = diagnosticTools.map((tool) => tool.name);
 
 describe("reviewed diagnostics through controller, Pi, and managed stdio", () => {
-  it.each(["diagnostic-success", "diagnostic-unbound"])(
+  it.each(["diagnostic-success", "diagnostic-unbound", "diagnostic-evolved"])(
     "publishes and scopes the reviewed tools with %s",
     async (scenario) => {
       const home = await mkdtemp(join(tmpdir(), "pi-sre-diagnostics-"));
@@ -58,11 +58,32 @@ describe("reviewed diagnostics through controller, Pi, and managed stdio", () =>
         expect(controller.snapshot.tools.map((tool) => tool.name)).toEqual(names);
         const requests: readonly [string, Record<string, unknown>][] = [
           ["pods_list", { labelSelector: "app=api", fieldSelector: "status.phase=Running" }],
-          ["pods_get", { name: "api", namespace: "payments" }],
+          [
+            "pods_get",
+            {
+              name: "api",
+              namespace: "payments",
+              ...(scenario === "diagnostic-evolved" ? { view: "summary" } : {}),
+            },
+          ],
           ["pods_log", { name: "api", namespace: "payments", container: "app", previous: true }],
           ["events_list", { namespace: "payments", fieldSelector: "involvedObject.name=api" }],
           ["namespaces_list", { fieldSelector: "metadata.name=payments" }],
         ];
+        if (scenario === "diagnostic-evolved") {
+          const pod = runtime.session.getToolDefinition("pods_get");
+          if (!pod) throw new Error("Expected evolved diagnostic tool");
+          expect(pod.parameters).toMatchObject({ required: ["name", "view"] });
+          for (const args of [{ name: "api" }, { name: "api", view: "invalid" }]) {
+            expect(
+              await pod.execute("invalid", args, undefined, undefined, {} as never),
+            ).toMatchObject({
+              isError: true,
+              details: { failureCategory: "invalid-arguments" },
+            });
+          }
+          expect(await calls()).toEqual([{ name: "configuration_contexts_list", arguments: {} }]);
+        }
         for (const [name, args] of requests) {
           const tool = runtime.session.getToolDefinition(name);
           if (!tool) throw new Error("Expected diagnostic tool");

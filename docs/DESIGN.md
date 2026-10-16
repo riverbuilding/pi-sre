@@ -426,7 +426,7 @@ Pi SRE does not reinterpret each Kubernetes operation into a custom implementati
 
 1. creates and closes the Pi MCP client;
 2. calls `configuration_contexts_list` during startup and validates the response for cluster resolution;
-3. discovers server tools and validates each against its reviewed Pi SRE contract;
+3. discovers server tools and selects allowlisted capabilities with explicit-context support;
 4. adapts approved tool schemas to Pi tool definitions;
 5. validates each model call, resolves and injects its cluster scope, then calls MCP;
 6. converts results into evidence and compact model-facing output.
@@ -473,7 +473,7 @@ connect through Pi MCP client
     ↓
 list tools through Pi MCP client
     ↓
-validate descriptors against reviewed per-tool contracts
+select allowlisted tools with usable input schemas and explicit-context support
     ↓
 call approved configuration_contexts_list and resolve startup cluster
     ↓
@@ -493,11 +493,13 @@ interface SreMcpAdapter {
 }
 ```
 
-The example describes Pi SRE's boundary, not an additional MCP client implementation. The server owns transport schemas and Kubernetes execution. Pi SRE owns a declarative compatibility contract for every supported operation, including context enumeration, and uses one shared validator to check runtime descriptors and prepare argument schemas.
+The example describes Pi SRE's boundary, not an additional MCP client implementation. Pi SRE trusts the configured MCP server. The server owns descriptions, input schemas, output formats, and Kubernetes execution. Pi SRE owns an operation allowlist, cluster-dependence metadata, model-argument validation, explicit cluster scope, and application retrieval/presentation limits.
 
-Each contract owns the complete reviewed MCP interface schema: exact name, argument types, required fields, patterns, enums, formats, and server bounds, together with cluster dependence, safety annotations, and model-facing descriptions. An optional application-owned outputSchema describes reviewed structuredContent; the factory freezes it and provides a pure validateOutput type guard. If the server declares an outputSchema, the shared input/output comparator requires it to match the reviewed contract; absence remains supported. A declared output schema without an application output contract rejects that tool pending review. No general schema-document validator or runtime schema compilation is needed. The context-enumeration adapter uses this shared shape check, while retaining envelope handling, empty/error branches, inventory limits, identity rules, default consistency, and sanitization. Other tools receive output schemas only after their response shapes are reviewed. Application restrictions/defaults are separate from the contract. Runtime descriptors are compatibility evidence only. Execution-relevant fields must match the reviewed server shape; any constraint change rejects the affected tool pending review. Descriptions, titles, examples, and server defaults do not define application behavior. Harmless property ordering and equivalent omitted schema defaults are normalized.
+Discovered input schemas supply executable argument constraints. Pi SRE copies the server schema for transport validation and derives the model-facing schema by removing application-owned `context` from top-level properties and required fields. Other constraints and object openness remain intact. Adding arguments or changing constraints does not require editing local schema copies. New operation names still require a policy change. Minimal integration requirements remain: object inputs, a declared context parameter for cluster-dependent operations, and context enumeration callable with empty arguments. Bound context values must satisfy the discovered parameter schema.
 
-The contract module owns descriptor comparison, model/transport schema construction, and pure call argument validation. Its shared comparator walks only fields in the trusted contract, rejecting malformed or unexpected branches without a separate generic input-schema grammar. A unified contract factory derives both executable schemas once at initialization from the single reviewed input definition and deeply freezes the resulting contract. Runtime validation reuses those schemas; they hide application-owned context from the model and reject extra arguments. The bridge registers a deep copy with Pi to protect shared schemas from consumer changes. Call preparation separately copies arguments, removes model-supplied context, and supplies application defaults. Execution policy checks application retrieval limits: pod logs default to 100 lines during preparation, while policy rejects explicit tails outside 1–1,000. The model schema retains reviewed server bounds, and tool descriptions communicate application limits. The bridge composes these steps, injects the selected context, and validates final transport arguments. Scope checks, cancellation, stale-result isolation, and result reduction remain separate enforcement steps. See [MCP Tool Schema Contract](./MCP_TOOL_SCHEMAS.md) for compatibility rules and the code map.
+Pi SRE does not compare input/output declarations with reviewed templates, require read-only/destructive annotations, or validate diagnostic resource shapes. It parses fields needed to construct application state, such as context identities and default metadata, while accepting extra server fields and ignoring accompanying presentation content. That parsing provides usable state; it cannot establish server honesty.
+
+Call preparation copies arguments, removes model context, and supplies application defaults. TypeBox validates model arguments against the derived discovered schema. Execution policy independently limits pod logs to 1–1,000 lines, defaults to 100, and blocks streaming. The bridge injects the selected context and validates the final arguments against the original server schema. Cancellation, scope/generation guards, error classification, redaction, and bounded presentation remain separate responsibilities. See [MCP Tool Policy and Schemas](./MCP_TOOL_SCHEMAS.md) for the code map and compatibility details.
 
 ---
 
@@ -523,7 +525,7 @@ Second, Kubernetes MCP Server should run with:
 read_only = true
 ```
 
-Third, Pi SRE should register only approved diagnostic tools and check the allowlist again at execution time. A newly discovered tool, a model-supplied `context`, or an MCP annotation alone cannot grant access. Missing or contradictory read-only metadata fails closed.
+Third, Pi SRE should register only approved diagnostic tools and check the allowlist again at execution time. A newly discovered tool, a model-supplied `context`, or an MCP annotation alone cannot grant access. Read-only/destructive annotations are not admission requirements; the configured server is trusted.
 
 The MCP server supports `read_only`, `enabled_tools`, `disabled_tools`, and resource deny rules.
 
@@ -1558,7 +1560,7 @@ summary
 artifact reference
 ```
 
-This reduction must happen before a result is returned to the Pi Agent. Pi's built-in MCP extension truncates model-facing text above 20 KB, but it can also retain the complete result in `structuredContent` and write the full text to a temporary file. Those defaults are not Pi SRE's evidence, retention, or sensitive-data policy. The Pi SRE adapter validates result shape, classifies MCP `isError` separately from an empty success, and controls both model-facing content and any retained raw artifact.
+This reduction must happen before a result is returned to the Pi Agent. Pi's built-in MCP extension truncates model-facing text above 20 KB, but it can also retain the complete result in `structuredContent` and write the full text to a temporary file. Those defaults are not Pi SRE's evidence, retention, or sensitive-data policy. The Pi SRE adapter reads MCP content for presentation, classifies MCP `isError` separately from an empty success, and controls both model-facing content and any retained raw artifact. Diagnostic resource shapes and declared output schemas are not validated against application-owned templates.
 
 ---
 
@@ -1783,7 +1785,7 @@ The agent must not attempt diagnostic calls requiring a cluster.
 
 # 55. Security Model
 
-V0.1 uses multiple safety boundaries.
+V0.1 trusts the configured MCP server and uses multiple application and infrastructure safety boundaries. Pi SRE cannot constrain independent actions of a server holding cluster credentials or verify its honesty through descriptor checks.
 
 ```text
 Human-selected active cluster
@@ -2340,7 +2342,7 @@ Evaluation is a first-class system component.
 V0.1 remains a single TypeScript project.
 
 ### ADR-25
-Every supported MCP operation has a complete application-owned execution contract. One shared validator checks runtime descriptor compatibility and constructs call schemas exclusively from that contract; the bridge enforces application-owned scope and validates final transport arguments. Server discovery cannot expand the approved operation or argument surface.
+Pi SRE trusts the configured MCP server and consumes its discovered schemas. Application policy defines approved operation names, scope ownership, and retrieval limits. The bridge validates model arguments, injects application-owned context, and validates final transport arguments. Exact schema matching, mandatory annotation checks, and diagnostic output contracts are not used. Only fields consumed as application state are parsed for usability and consistency.
 
 ---
 

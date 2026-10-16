@@ -58,13 +58,12 @@ describe("reviewed diagnostic contracts", () => {
       undefined,
     );
     expect(tool.parameters).toMatchObject({
-      additionalProperties: false,
       properties: { tail: { type: "integer", minimum: 0 } },
     });
   });
 
-  it.each([{ follow: true }, { limitBytes: 1 }, { sinceSeconds: 60 }])(
-    "rejects unreviewed log arguments %j even on permissive server schemas",
+  it.each([{ follow: true }, { stream: true }])(
+    "rejects streaming log arguments %j even on permissive server schemas",
     async (args) => {
       const { tool, callTool } = bridge();
       expect(
@@ -97,71 +96,6 @@ describe("reviewed diagnostic contracts", () => {
       name: "api",
       tail: 100,
     });
-  });
-
-  it.each([
-    {
-      properties: {
-        context: { type: "integer" },
-        name: { type: "string" },
-        tail: { type: "integer" },
-      },
-      required: ["name"],
-    },
-    { properties: { name: { type: "string" }, tail: { type: "integer" } }, required: ["name"] },
-    { properties: { context: { type: "string" }, name: { type: "string" } }, required: ["name"] },
-    {
-      properties: {
-        context: { type: "string" },
-        name: { type: "string" },
-        tail: { type: "integer", maximum: 50 },
-      },
-      required: ["name"],
-    },
-    {
-      properties: {
-        context: { type: "string" },
-        name: { type: "string" },
-        tail: { type: "integer" },
-        follow: { type: "boolean" },
-      },
-      required: ["name"],
-    },
-    {
-      properties: {
-        context: { type: "string", pattern: "[" },
-        name: { type: "string" },
-        tail: { type: "integer" },
-      },
-      required: ["name"],
-    },
-    {
-      properties: {
-        context: { type: "string" },
-        name: { type: "string" },
-        tail: { type: "integer" },
-      },
-    },
-  ])("isolates incompatible diagnostic descriptors %j", async (inputSchema) => {
-    const report = await discoverMcpTools({
-      listTools: async () =>
-        diagnosticTools.map((tool) =>
-          tool.name === "pods_log"
-            ? { ...tool, inputSchema: { type: "object", ...inputSchema } }
-            : tool,
-        ),
-    });
-    expect(report.exposed.map((tool) => tool.name)).toEqual(
-      diagnosticTools.filter((tool) => tool.name !== "pods_log").map((tool) => tool.name),
-    );
-    expect(report.decisions).toContainEqual(
-      expect.objectContaining({
-        name: "pods_log",
-        status: "rejected",
-        reason: "incompatible-schema",
-        contractPath: expect.any(String),
-      }),
-    );
   });
 
   it("rejects duplicates, writes, generic resource access, shell, and newly advertised operations", async () => {

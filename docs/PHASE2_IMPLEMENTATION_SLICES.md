@@ -16,7 +16,7 @@ The completed path is:
 
 ```text
 start one managed Kubernetes MCP connection
-    → discover and validate tool contracts
+    → discover approved tools and explicit-context support
     → enumerate and validate MCP contexts
     → resolve --cluster > config default > MCP default > unbound
     → display operational scope
@@ -113,7 +113,7 @@ Phase 3 will capture this scope in `Incident.scope`. At that point `/cluster` es
 
 ### Model and transport arguments
 
-**Schema ownership update (2026-10-16):** Complete reviewed application contracts are authoritative for call validation. Runtime descriptors must match their execution-relevant fields before exposure; they do not contribute executable constraints. Derive model and transport schemas from the reviewed contract, hiding application-owned `context` from the model. See [the schema design](./MCP_TOOL_SCHEMAS.md#design-decision-per-tool-contracts-and-one-shared-validator). Slice boundaries and scope enforcement remain unchanged; the Slice 4 completion record below describes its original implementation.
+**Schema ownership update (2026-10-16):** Pi SRE trusts the configured MCP server. Discovered schemas drive model and transport argument validation, with application-owned context hidden from the model. Exact schema comparison, mandatory annotation checks, and diagnostic output contracts are removed. Keep the operation allowlist, explicit scope injection, retrieval limits, and minimal parsing for application state. See [the current policy](./MCP_TOOL_SCHEMAS.md). Earlier slice completion records describe their implementation at that time.
 
 For cluster-dependent tools, at execution:
 
@@ -121,7 +121,7 @@ For cluster-dependent tools, at execution:
 2. Remove any supplied `context` from untrusted model arguments and validate the remaining arguments against the model-facing schema.
 3. Require a valid application-owned scope snapshot for cluster-dependent tools.
 4. Inject its exact context, overwriting any model-supplied value.
-5. Validate the complete arguments against the reviewed application-owned transport schema before transport.
+5. Validate the complete arguments against the discovered server input schema before transport.
 6. Forward cancellation and timeout; check cancellation/generation again before publishing the result.
 
 A declared compatible `context` parameter is required for every exposed cluster-dependent tool. A tool without one remains unavailable, even if the schema permits arbitrary additional properties. Pi SRE never depends on the server's implicit current context. `configuration_contexts_list` remains a non-cluster-dependent operation and does not change active selection when the model calls it.
@@ -364,7 +364,7 @@ Validation after the scope-message review: focused tests passed, followed by `np
 
 ## 13. Slice 7 — Enable the Reviewed Diagnostic Tool Surface
 
-**Implemented (2026-10-15):** Enabled the five captured diagnostic operations through the existing managed connection and scoped bridge. Discovery rejects incompatible tools individually, requires explicit context, and limits schemas/arguments to the reviewed surface. Runtime publication hides diagnostics until bound and reacts to selection/loss; captured handlers still enforce scope independently. Pod logs explicitly send 100 lines by default and enforce 1–1,000 lines, with no follow or unreviewed arguments. Namespace coverage remains explicit or described as server/context policy. See [the reviewed tool contracts](./MCP_TOOL_SCHEMAS.md#reviewed-diagnostic-surface-phase-2-slice-7) for source review, bounds, and limitations. Deterministic tests assert every final diagnostic request and visibility through the controller, Pi registry, and stdio. Live cross-cluster acceptance remains Slice 9 work.
+**Implemented (2026-10-15):** Enabled the five captured diagnostic operations through the existing managed connection and scoped bridge. Discovery rejects unusable tools individually, requires explicit context, and exposes only approved operation names using their discovered input schemas. Runtime publication hides diagnostics until bound and reacts to selection/loss; captured handlers still enforce scope independently. Pod logs explicitly send 100 lines by default and enforce 1–1,000 lines, with streaming disabled by application policy. Namespace coverage remains explicit or described as server/context policy. See [the current tool policy](./MCP_TOOL_SCHEMAS.md#diagnostic-surface) for source review, bounds, and limitations. Deterministic tests assert every final diagnostic request and visibility through the controller, Pi registry, and stdio. Live cross-cluster acceptance remains Slice 9 work.
 
 **Outcome:** A small useful set of read-only tools is available only when its scope contract is safe.
 
@@ -372,7 +372,7 @@ Validation after the scope-message review: focused tests passed, followed by `np
 
 - Review candidates `pods_list`, `pods_get`, `pods_log`, `events_list`, and `namespaces_list` against Slice 0's actual descriptors. These names are candidates, not assertions that every server version supplies them.
 - Record the exact approved names, cluster dependence, explicit-context schema, namespace behavior, and any necessary argument restrictions in the tool policy/schema documentation.
-- Require compatible context schemas and read-only metadata for each tool; unknown, destructive, malformed, duplicate, or incompatible descriptors fail closed.
+- Require an explicit context parameter compatible with the selected context; unknown operations, duplicate names, and unusable descriptors remain excluded. Annotation and output-declaration changes do not control admission.
 - Keep diagnostic tools hidden while unbound or unavailable, and independently block captured handlers at execution time.
 - Review pod-log arguments for finite/bounded requests. Do not introduce streaming/follow behavior that outlives a diagnostic call; enforce verified server-side bounds as appropriate in addition to model-facing size limits.
 - Continue excluding `configuration_view`, exec/attach, mutation operations, and generic Secret-capable access. Do not infer safety solely from names or annotations.

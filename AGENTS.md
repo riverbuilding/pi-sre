@@ -186,15 +186,9 @@ A failure to query Kubernetes is different from an empty Kubernetes result.
 
 ### External data validation
 
-Treat all external data as untrusted, including:
+Trust the configured MCP server to execute tools and supply diagnostic results. Pi SRE owns the operation allowlist, model-argument validation, explicit cluster selection, and application limits. Consume discovered input schemas; do not add exact per-tool schema matching, mandatory read-only/destructive annotation checks, or diagnostic response schemas.
 
-- MCP tool responses
-- Kubernetes API responses passed through generic adapters
-- configuration files
-- environment variables
-- model-generated structured arguments
-
-Validate at the boundary before converting the value into an internal domain type.
+Validate configuration, environment variables, and model-generated arguments at their boundaries. When converting MCP responses into application/domain state, parse only the fields needed for that state and check its consistency. Accept additional server fields. Diagnostic content passed to the model needs presentation, redaction, limits, and error handling rather than Kubernetes resource-shape validation.
 
 ```ts
 const ToolResultSchema = {

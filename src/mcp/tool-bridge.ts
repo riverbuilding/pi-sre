@@ -11,7 +11,7 @@ import {
 
 import type { McpConnection } from "./connection.js";
 import type { McpToolDescriptor } from "./tool-discovery.js";
-import { evaluateToolPolicy, validateMcpToolContract } from "../runtime/tool-policy.js";
+import { evaluateToolPolicy, prepareMcpToolSchema } from "../runtime/tool-policy.js";
 import { prepareMcpToolArguments } from "../runtime/tool-call-preparation.js";
 import { allowsMcpToolExecution } from "../runtime/tool-execution-policy.js";
 import { redactDiagnosticText } from "./redaction.js";
@@ -85,14 +85,11 @@ export function createMcpToolBridge(
   policy: ResultPolicy = DEFAULT_RESULT_POLICY,
   binding?: ToolScopeBinding,
 ): ToolDefinition {
-  const validated = validateMcpToolContract(descriptor);
-  // Capture only approval metadata; executable input schemas belong to the contract.
-  const tool = {
-    name: descriptor.name,
-    ...(descriptor.annotations ? { annotations: { ...descriptor.annotations } } : {}),
-  };
-  const { contract, modelParameters } = validated;
-  const clusterDependent = contract.clusterDependent;
+  const validated = prepareMcpToolSchema(descriptor);
+  // Capture the approved name; descriptor and public schema mutations cannot change calls.
+  const tool = { name: descriptor.name };
+  const { policy: toolPolicy, modelParameters } = validated;
+  const clusterDependent = toolPolicy.clusterDependent;
   if (clusterDependent && !binding) {
     throw new Error(
       "Cluster-dependent Kubernetes MCP tool requires an application-owned scope binding.",
@@ -101,14 +98,14 @@ export function createMcpToolBridge(
 
   const mapping: ToolNameMapping = { piName: tool.name, mcpName: tool.name };
   function prepareArguments(value: unknown): Record<string, unknown> | undefined {
-    const args = prepareMcpToolArguments(contract, value);
+    const args = prepareMcpToolArguments(toolPolicy, value);
     if (!args || !validated.validateModelArguments(args)) return undefined;
     return allowsMcpToolExecution(tool.name, args) ? args : undefined;
   }
   return {
     name: mapping.piName,
     label: mapping.piName,
-    description: contract.description,
+    description: `${descriptor.description ?? descriptor.name}${tool.name === "pods_log" ? " Pi SRE limits: tail defaults to 100 lines; allowed range 1–1000; streaming is disabled." : ""}`,
     parameters: structuredClone(modelParameters),
     prepareArguments(args: unknown) {
       const prepared = prepareArguments(args);

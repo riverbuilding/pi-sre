@@ -2,6 +2,8 @@
 
 Verified on 2026-10-07: Kubernetes MCP Server **0.0.67**, installed at `/opt/homebrew/bin/kubernetes-mcp-server`; Pi runtime and MCP client **0.99.0** from the lockfile; Node **26.0.0**, macOS arm64. This record completes contract discovery, not Phase 2 implementation or live cluster acceptance.
 
+**Current policy (2026-10-16):** This document records a historical server probe. Runtime trusts the configured MCP server and uses discovered input schemas; the 0.0.67 snapshot is not a runtime version pin. Exact schema matching and mandatory annotation checks have been removed. See [the current policy](./MCP_TOOL_SCHEMAS.md).
+
 ## Server evidence and compatibility
 
 [Captured descriptors and responses](../tests/fixtures/phase2-server-0.0.67.json) came from the installed executable through Pi's public MCP client. Static server configuration, synthetic kubeconfigs, and mock responses are checked in under [tests/fixtures/phase2-server](../tests/fixtures/phase2-server/), with no users or credentials and only synthetic names and endpoints. Pi SRE runtime does not read or generate kubeconfig. An explicit [contract unit test](../tests/unit/mcp/capture-phase2-server.test.ts) generates the actual results in memory and compares them with the captured JSON; it never overwrites the expected file.
@@ -46,9 +48,9 @@ The pinned [server implementation](https://github.com/containers/kubernetes-mcp-
 
 Freeze the Slice 1 adapter contract as follows:
 
-- Prefer structured content. A present but invalid structured payload fails; never recover authority from its accompanying text. Reject `isError: true` before considering data. Validate the envelope and content blocks.
+- Prefer structured content. A present but invalid structured payload fails; never recover authority from its accompanying text. Reject `isError: true` before considering data. Parse the envelope fields needed for registry construction; ignore accompanying presentation blocks.
 - Support only the object shape above, plus the exact empty-success text sentinel when structured content is absent. Nonempty prose, tables, JSON encoded in text, and the Phase 1 illustrative string-array payload are unsupported.
-- Require `contexts` to be an array of objects with nonempty string `name`, string `server`, and boolean `default`. Names remain opaque and exact. Reject control characters in names rather than changing identity. Metadata must be safe for display; discard unnecessary fields after validation and never render endpoint credentials.
+- Require `contexts` to be an array of objects with nonempty string `name`, optional string `server`, and boolean `default`. Names remain opaque and exact. Reject control characters in names rather than changing identity. Metadata must be safe for display; discard unnecessary fields after validation and never render endpoint credentials.
 - `defaultContext` may be omitted or empty only when all entry flags are false. That means no default and therefore unbound startup without CLI/config selection, even with one entry. A nonempty default must refer to exactly one present entry, that entry must be flagged true, and all others false. Missing flags, duplicates, contradictory defaults, or a default absent from the inventory fail the entire enumeration. Do not select from a partial registry.
 - A valid empty structured array with no default is an empty success. Unknown fields do not confer authority and are discarded. Default metadata must not be inferred from ordering, names, descriptions, endpoints, or the text table.
 
@@ -77,7 +79,7 @@ Every candidate below is present in the two-context capture, declares optional `
 | `events_list`     | `namespace`, `fieldSelector` strings                                         | None            | Namespace optional; field selector has a pattern.                                                                                                                                                                                               |
 | `namespaces_list` | `fieldSelector` string with pattern                                          | None            | Cluster-scoped resource listing.                                                                                                                                                                                                                |
 
-The actual descriptors, including RBAC metadata and exact patterns, are retained in the JSON capture. Runtime compatibility is checked against the reviewed per-tool templates by the [shared validator](./MCP_TOOL_SCHEMAS.md#design-decision-per-tool-contracts-and-one-shared-validator). The capture remains server evidence; contracts own the complete reviewed execution schemas without copying descriptive metadata. Runtime constraint changes fail compatibility instead of being incorporated into call validation. Read-only annotations are necessary but do not replace per-tool policy review, read-only server configuration, or Kubernetes RBAC. `configuration_view`, generic Secret-capable access, exec/attach, mutations, and shell access remain excluded.
+The actual descriptors, including RBAC metadata and exact patterns, remain in the JSON capture as historical server evidence. Runtime argument validation consumes discovered schemas; input/output declarations are not compared against this snapshot. Read-only/destructive annotations do not control admission. The approved operation names, explicit context injection, read-only MCP configuration, and Kubernetes RBAC remain application/infrastructure policy. `configuration_view`, generic Secret-capable access, exec/attach, mutations, and shell remain excluded. See [the current policy](./MCP_TOOL_SCHEMAS.md).
 
 ## Public Pi 0.99.0 APIs
 
@@ -103,7 +105,7 @@ The `context` probe records API capability, not the current production message s
 
 ## Frozen application behavior
 
-Section 4 of [the slice plan](./PHASE2_IMPLEMENTATION_SLICES.md) is the implementation contract: CLI > config > MCP default > unbound, unknown high-priority selection never falls back, user-only switching with idle/generation checks, context omitted from model schema and overwritten before final contract-owned transport validation, immutable dispatch scope, and exact selection intent retained through recovery. A completed unbound startup stays unbound through recovery; only unresolved initial startup may apply pending defaults.
+Section 4 of [the slice plan](./PHASE2_IMPLEMENTATION_SLICES.md) is the implementation contract: CLI > config > MCP default > unbound, unknown high-priority selection never falls back, user-only switching with idle/generation checks, context omitted from model schema and overwritten before final discovered server-schema validation, immutable dispatch scope, and exact selection intent retained through recovery. A completed unbound startup stays unbound through recovery; only unresolved initial startup may apply pending defaults.
 
 Server compatibility is an additional capability gate: missing enumeration or a declared explicit context parameter is a visible incompatibility. It does not permit reading kubeconfig, changing current context, choosing the only context, or injecting an undeclared parameter into a permissive schema. Single-context support on server 0.0.67 is blocked by the observed descriptor contract. The supported two-context setup can proceed to Slice 1.
 

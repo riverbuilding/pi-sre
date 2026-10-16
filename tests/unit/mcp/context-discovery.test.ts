@@ -83,10 +83,6 @@ describe("context enumeration adapter", () => {
     null,
     { content: [] },
     { content: [{ type: "text" }] },
-    {
-      content: [{ type: "image", data: "x", mimeType: "image/png" }],
-      structuredContent: { contexts: [] },
-    },
     { content: [], isError: "true", structuredContent: { contexts: [] } },
     {
       content: [{ type: "text", text: "No contexts found in kubeconfig" }],
@@ -100,10 +96,23 @@ describe("context enumeration adapter", () => {
     );
   });
 
-  it("rejects malformed blocks even alongside a valid inventory", () => {
-    expect(() =>
-      parseContextRegistry({ ...response(), content: [{ type: "text", text: 1 }] }),
-    ).toThrow(ContextDiscoveryError);
+  it("ignores presentation blocks when a usable inventory exists", () => {
+    expect(
+      parseContextRegistry({
+        ...response(),
+        content: [{ type: "image", data: "x", mimeType: "image/png" }],
+      }).contexts,
+    ).toHaveLength(2);
+    expect(
+      parseContextRegistry({
+        content: [],
+        structuredContent: {
+          contexts: [{ name: "alpha", default: true, extra: 5 }],
+          defaultContext: "alpha",
+          newField: true,
+        },
+      }).get("alpha"),
+    ).toMatchObject({ name: "alpha", isDefault: true });
   });
 
   it("uses UTF-8 field limits without truncation", () => {
@@ -170,22 +179,11 @@ describe("context enumeration adapter", () => {
       [
         {
           name: "configuration_contexts_list",
-          inputSchema: { type: "object", properties: {} },
-          annotations: { readOnlyHint: false, destructiveHint: false },
-        },
-      ],
-      [
-        {
-          name: "configuration_contexts_list",
-          inputSchema: { type: "object", properties: { context: { type: "string" } } },
-          annotations: { readOnlyHint: true, destructiveHint: false },
-        },
-      ],
-      [
-        {
-          name: "configuration_contexts_list",
-          inputSchema: { type: "object", properties: {} },
-          annotations: { readOnlyHint: true },
+          inputSchema: {
+            type: "object",
+            properties: { verbose: { type: "boolean" } },
+            required: ["verbose"],
+          },
         },
       ],
       [descriptors[0], descriptors[0]],

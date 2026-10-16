@@ -1,7 +1,7 @@
 import {
-  getMcpToolContract,
+  getMcpToolPolicy,
   acceptsToolContext,
-  McpToolContractError,
+  McpToolSchemaError,
 } from "../runtime/tool-policy.js";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 
@@ -84,7 +84,7 @@ export class McpController {
   private publishReady(): McpControllerSnapshot {
     const scope = this.clusterContext.captureScope();
     const tools = this.availableTools.filter((tool) => {
-      if (!getMcpToolContract(tool.name)?.clusterDependent) return true;
+      if (!getMcpToolPolicy(tool.name)?.clusterDependent) return true;
       const descriptor = this.report?.exposed.find((entry) => entry.name === tool.name);
       return (
         scope !== undefined &&
@@ -224,7 +224,7 @@ export class McpController {
           ? "Kubernetes MCP configuration invalid or session paths changed. Check YAML and read-only TOML; restart pi-sre if application home changed."
           : error instanceof McpStartupError
             ? error.diagnostic
-            : error instanceof McpToolContractError
+            : error instanceof McpToolSchemaError
               ? error.message
               : discoveryStarted
                 ? "Kubernetes MCP tool discovery failed."

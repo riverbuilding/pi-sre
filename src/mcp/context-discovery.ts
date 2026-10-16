@@ -6,11 +6,7 @@ import { ClusterContextRegistry } from "../cluster/context-registry.js";
 import type { McpConnection } from "./connection.js";
 import { classifyToolFailure, type ToolFailureCategory } from "./result-normalizer.js";
 import type { ToolDiscoveryReport } from "./tool-discovery.js";
-import {
-  CONFIGURATION_CONTEXTS_LIST_CONTRACT,
-  validateMcpToolContract,
-  McpToolContractError,
-} from "../runtime/tool-policy.js";
+import { prepareMcpToolSchema, McpToolSchemaError } from "../runtime/tool-policy.js";
 
 export const CONTEXT_ENUMERATION_LIMITS = Object.freeze({
   resultBytes: 1_048_576,
@@ -29,7 +25,7 @@ export class ContextDiscoveryError extends Error {
   ) {
     super(
       kind === "incompatible-tool"
-        ? "Kubernetes MCP context enumeration requires a compatible read-only configuration_contexts_list tool."
+        ? "Kubernetes MCP context enumeration requires a configuration_contexts_list tool callable with empty arguments."
         : kind === "invalid-response"
           ? "Kubernetes MCP context enumeration returned an invalid or oversized inventory."
           : `Kubernetes MCP context enumeration failed (${failureCategory ?? "tool-execution-failed"}).`,
@@ -43,12 +39,25 @@ const TOOL_NAME = "configuration_contexts_list";
 const EMPTY_TEXT = "No contexts found in kubeconfig";
 // Names are opaque identifiers: reject terminal controls rather than rewrite identity.
 const controls = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
-// Enumeration supports the captured text blocks; other presentation formats confer no authority.
+// Only structured inventory data (or the empty-result message) builds application state.
 const envelope = z.object({
-  content: z.array(z.object({ type: z.literal("text"), text: z.string() })),
+  content: z.array(z.unknown()),
   structuredContent: z.unknown().optional(),
   isError: z.boolean().optional(),
 });
+
+// Parse only fields consumed by the cluster registry; accept additional server data.
+const inventory = z.object({
+  defaultContext: z.string().optional(),
+  contexts: z.array(
+    z.object({
+      name: z.string().min(1),
+      server: z.string().optional().default(""),
+      default: z.boolean(),
+    }),
+  ),
+});
+const textBlock = z.object({ type: z.literal("text"), text: z.string() });
 
 function safeServer(value: string): string {
   try {
@@ -61,7 +70,7 @@ function safeServer(value: string): string {
   }
 }
 
-/** Validate the complete raw result, independent of model presentation budgets. */
+/** Parse a bounded inventory for application state, independent of model presentation budgets. */
 export function parseContextRegistry(raw: unknown): ClusterContextRegistry {
   try {
     const serialized = JSON.stringify(raw);
@@ -82,19 +91,28 @@ export function parseContextRegistry(raw: unknown): ClusterContextRegistry {
   if (result.isError) {
     throw new ContextDiscoveryError(
       "tool-error",
-      classifyToolFailure(result.content.map((block) => block.text).join("\n")),
+      classifyToolFailure(
+        result.content
+          .flatMap((block) => {
+            const text = textBlock.safeParse(block);
+            return text.success ? [text.data.text] : [];
+          })
+          .join("\n"),
+      ),
     );
   }
   if (!Object.hasOwn(raw, "structuredContent")) {
-    if (result.content.length === 1 && result.content[0]?.text === EMPTY_TEXT) {
+    if (
+      result.content.length === 1 &&
+      textBlock.safeParse(result.content[0]).data?.text === EMPTY_TEXT
+    ) {
       return new ClusterContextRegistry([]);
     }
     throw new ContextDiscoveryError("invalid-response");
   }
-  const structured = result.structuredContent;
-  if (!CONFIGURATION_CONTEXTS_LIST_CONTRACT.validateOutput(structured))
-    throw new ContextDiscoveryError("invalid-response");
-  const { contexts, defaultContext } = structured;
+  const structured = inventory.safeParse(result.structuredContent);
+  if (!structured.success) throw new ContextDiscoveryError("invalid-response");
+  const { contexts, defaultContext } = structured.data;
   if (
     contexts.length > CONTEXT_ENUMERATION_LIMITS.entries ||
     (defaultContext !== undefined &&
@@ -139,9 +157,9 @@ export async function discoverClusterContexts(
   const tool = candidates[0];
   if (candidates.length !== 1 || !tool) throw new ContextDiscoveryError("incompatible-tool");
   try {
-    validateMcpToolContract(tool);
+    if (!prepareMcpToolSchema(tool).validateTransportArguments({})) throw new McpToolSchemaError();
   } catch (error) {
-    if (!(error instanceof McpToolContractError)) throw error;
+    if (!(error instanceof McpToolSchemaError)) throw error;
     throw new ContextDiscoveryError("incompatible-tool", undefined, { cause: error });
   }
   let raw: unknown;

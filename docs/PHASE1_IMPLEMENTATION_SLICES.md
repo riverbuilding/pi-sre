@@ -1,5 +1,7 @@
 # Phase 1 Implementation Slices
 
+**Historical plan:** Annotation gates and schema restrictions below describe Phase 1. The current [MCP trust and policy design](./MCP_TOOL_SCHEMAS.md) trusts the configured server, consumes discovered schemas, and keeps application capability/scope enforcement. Exact schema matching and mandatory annotation checks are not current requirements.
+
 **Status:** Slices 0–9 complete; manual live smoke test confirmed by the user on 2026-10-07
 
 **Applies to:** Pi SRE V0.1, Phase 1

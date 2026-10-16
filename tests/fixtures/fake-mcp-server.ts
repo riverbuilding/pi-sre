@@ -31,6 +31,27 @@ if (scenario === "exit") process.exit(7);
 if (scenario === "malformed") process.stdout.write("this is not json\n");
 
 function listToolsResult(scenario: string, params?: FixtureParams): Record<string, unknown> {
+  if (scenario === "diagnostic-evolved") {
+    return {
+      tools: captured.cases["multiple-default"].descriptors.map((tool) => ({
+        name: tool.name,
+        description: tool.description,
+        inputSchema:
+          tool.name === "pods_get"
+            ? {
+                ...tool.inputSchema,
+                properties: {
+                  ...tool.inputSchema.properties,
+                  view: { type: "string", enum: ["summary", "full"] },
+                },
+                required: ["name", "view"],
+                additionalProperties: false,
+              }
+            : tool.inputSchema,
+        outputSchema: { type: "object", properties: { marker: { type: "string" } } },
+      })),
+    };
+  }
   if (scenario.startsWith("diagnostic-"))
     return { tools: captured.cases["multiple-default"].descriptors };
   if (scenario.startsWith("scoped-")) {
@@ -59,7 +80,7 @@ function listToolsResult(scenario: string, params?: FixtureParams): Record<strin
   }
   if (scenario === "empty-tools") return { tools: [] };
 
-  // All scenarios advertise the same reviewed enumeration descriptor contract.
+  // Other scenarios advertise a simple enumeration descriptor.
   return {
     tools: [
       {

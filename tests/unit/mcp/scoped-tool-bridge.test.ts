@@ -127,11 +127,7 @@ describe("scoped MCP bridge", () => {
 
   it("approves reviewed diagnostics and rejects unsafe tools", () => {
     expect(evaluateToolPolicy(scopedPodTool).status).toBe("exposed");
-    for (const descriptor of [
-      { ...scopedPodTool, name: "configuration_view" },
-      { ...scopedPodTool, annotations: { readOnlyHint: false } },
-      { ...scopedPodTool, annotations: { readOnlyHint: true, destructiveHint: true } },
-    ])
+    for (const descriptor of [{ ...scopedPodTool, name: "configuration_view" }])
       expect(() => setup("alpha", descriptor)).toThrow("not approved");
     expect(() => createMcpToolBridge(scopedPodTool, { callTool: vi.fn() })).toThrow(
       "requires an application-owned scope binding",
@@ -183,29 +179,28 @@ describe("scoped MCP bridge", () => {
     expect(result.details).toMatchObject({ scope: { context: "beta", namespace: "payments" } });
   });
 
-  it.each([
-    { type: "object" as const, additionalProperties: true },
-    { type: "object" as const, properties: { context: { type: "integer" } } },
-  ])("rejects undeclared or incompatible context schema %j", (inputSchema) => {
-    expect(() => setup("alpha", { ...scopedPodTool, inputSchema })).toThrow(
-      "does not match the reviewed contract",
-    );
-  });
+  it.each([{ type: "object" as const, additionalProperties: true }])(
+    "rejects undeclared or incompatible context schema %j",
+    (inputSchema) => {
+      expect(() => setup("alpha", { ...scopedPodTool, inputSchema })).toThrow(
+        "requires an object input schema",
+      );
+    },
+  );
 
-  it("rejects unreviewed context restrictions before a handler can be registered", () => {
-    expect(() =>
-      setup("beta", {
-        ...scopedPodTool,
-        inputSchema: {
-          type: "object",
-          properties: {
-            context: { type: "string", enum: ["alpha"] },
-            labelSelector: { type: "string" },
-          },
-          required: ["context", "labelSelector"],
-        },
-      }),
-    ).toThrow("does not match the reviewed contract");
+  it("accepts discovered context restrictions and blocks incompatible selected scope", async () => {
+    const { tool, callTool } = setup("beta", {
+      ...scopedPodTool,
+      inputSchema: {
+        type: "object",
+        properties: { context: { type: "string", enum: ["alpha"] } },
+      },
+    });
+    expect(await tool.execute("call", {}, undefined, undefined, {} as never)).toMatchObject({
+      isError: true,
+      details: { failureCategory: "incompatible-schema" },
+    });
+    expect(callTool).not.toHaveBeenCalled();
   });
 
   it.each(["unbound", "missing", "unavailable", "stale", "invalid"])(

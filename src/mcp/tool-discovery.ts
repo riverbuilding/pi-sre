@@ -1,33 +1,18 @@
-import { validateMcpToolContract, McpToolContractError } from "../runtime/tool-policy.js";
+import type { Tool } from "@earendil-works/pi-mcp";
+import { prepareMcpToolSchema, McpToolSchemaError } from "../runtime/tool-policy.js";
 import type { McpConnection } from "./connection.js";
 
-export interface McpToolDescriptor {
-  readonly name: string;
-  readonly description?: string;
-  readonly inputSchema: Readonly<Record<string, unknown>>;
-  readonly annotations?: Readonly<{
-    title?: string;
-    readOnlyHint?: boolean;
-    destructiveHint?: boolean;
-    idempotentHint?: boolean;
-    openWorldHint?: boolean;
-  }>;
-  readonly outputSchema?: Readonly<Record<string, unknown>>;
-}
+export type McpToolDescriptor = Readonly<
+  Pick<Tool, "name" | "description" | "inputSchema" | "annotations" | "outputSchema">
+>;
 
 export type ToolDiscoveryDecision =
   | { readonly name: string; readonly status: "exposed" }
   | {
       readonly name?: string;
       readonly status: "rejected";
-      readonly contractPath?: string;
       readonly reason:
-        | "incompatible-schema"
-        | "invalid-descriptor"
-        | "duplicate-name"
-        | "not-allowlisted"
-        | "not-read-only"
-        | "destructive";
+        "incompatible-schema" | "invalid-descriptor" | "duplicate-name" | "not-allowlisted";
     };
 
 export interface ToolDiscoveryReport {
@@ -39,25 +24,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function validAnnotations(value: unknown): value is McpToolDescriptor["annotations"] {
-  if (value === undefined) return true;
-  if (!isRecord(value)) return false;
-  if (value.title !== undefined && typeof value.title !== "string") return false;
-  return ["readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint"].every(
-    (key) => value[key] === undefined || typeof value[key] === "boolean",
-  );
-}
-
-function parseDescriptor(value: unknown): McpToolDescriptor | undefined {
+function parseDescriptor(value: Tool): McpToolDescriptor | undefined {
   if (!isRecord(value)) return undefined;
   if (typeof value.name !== "string" || !/^[A-Za-z][A-Za-z0-9_-]{0,127}$/.test(value.name))
     return undefined;
   if (value.description !== undefined && typeof value.description !== "string") return undefined;
-  // Envelope shape only: all input fields and constraints are checked by McpToolContract.
+  // Read only the descriptor fields used by Pi SRE.
   if (!isRecord(value.inputSchema)) return undefined;
-  if (!validAnnotations(value.annotations)) return undefined;
-  // Schema compatibility belongs to the reviewed contract, just as for inputs.
-  if (value.outputSchema !== undefined && !isRecord(value.outputSchema)) return undefined;
   return {
     name: value.name,
     ...(value.description === undefined ? {} : { description: value.description }),
@@ -67,12 +40,12 @@ function parseDescriptor(value: unknown): McpToolDescriptor | undefined {
   };
 }
 
-/** The MCP client handles pagination; this boundary validates its untrusted descriptors. */
+/** The MCP client handles protocol/pagination; Pi SRE selects supported capabilities. */
 export async function discoverMcpTools(
   connection: Pick<McpConnection, "listTools">,
   signal?: AbortSignal,
 ): Promise<ToolDiscoveryReport> {
-  const rawTools: readonly unknown[] = await connection.listTools(signal);
+  const rawTools = await connection.listTools(signal);
   const parsed = rawTools.map(parseDescriptor);
   const nameCounts = new Map<string, number>();
   for (const raw of rawTools) {
@@ -99,16 +72,15 @@ export async function discoverMcpTools(
       continue;
     }
     try {
-      validateMcpToolContract(tool);
+      prepareMcpToolSchema(tool);
       decisions.push({ name: tool.name, status: "exposed" });
       exposed.push(tool);
     } catch (error) {
-      if (!(error instanceof McpToolContractError)) throw error;
+      if (!(error instanceof McpToolSchemaError)) throw error;
       decisions.push({
         name: tool.name,
         status: "rejected",
         reason: error.reason,
-        ...(error.reason === "incompatible-schema" ? { contractPath: error.path } : {}),
       });
     }
   }

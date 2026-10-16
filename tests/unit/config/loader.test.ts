@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { createApplicationPaths } from "../../../src/config/config.js";
 import { loadSreConfig, SreConfigError } from "../../../src/config/loader.js";
-import { getMcpToolContract, MCP_TOOL_CONTRACTS } from "../../../src/runtime/tool-policy.js";
+import { getMcpToolPolicy, MCP_TOOL_POLICIES } from "../../../src/runtime/tool-policy.js";
 
 const validYaml = `
 kubernetes:
@@ -259,11 +259,11 @@ describe("loadSreConfig", () => {
 describe("MCP inventory contract", () => {
   it("keeps only context enumeration independent of cluster scope", () => {
     expect(
-      MCP_TOOL_CONTRACTS.filter((tool) => !tool.clusterDependent).map((tool) => tool.name),
+      MCP_TOOL_POLICIES.filter((tool) => !tool.clusterDependent).map((tool) => tool.name),
     ).toEqual(["configuration_contexts_list"]);
-    expect(getMcpToolContract("configuration_contexts_list")?.clusterDependent).toBe(false);
-    expect(getMcpToolContract("configuration_view")).toBeUndefined();
-    expect(getMcpToolContract("targets_list")).toBeUndefined();
-    expect(getMcpToolContract("pods_list")?.clusterDependent).toBe(true);
+    expect(getMcpToolPolicy("configuration_contexts_list")?.clusterDependent).toBe(false);
+    expect(getMcpToolPolicy("configuration_view")).toBeUndefined();
+    expect(getMcpToolPolicy("targets_list")).toBeUndefined();
+    expect(getMcpToolPolicy("pods_list")?.clusterDependent).toBe(true);
   });
 });

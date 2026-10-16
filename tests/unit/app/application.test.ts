@@ -279,13 +279,14 @@ describe("SreApplication", () => {
     );
   });
 
-  it("opens without tools when an approved schema cannot be executed safely", async () => {
+  it("opens without tools when startup enumeration requires arguments", async () => {
     mocks.mcpListTools.mockResolvedValue([
       {
         name: "configuration_contexts_list",
         inputSchema: {
           type: "object",
-          properties: { name: { type: "string", format: "unsupported" } },
+          properties: { name: { type: "string" } },
+          required: ["name"],
         },
         annotations: { readOnlyHint: true, destructiveHint: false },
       },
@@ -303,12 +304,12 @@ describe("SreApplication", () => {
           {
             type: "info",
             message:
-              "Kubernetes MCP discovery: 0 approved, 0 deferred, 1 rejected. 0 read-only tools registered.",
+              "Kubernetes MCP discovery: 1 approved, 0 deferred, 0 rejected. 0 read-only tools registered.",
           },
           {
             type: "warning",
             message:
-              "Kubernetes MCP context enumeration requires a compatible read-only configuration_contexts_list tool. Check MCP configuration and use /mcp_restart to retry.",
+              "Kubernetes MCP context enumeration requires a configuration_contexts_list tool callable with empty arguments. Check MCP configuration and use /mcp_restart to retry.",
           },
         ],
       },

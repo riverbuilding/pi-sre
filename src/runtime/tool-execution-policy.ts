@@ -1,4 +1,4 @@
-/** Application retrieval limits, independent of the reviewed MCP interface schema. */
+/** Application retrieval limits, independent of discovered MCP argument constraints. */
 export function allowsMcpToolExecution(
   name: string,
   args: Readonly<Record<string, unknown>>,
@@ -8,6 +8,8 @@ export function allowsMcpToolExecution(
     typeof args.tail === "number" &&
     Number.isInteger(args.tail) &&
     args.tail >= 1 &&
+    args.follow !== true &&
+    args.stream !== true &&
     args.tail <= 1000
   );
 }

@@ -2,7 +2,7 @@
 
 This note records the clarification requested before implementing Phase 2 Slice 4, updated with the completed bridge terminology. It explains the [implementation plan](./PHASE2_IMPLEMENTATION_SLICES.md#10-slice-4--enforce-scope-in-the-tool-bridge) and [verified server contracts](./PHASE2_CONTRACTS.md). Production diagnostic tools remain deferred until the later slices.
 
-**Current design update (2026-10-16):** The sections below record the historical Slice 4 approach. Complete application-owned contracts now define executable model/transport schemas, and runtime server descriptors are checked for exact execution-schema compatibility before exposure. Runtime constraint changes are rejected rather than imported. See [the current schema design](./MCP_TOOL_SCHEMAS.md#design-decision-per-tool-contracts-and-one-shared-validator). Scope, cancellation, and generation guards remain in place.
+**Current design update (2026-10-16):** Pi SRE trusts the configured MCP server and consumes discovered schemas. Exact input/output matching and mandatory read-only/destructive annotation checks are removed. The allowlist, model-argument validation, explicit context injection, application limits, and scope/lifecycle guards remain. Application-state adapters parse only data they consume. See [the current policy](./MCP_TOOL_SCHEMAS.md). The sections below retain historical Slice 4 terminology.
 
 ## 1. What is the original server schema?
 

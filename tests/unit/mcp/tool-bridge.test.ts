@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { createMcpToolBridge } from "../../../src/mcp/tool-bridge.js";
-import { validateMcpToolContract } from "../../../src/runtime/tool-policy.js";
 import { scopedPodTool } from "../../fixtures/scoped-tool.js";
 import type { McpToolDescriptor } from "../../../src/mcp/tool-discovery.js";
 
@@ -12,21 +11,6 @@ const descriptor: McpToolDescriptor = {
 };
 
 describe("MCP tool bridge", () => {
-  it.each([
-    { type: "object", properties: { name: { $ref: "#/$defs/name" } } },
-    { type: "object", properties: { name: { type: "string", pattern: "[" } } },
-    { type: "object", properties: { name: { type: "string", format: "unknown-format" } } },
-    { type: "object", properties: { count: { type: "number", multipleOf: 0 } } },
-    { type: "object", properties: { count: { type: "number", minimum: 5, maximum: 1 } } },
-  ])("fails closed for non-executable schema %j", (schema) => {
-    expect(() =>
-      validateMcpToolContract({
-        ...descriptor,
-        inputSchema: { ...schema, type: "object" },
-      }),
-    ).toThrow("does not match the reviewed contract");
-  });
-
   it("keeps names reversible and forwards arguments and the exact caller signal", async () => {
     const callTool = vi.fn().mockResolvedValue({ content: [{ type: "text", text: "dev, prod" }] });
     const tool = createMcpToolBridge(descriptor, { callTool });
@@ -48,7 +32,7 @@ describe("MCP tool bridge", () => {
   it("blocks invalid arguments and unsafe tools before transport", async () => {
     const callTool = vi.fn();
     const tool = createMcpToolBridge(descriptor, { callTool });
-    const invalid = await tool.execute("bad", { extra: true }, undefined, undefined, {} as never);
+    const invalid = await tool.execute("bad", [], undefined, undefined, {} as never);
     expect(invalid).toMatchObject({
       isError: true,
       details: { failureCategory: "invalid-arguments" },
