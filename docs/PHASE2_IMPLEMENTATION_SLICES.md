@@ -1,6 +1,6 @@
 # Phase 2 Implementation Slices
 
-**Status:** Slice 0 complete (2026-10-07); Slice 1 complete (2026-10-08); Slice 2 complete (2026-10-09); Slice 3 complete (2026-10-09); Slice 4 complete (2026-10-13); Slice 5 complete (2026-10-14); Slice 6 implemented (2026-10-15; live terminal verification pending); Slice 7 implemented (2026-10-15); Slices 8–9 planned
+**Status:** Slice 0 complete (2026-10-07); Slice 1 complete (2026-10-08); Slice 2 complete (2026-10-09); Slice 3 complete (2026-10-09); Slice 4 complete (2026-10-13); Slice 5 complete (2026-10-14); Slice 6 implemented (2026-10-15; live terminal verification pending); Slice 7 implemented (2026-10-15); Slice 8 implemented (2026-10-16); Slice 9 planned
 
 **Applies to:** Pi SRE V0.1, Phase 2 — Cluster Context Management
 
@@ -385,6 +385,10 @@ Validation after the scope-message review: focused tests passed, followed by `np
 - Read-only configuration, tool-picker exclusion, shell denial, result redaction, and bounded results remain covered.
 
 ## 14. Slice 8 — Reconcile Scope During MCP Recovery
+
+**Implemented (2026-10-16):** Recovery withdraws tools and marks transport transitioning before notifying scope subscribers, avoiding intermediate ready publications during restart, transport loss, or shutdown. Restart reservations precede synchronous listener notifications so concurrent and listener-triggered retries share one replacement. The existing cancellation/drain path, generation-bound handlers, and exact selection-intent reconciliation remain authoritative. Deterministic real-Pi/stdio recovery tests cover repaired configuration and pending CLI/config precedence, user selection across failed enumeration and inventory removal/reappearance, resolved unbound sessions with new defaults, changed input schemas, immediate tool withdrawal and model availability updates on transport loss, and withholding cancelled diagnostic results. Authentication, authorization, and resource-operation failures retain originating scope without treating MCP readiness as Kubernetes access. Existing tests cover repeated failures, stale pickers, application-home changes, conversation preservation, and child cleanup. Live scope acceptance remains Slice 9 work.
+
+Validation: focused recovery/application tests passed, followed by `npm run format:check`, `npm run lint`, `npm run check`, `npm test` (376 passed, 7 executable-dependent contract tests skipped), and `npm run build`. Explicit `npm run test:integration` (81 passed) and `npm run test:e2e` (1 passed) also passed. No live cluster or terminal acceptance is claimed.
 
 **Outcome:** `/mcp_restart` restores usable access without silently changing the selected cluster or reviving stale tools.
 

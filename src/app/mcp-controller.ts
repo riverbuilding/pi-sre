@@ -115,10 +115,20 @@ export class McpController {
       this.clusterContext.state.status !== "enumeration-failed"
     )
       return Promise.resolve(this.current);
-    this.pending = this.replace(initial).finally(() => {
-      this.pending = undefined;
-    });
-    return this.pending;
+    // Reserve the restart before synchronous scope/status listeners can request another one.
+    const pending = Promise.withResolvers<McpControllerSnapshot>();
+    this.pending = pending.promise;
+    void this.replace(initial).then(
+      (snapshot) => {
+        this.pending = undefined;
+        pending.resolve(snapshot);
+      },
+      (error: unknown) => {
+        this.pending = undefined;
+        pending.reject(error);
+      },
+    );
+    return pending.promise;
   }
 
   private async retire(): Promise<void> {
@@ -132,10 +142,12 @@ export class McpController {
   }
 
   private async replace(initial: boolean): Promise<McpControllerSnapshot> {
-    const generation = this.clusterContext.beginConnection();
-    this.publish({ status: "connecting", message: "Kubernetes MCP connecting…", tools: [] });
     this.report = undefined;
     this.availableTools = [];
+    // Scope subscribers must already see tools withdrawn and transport transitioning.
+    this.current = { status: "connecting", message: "Kubernetes MCP connecting…", tools: [] };
+    const generation = this.clusterContext.beginConnection();
+    this.publish(this.current);
     let discoveryStarted = false;
     try {
       await this.retire();
@@ -205,14 +217,14 @@ export class McpController {
       this.stopObserving = connection.onClose?.(() => {
         this.connectionCancellation.abort();
         this.report = undefined;
-        this.clusterContext.markUnavailable(
-          "Kubernetes MCP transport unavailable. Use /mcp_restart to retry.",
-        );
-        this.publish({
+        this.availableTools = [];
+        this.current = {
           status: "unavailable",
           message: "Kubernetes MCP transport unavailable. Use /mcp_restart to retry.",
           tools: [],
-        });
+        };
+        this.clusterContext.markUnavailable(this.current.message);
+        this.publish(this.current);
       });
       this.report = report;
       this.availableTools = tools;
@@ -240,8 +252,10 @@ export class McpController {
 
   close(): Promise<void> {
     this.controllerClosePromise ??= (async () => {
+      this.availableTools = [];
+      this.current = { status: "unavailable", message: "Kubernetes MCP closing.", tools: [] };
       this.clusterContext.markUnavailable("Kubernetes MCP closing; cluster scope unavailable.");
-      this.publish({ status: "unavailable", message: "Kubernetes MCP closing.", tools: [] });
+      this.publish(this.current);
       this.connectionCancellation.abort();
       await this.pending;
       await this.retire();

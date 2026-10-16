@@ -24,6 +24,7 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
   async function configure(
     scenario = "contexts-runtime",
     command = process.execPath,
+    defaultCluster?: string,
   ): Promise<void> {
     const pid = join(home, `child-${generation++}.pid`);
     pids.push(pid);
@@ -31,6 +32,7 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
       join(home, "config.yaml"),
       stringify({
         kubernetes: {
+          ...(defaultCluster === undefined ? {} : { defaultCluster }),
           mcp: {
             transport: "stdio",
             command,
@@ -210,6 +212,184 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
     await command("--force extra");
     expect(controller.snapshot).toBe(state);
     expect(await invoke()).toMatchObject({ isError: false });
+  });
+
+  it.each([undefined, "alpha"])(
+    "resolves pending startup with refreshed defaults and CLI=%s",
+    async (cluster) => {
+      await configure("diagnostic-success", "/no/such/mcp", "alpha");
+      await start(cluster);
+      await configure("diagnostic-success", process.execPath, "beta");
+      await command();
+      expect(controller.clusterContext.captureScope()).toMatchObject({
+        context: cluster ?? "beta",
+        source: cluster ? "cli" : "config",
+      });
+      expect(runtime.session.getActiveToolNames()).toContain("pods_list");
+    },
+  );
+
+  it("retains a user choice through failed enumeration, removal, and reappearance", async () => {
+    await configure("diagnostic-success");
+    await start();
+    await runtime.session.prompt("/cluster beta");
+    const old = runtime.session.getToolDefinition("pods_list");
+    await configure("contexts-malformed", process.execPath, "alpha");
+    await command("--force");
+    expect(controller.clusterContext.state.status).toBe("enumeration-failed");
+    expect(runtime.session.getActiveToolNames()).toEqual([]);
+    await configure("diagnostic-alpha-only", process.execPath, "alpha");
+    await command();
+    expect(controller.clusterContext.state).toMatchObject({
+      status: "selection-error",
+      requestedName: "beta",
+      source: "user",
+    });
+    expect(runtime.session.getActiveToolNames()).toEqual(["configuration_contexts_list"]);
+    expect(await invoke(old)).toMatchObject({
+      isError: true,
+      details: { failureCategory: "stale-scope" },
+    });
+    await configure("diagnostic-success", process.execPath, "alpha");
+    await command("--force");
+    expect(controller.clusterContext.captureScope()).toMatchObject({
+      context: "beta",
+      source: "user",
+    });
+    expect(await invoke(runtime.session.getToolDefinition("pods_list"))).toMatchObject({
+      isError: false,
+      details: { scope: { context: "beta" } },
+    });
+    const calls = await readFile(`${pids.at(-1)}.calls`, "utf8");
+    expect(
+      calls
+        .trim()
+        .split("\n")
+        .map((line): unknown => JSON.parse(line)),
+    ).toEqual([
+      { name: "configuration_contexts_list", arguments: {} },
+      { name: "pods_list", arguments: { context: "beta" } },
+    ]);
+  });
+
+  it("keeps resolved unbound scope when replacement adds configured and MCP defaults", async () => {
+    await configure("diagnostic-unbound");
+    await start();
+    await configure("diagnostic-success", process.execPath, "beta");
+    await command("--force");
+    expect(controller.clusterContext.state.status).toBe("unbound");
+    expect(runtime.session.getActiveToolNames()).toEqual(["configuration_contexts_list"]);
+  });
+
+  it("publishes coherent recovery state, coalesces listener retries, and validates new schemas", async () => {
+    await configure("diagnostic-success");
+    await start();
+    const old = runtime.session.getToolDefinition("pods_get");
+    const transitions: string[] = [];
+    let listenerRetry: Promise<unknown> | undefined;
+    const unsubscribeScope = controller.clusterContext.subscribe((scope) => {
+      if (scope.status === "connecting") {
+        expect(controller.snapshot).toMatchObject({ status: "connecting", tools: [] });
+        expect(controller.discoveryReport).toBeUndefined();
+        expect(() => controller.clusterContext.select("beta")).toThrow(
+          "current MCP context registry",
+        );
+        listenerRetry = controller.restart(true);
+      }
+    });
+    const unsubscribe = controller.subscribe((state) => transitions.push(state.status));
+    await configure("diagnostic-evolved");
+    const replacement = controller.restart(true);
+    expect(listenerRetry).toBe(replacement);
+    await replacement;
+    unsubscribeScope();
+    unsubscribe();
+    expect(transitions).toEqual(["ready", "connecting", "ready"]);
+    expect(await invoke(old)).toMatchObject({
+      isError: true,
+      details: { failureCategory: "stale-scope" },
+    });
+    const tool = runtime.session.getToolDefinition("pods_get");
+    if (!tool) throw new Error("Expected replacement diagnostic tool");
+    expect(
+      await tool.execute("missing-view", { name: "api" }, undefined, undefined, {} as never),
+    ).toMatchObject({
+      isError: true,
+      details: { failureCategory: "invalid-arguments" },
+    });
+    expect(
+      await tool.execute(
+        "new-schema",
+        { name: "api", view: "summary" },
+        undefined,
+        undefined,
+        {} as never,
+      ),
+    ).toMatchObject({
+      isError: false,
+      details: { scope: { context: "alpha" } },
+    });
+  });
+
+  it.each([
+    ["diagnostic-authentication", "authentication-failed"],
+    ["diagnostic-authorization", "authorization-failed"],
+    ["diagnostic-operation", "tool-execution-failed"],
+  ])(
+    "keeps %s separate from healthy MCP transport and selected scope",
+    async (scenario, category) => {
+      await configure(scenario);
+      await start("beta");
+      expect(await invoke(runtime.session.getToolDefinition("pods_list"))).toMatchObject({
+        isError: true,
+        details: { failureCategory: category, scope: { context: "beta" } },
+      });
+      const state = controller.snapshot;
+      await command();
+      expect(controller.snapshot).toBe(state);
+      expect(controller.snapshot.status).toBe("ready");
+      expect(controller.clusterContext.captureScope()?.context).toBe("beta");
+    },
+  );
+
+  it("withdraws diagnostics immediately on drop and withholds a late cancelled response", async () => {
+    await configure("diagnostic-delayed");
+    await start("beta");
+    const old = runtime.session.getToolDefinition("pods_list");
+    const active = invoke(old);
+    await expect
+      .poll(async () => {
+        try {
+          return await readFile(`${pids[0]}.call`, "utf8");
+        } catch (error) {
+          if (error instanceof Error && "code" in error && error.code === "ENOENT") return "";
+          throw error;
+        }
+      })
+      .toBe("started");
+    await configure("diagnostic-success");
+    await command("--force");
+    const result = await active;
+    expect(result).toMatchObject({
+      isError: true,
+      details: { failureCategory: "stale-scope", scope: { context: "beta" } },
+    });
+    expect(JSON.stringify(result)).not.toContain("beta-pods_list");
+    const observed: string[] = [];
+    const unsubscribe = controller.subscribe((state) => observed.push(state.status));
+    const unsubscribeScope = controller.clusterContext.subscribe((scope) => {
+      if (scope.status === "unavailable")
+        expect(controller.snapshot).toMatchObject({ status: "unavailable", tools: [] });
+    });
+    process.kill(Number(await readFile(pids.at(-1)!, "utf8")), "SIGTERM");
+    await expect.poll(() => controller.snapshot.status).toBe("unavailable");
+    expect(observed).toEqual(["ready", "unavailable"]);
+    expect(runtime.session.getActiveToolNames()).toEqual([]);
+    expect(runtime.session.messages.at(-1)).toMatchObject({
+      content: expect.stringContaining("Cluster-dependent calls are blocked"),
+    });
+    unsubscribeScope();
+    unsubscribe();
   });
 
   it("selects exact names and picker choices without replacing the conversation or MCP", async () => {

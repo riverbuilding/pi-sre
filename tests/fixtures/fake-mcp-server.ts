@@ -99,11 +99,33 @@ function callToolResult(scenario: string, params?: FixtureParams): Record<string
         content: [],
         structuredContent: {
           ...(scenario === "diagnostic-unbound" ? {} : { defaultContext: "alpha" }),
-          contexts: VALID_CONTEXTS.map((entry) => ({
+          contexts: VALID_CONTEXTS.filter(
+            (entry) => scenario !== "diagnostic-alpha-only" || entry.name === "alpha",
+          ).map((entry) => ({
             ...entry,
             default: scenario !== "diagnostic-unbound" && entry.default,
           })),
         },
+      };
+    }
+    if (
+      ["diagnostic-authentication", "diagnostic-authorization", "diagnostic-operation"].includes(
+        scenario,
+      )
+    ) {
+      return {
+        content: [
+          {
+            type: "text",
+            text:
+              scenario === "diagnostic-authentication"
+                ? "401 Unauthorized"
+                : scenario === "diagnostic-authorization"
+                  ? "403 Forbidden"
+                  : "Resource operation failed",
+          },
+        ],
+        isError: true,
       };
     }
     return {
@@ -243,6 +265,19 @@ input.on("line", (line) => {
   }
   if (method === "tools/call" && scenario === "scoped-timeout" && params?.name === "pods_list")
     return;
+  if (
+    method === "tools/call" &&
+    scenario === "diagnostic-delayed" &&
+    params?.name === "pods_list"
+  ) {
+    if (process.argv[3]) writeFileSync(`${process.argv[3]}.call`, "started");
+    setTimeout(() => {
+      process.stdout.write(
+        `${JSON.stringify({ jsonrpc: "2.0", id, result: callToolResult(scenario, params) })}\n`,
+      );
+    }, 200);
+    return;
+  }
   if (method === "tools/call" && (scenario === "call-timeout" || scenario === "contexts-timeout")) {
     if (process.argv[3]) writeFileSync(`${process.argv[3]}.call`, "started");
     return;
