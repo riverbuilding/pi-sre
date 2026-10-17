@@ -95,6 +95,8 @@ function listToolsResult(scenario: string, params?: FixtureParams): Record<strin
 function callToolResult(scenario: string, params?: FixtureParams): Record<string, unknown> {
   if (scenario.startsWith("diagnostic-")) {
     if (params?.name === "configuration_contexts_list") {
+      if (scenario === "diagnostic-empty")
+        return { content: [], structuredContent: { contexts: [] } };
       return {
         content: [],
         structuredContent: {

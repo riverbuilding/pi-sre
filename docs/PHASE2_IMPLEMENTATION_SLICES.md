@@ -1,6 +1,6 @@
 # Phase 2 Implementation Slices
 
-**Status:** Slice 0 complete (2026-10-07); Slice 1 complete (2026-10-08); Slice 2 complete (2026-10-09); Slice 3 complete (2026-10-09); Slice 4 complete (2026-10-13); Slice 5 complete (2026-10-14); Slice 6 implemented (2026-10-15; live terminal verification pending); Slice 7 implemented (2026-10-15); Slice 8 implemented (2026-10-16); Slice 9 planned
+**Status:** Slice 0 complete (2026-10-07); Slice 1 complete (2026-10-08); Slice 2 complete (2026-10-09); Slice 3 complete (2026-10-09); Slice 4 complete (2026-10-13); Slice 5 complete (2026-10-14); Slice 6 implemented (2026-10-15; live terminal verification pending); Slice 7 implemented (2026-10-15); Slice 8 implemented (2026-10-16); Slice 9 automated acceptance implemented (2026-10-16; live acceptance pending)
 
 **Applies to:** Pi SRE V0.1, Phase 2 — Cluster Context Management
 
@@ -410,6 +410,8 @@ Validation: focused recovery/application tests passed, followed by `npm run form
 - Old handlers cannot call the replacement connection; application-home changes still require a full restart.
 
 ## 15. Slice 9 — Phase Gate and Live Scope Acceptance
+
+**Automated acceptance implemented (2026-10-16):** Full-path tests use parsed CLI arguments, on-disk configuration, the production controller and Pi runtime, and recorded stdio requests with context-specific markers. They cover startup precedence, invalid/empty/unbound states, attempted model overrides, idle switching, recovery, stale handlers, removed selections, transcript preservation, and child cleanup. Packaged CLI checks cover current cluster/status help and invalid arguments before startup. Stale help/template descriptions are updated. See [PHASE2_ACCEPTANCE.md](./PHASE2_ACCEPTANCE.md) for gate evidence and the installed two-cluster runbook. Live model, cluster routing, and physical terminal verification remain pending; Phase 2 is not declared complete.
 
 **Outcome:** Automated and live evidence demonstrate explicit cluster targeting through the complete application path.
 

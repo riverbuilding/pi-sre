@@ -45,12 +45,26 @@ it("packs a built executable that launches outside the source checkout", async (
       expect(stdout).toContain("Pi SRE — read-only Kubernetes incident diagnosis");
       expect(stdout).toContain("/mcp_restart");
       expect(stdout).toContain("--cluster=<name>");
+      expect(stdout).toContain("--cluster > kubernetes.defaultCluster > MCP default > unbound");
+      expect(stdout).toContain("/cluster --status");
+      expect(stdout).toContain("Unknown selections never fall back");
       expect(stderr).toBe("");
     }
-    await expect(run(process.execPath, [executable, "--cluster="], options)).rejects.toMatchObject({
-      code: 1,
-      stderr: expect.stringContaining("--cluster requires"),
-    });
+    for (const [args, message] of [
+      [["--cluster="], "--cluster requires"],
+      [["--help", "--cluster"], "--cluster requires"],
+      [["--cluster", "--help"], "--cluster requires"],
+      [["--cluster", "   "], "--cluster requires"],
+      [["--cluster=alpha\n"], "--cluster requires"],
+      [["--cluster=alpha", "--cluster", "beta"], "Duplicate --cluster"],
+      [["--help", "--unknown"], "Unknown argument"],
+    ] as const) {
+      await expect(run(process.execPath, [executable, ...args], options)).rejects.toMatchObject({
+        code: 1,
+        stdout: "",
+        stderr: expect.stringContaining(message),
+      });
+    }
     await expect(access(appHome)).rejects.toMatchObject({ code: "ENOENT" });
     expect(
       await readFile(join(installed, "config", "kubernetes-mcp.example.toml"), "utf8"),

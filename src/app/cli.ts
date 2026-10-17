@@ -52,6 +52,7 @@ The MCP TOML path is set by kubernetes.mcp.configFile in config.yaml.
 
 Pi model credentials, settings, and sessions live under PI_SRE_HOME.
 Use /mcp_restart in the TUI to retry Kubernetes MCP access.
-Cluster intent is retained; startup binding and TUI selection arrive in Phase 2 Slice 3 onward.
+Use /cluster to select a context, /cluster <name> to switch while idle,
+and /cluster --status to report scope, read-only mode, and MCP availability.
 `;
 }

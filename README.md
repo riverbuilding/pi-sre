@@ -8,6 +8,8 @@ Slice 9 completes the [Phase 1 acceptance gate and live smoke test](docs/PHASE1_
 
 The [Phase 2 implementation slices](docs/PHASE2_IMPLEMENTATION_SLICES.md) cover context discovery, startup selection, explicit scope enforcement, cluster commands and status, MCP recovery, and live targeting acceptance. Slices 1–3 provide validated MCP enumeration, exact startup selection, and application-owned scope. Slice 4 enforces explicit context injection at the bridge. Slice 5 adds `/cluster`, safe idle switching, and persistent scope-change messages. Slice 6 adds `/cluster --status` and a continuous scope widget. Slice 7 enables reviewed pod, log, event, and namespace diagnostics when a compatible explicit cluster scope is bound. Slice 8 reconciles scope and tool availability during MCP recovery while retaining exact selection intent.
 
+Slice 9 adds full-path routing acceptance and expanded packaged CLI checks. The [Phase 2 acceptance record and live runbook](docs/PHASE2_ACCEPTANCE.md) track the gate and remaining two-cluster/model/terminal verification. Phase 2 remains open until live acceptance passes.
+
 ## Prerequisites
 
 - Node.js 22.19.0 or later
