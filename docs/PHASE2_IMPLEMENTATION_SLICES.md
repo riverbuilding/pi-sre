@@ -1,6 +1,6 @@
 # Phase 2 Implementation Slices
 
-**Status:** Slice 0 complete (2026-10-07); Slice 1 complete (2026-10-08); Slice 2 complete (2026-10-09); Slice 3 complete (2026-10-09); Slice 4 complete (2026-10-13); Slice 5 complete (2026-10-14); Slice 6 implemented (2026-10-15; live terminal verification pending); Slice 7 implemented (2026-10-15); Slice 8 implemented (2026-10-16); Slice 9 automated acceptance implemented (2026-10-16; live acceptance pending)
+**Status:** Slice 0 complete (2026-10-07); Slice 1 complete (2026-10-08); Slice 2 complete (2026-10-09); Slice 3 complete (2026-10-09); Slice 4 complete (2026-10-13); Slice 5 complete (2026-10-14); Slice 6 complete (2026-10-15; terminal acceptance owned by Slice 9); Slice 7 complete (implemented 2026-10-15); Slice 8 complete (implemented 2026-10-16); Slice 9 complete (automated acceptance 2026-10-16; live acceptance operator-confirmed 2026-10-17); Slice 10 complete (2026-10-17; live feedback regression operator-confirmed). Phase 2 complete (2026-10-17).
 
 **Applies to:** Pi SRE V0.1, Phase 2 — Cluster Context Management
 
@@ -58,6 +58,7 @@ The installed Pi runtime and MCP client are both 0.99.0, upgraded during Phase 1
 - deterministic startup resolution and recoverable selection errors;
 - `--cluster`, `/cluster`, and operational `/cluster --status`;
 - a continuously visible cluster, namespace, read-only, and MCP status;
+- distinct, timestamped feedback for each SRE operational command invocation;
 - explicit context injection into a small approved diagnostic tool surface;
 - protection against model-controlled context and cross-cluster call races;
 - scope reconciliation after MCP restart or connection loss;
@@ -340,7 +341,7 @@ Validation after the scope-message review: focused tests passed, followed by `np
 
 ## 12. Slice 6 — Make Operational Scope Visible to User and Model
 
-**Implemented (2026-10-15):** `/cluster --status` reports authoritative scope and registry/MCP state during idle or active work without changing selection or transcript. A public wrapping widget below the editor keeps READ ONLY on its own line and updates with scope state, preserving Pi's footer/model UI. The command, widget, and persistent model snapshots share presentation helpers and omit endpoints. Reload and shutdown clear widget subscriptions; stable system rules and persistent/steered updates remain in place. Deterministic tests cover scope states, immediate updates, active-work reporting, reload/shutdown, and safe diagnostics. Physical terminal verification of narrow widths, dialogs, streaming, and restart remains pending.
+**Completed (implementation 2026-10-15; acceptance ownership updated 2026-10-16):** `/cluster --status` reports authoritative scope and registry/MCP state during idle or active work without changing selection or transcript. A public wrapping widget below the editor keeps READ ONLY on its own line and updates with scope state, preserving Pi's footer/model UI. The command, widget, and persistent model snapshots share presentation helpers and omit endpoints. Reload and shutdown clear widget subscriptions; stable system rules and persistent/steered updates remain in place. Deterministic tests cover scope states, immediate updates, active-work reporting, reload/shutdown, and safe diagnostics. Slice 6 implementation and deterministic verification are complete. Physical terminal acceptance of narrow widths, dialogs, streaming, and restart is owned by Slice 9 and runs against the final Phase 2 package; no historical Slice 6 checkout is required.
 
 **Outcome:** User status, `/cluster --status`, model guidance, and execution use the same authoritative scope.
 
@@ -360,7 +361,7 @@ Validation after the scope-message review: focused tests passed, followed by `np
 - Selection and connection changes update status without requiring an unrelated user message.
 - New/resumed/forked conversations and resource reloads preserve SRE policy and use current scope.
 - Control-character fixtures and sensitive endpoint fields do not become unsafe terminal or prompt content.
-- Live terminal verification covers narrow width, selection dialogs, streaming, restart, and read-only visibility.
+- Deterministic presentation checks pass. Slice 9 owns live terminal verification of narrow width, selection dialogs, streaming, restart, and read-only visibility against the final Phase 2 package.
 
 ## 13. Slice 7 — Enable the Reviewed Diagnostic Tool Surface
 
@@ -411,7 +412,7 @@ Validation: focused recovery/application tests passed, followed by `npm run form
 
 ## 15. Slice 9 — Phase Gate and Live Scope Acceptance
 
-**Automated acceptance implemented (2026-10-16):** Full-path tests use parsed CLI arguments, on-disk configuration, the production controller and Pi runtime, and recorded stdio requests with context-specific markers. They cover startup precedence, invalid/empty/unbound states, attempted model overrides, idle switching, recovery, stale handlers, removed selections, transcript preservation, and child cleanup. Packaged CLI checks cover current cluster/status help and invalid arguments before startup. Stale help/template descriptions are updated. See [PHASE2_ACCEPTANCE.md](./PHASE2_ACCEPTANCE.md) for gate evidence and the installed two-cluster runbook. Live model, cluster routing, and physical terminal verification remain pending; Phase 2 is not declared complete.
+**Automated acceptance implemented (2026-10-16):** Full-path tests use parsed CLI arguments, on-disk configuration, the production controller and Pi runtime, and recorded stdio requests with context-specific markers. They cover startup precedence, invalid/empty/unbound states, attempted model overrides, idle switching, recovery, stale handlers, removed selections, transcript preservation, and child cleanup. Packaged CLI checks cover current cluster/status help and invalid arguments before startup. Stale help/template descriptions are updated. See [PHASE2_ACCEPTANCE.md](./PHASE2_ACCEPTANCE.md) for gate evidence and the installed two-cluster runbook. Live model, cluster routing, and physical terminal verification passed, as confirmed by the operator on 2026-10-17. Phase 2 is complete, including the Slice 10 follow-up.
 
 **Outcome:** Automated and live evidence demonstrate explicit cluster targeting through the complete application path.
 
@@ -433,6 +434,8 @@ Add deterministic full-path tests for startup precedence, invalid selection, emp
 
 ### Manual live scope test
 
+Run the [step-by-step commands](./PHASE2_LIVE_TEST_COMMANDS.md) against the current Phase 2 revision. This gate owns all physical terminal acceptance, including the Slice 6 widget and status command. Do not check out an earlier slice revision.
+
 1. Record package revision, Node/Pi/MCP versions, OS/terminal, and model identifier without credentials. Use the installed package outside the checkout.
 2. Prepare two distinguishable MCP contexts backed by read-only credentials and fixtures. Prefer two local kind clusters for cross-cluster proof. The Phase 1 namespace contexts point at one cluster and alone do not prove different cluster routing.
 3. Confirm the actual MCP server exposes context enumeration and explicit context parameters. Establish distinct non-sensitive resource markers in each cluster through the test setup, outside Pi SRE.
@@ -442,7 +445,8 @@ Add deterministic full-path tests for startup precedence, invalid selection, emp
 7. Exercise CLI precedence, configured default, MCP fallback, unknown CLI/config names, and unbound/no-default behavior using dedicated safe configurations.
 8. Exercise degraded startup, successful restart, and removal of the selected context from the replacement registry. Confirm no silent fallback or diagnostic call while unbound.
 9. Request a different context through model tool arguments and ask for a mutation. Confirm the selected scope is enforced and no write tool or shell fallback executes.
-10. Quit; verify child-process cleanup and terminal restoration.
+10. Verify normal/narrow widths, long context names, picker dialogs, streaming, forced restart, and continuous read-only/scope visibility. Record terminal dimensions.
+11. Quit; verify child-process cleanup and terminal restoration.
 
 Creating fault/resource fixtures belongs to the explicit test setup, not Pi SRE's runtime capabilities. Keep live tests in an explicit suite/runbook. Phase 5 still owns automated kind fault-diagnosis evaluation and RCA grading.
 
@@ -462,7 +466,40 @@ Create `docs/PHASE2_ACCEPTANCE.md` in this slice with pass/fail evidence and lim
 - No kubeconfig mutation, shell bypass, coding tools, write capability, or raw-response persistence is introduced.
 - Automated checks and live scope acceptance pass with recorded evidence.
 
-## 16. Suggested Pull Request Boundaries
+## 16. Slice 10 — Operational Command Feedback
+
+**Completed (2026-10-17; live regression operator-confirmed):** Session-owned feedback adds local time and a shared invocation sequence to cluster and recovery commands. Pi 0.99.0's installed `showExtensionNotify` routes informational notifications to `showStatus`, which replaces consecutive status messages; timestamps and invocation numbers make replacements visibly attributable. Picker and restart receipt precede awaited work, with completion under the same number. Controller-owned restart disposition distinguishes retention, forced replacement, recovery, shared work, and shutdown refusal. Completion describes transport separately from enumeration/selection state. Feedback does not enter model context or call Kubernetes. Controlled-clock, real-Pi/stdio tests cover repeated no-ops/status, picker cancellation/refusal, failures, concurrent restart/PID routing, reload continuity and new-session isolation. See the [acceptance record](./PHASE2_ACCEPTANCE.md) for automated verification and operator-confirmed installed-package/terminal regression.
+
+**Outcome:** Each invocation of `/cluster`, `/cluster --status`, and `/mcp_restart` visibly acknowledges execution and reports its actual outcome, including repeated commands and no-ops.
+
+### Work
+
+- Use Pi's public UI APIs to show fresh command feedback above the editor. Inspect the installed runtime's notification behavior before implementation; do not assume whether identical messages are appended, replaced, or deduplicated.
+- Include the command name, a readable local timestamp, and a session-scoped invocation number. The number distinguishes commands submitted within the same timestamp interval and associates progress with completion. Keep this presentation state session-owned.
+- Immediate commands may acknowledge execution with their result. For asynchronous work, acknowledge receipt before awaiting the operation, then report completion, cancellation, refusal, or failure under the same invocation number.
+- For `/cluster`, distinguish changed selection, already selected, picker cancellation, invalid/unavailable selection, and active-turn refusal. `/cluster --status` must produce fresh feedback even when the scope is unchanged, including during active work.
+- For `/mcp_restart`, distinguish a healthy no-op (existing connection retained), recovery attempt, forced replacement, and failure. Report completion only after the controller settles; distinguish transport readiness from enumeration/selection errors. Concurrent invocations must retain the existing serialized/shared restart behavior and truthful outcomes.
+- Keep presentation in focused TUI helpers and derive operational outcomes from authoritative application state. Preserve scope enforcement, read-only policy, conversation history, the persistent status widget, and Pi's model/session UI. UI timestamps and invocation numbers must not create model-context messages or Kubernetes calls.
+- Add deterministic tests with a controlled clock for repeated identical commands, same-time invocations, no-op outcomes, picker cancellation/refusal, progress/completion association, failures, concurrent restart, and session isolation. Verify through the public command/UI boundary and existing controller fixtures.
+
+Example presentation (wording may be refined during implementation):
+
+```text
+[12:34:01 #7] /mcp_restart: MCP already healthy; existing connection retained.
+[12:34:08 #8] /mcp_restart --force: Restarting MCP…
+[12:34:09 #8] /mcp_restart --force: Restart completed; MCP ready.
+```
+
+### Acceptance criteria and tests
+
+- Submitting the same command repeatedly produces visibly distinct acknowledgements, including within one second. An earlier ready notification cannot be mistaken for the latest command's completion.
+- No-op, success, cancellation, refusal, and failure are explicit; command progress and completion remain attributable to the same invocation.
+- Healthy retry retains the owned MCP PID; forced replacement changes it and preserves B/user selection. Notifications supplement process and scoped-tool evidence rather than replacing it.
+- At normal and narrow terminal widths, timestamps, outcomes, long context names, READ ONLY, scope, and availability remain readable during dialogs, streaming, and restart.
+- Run affected command/recovery tests first, then the canonical Slice 9 gate. Repackage and repeat the affected installed-application command feedback, recovery, and terminal checks; record the new package revision/checksum.
+- Preserve prior Slice 9 evidence with its original tested revision. Slice 9 retains ownership of the overall live gate; Slice 10 owns this follow-up and its regression evidence. Phase 2 completion requires both slices' applicable checks to pass.
+
+## 17. Suggested Pull Request Boundaries
 
 | PR  | Slice | Review focus                                                 |
 | --- | ----- | ------------------------------------------------------------ |
@@ -475,10 +512,11 @@ Create `docs/PHASE2_ACCEPTANCE.md` in this slice with pass/fail evidence and lim
 | 7   | 7     | Per-tool capability and read-only review                     |
 | 8   | 8     | Recovery, generation isolation, and selection preservation   |
 | 9   | 9     | Installed CLI, live targeting evidence, and phase acceptance |
+| 10  | 10    | Distinct command feedback and live regression evidence       |
 
 Slices proceed in order. Slice 4 proves the bridge through test-owned tool definitions; Slices 5–6 can exercise switching and presentation with those fixtures. Production cluster-dependent tools remain hidden until scope enforcement, switching coordination, continuously visible status, and the Slice 7 capability review are all in place. Do not enable diagnostic tools without their enforcement path merely to make a slice runnable.
 
-## 17. Risks and Phase 3 Handoff
+## 18. Risks and Phase 3 Handoff
 
 | Risk                                                              | Required mitigation                                                                        |
 | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |

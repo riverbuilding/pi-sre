@@ -8,6 +8,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 
 import type { McpController } from "../app/mcp-controller.js";
+import { CommandFeedback } from "../tui/command-feedback.js";
 import { registerMcpRecovery } from "../tui/mcp-restart-command.js";
 import { registerClusterScope } from "../tui/cluster-extension.js";
 import type { SreConfig } from "../config/config.js";
@@ -29,6 +30,7 @@ export async function createSreRuntime(
       throw new Error("Pi SRE sessions must remain inside the Pi SRE application home.");
     }
 
+    const feedback = new CommandFeedback();
     const services = await createAgentSessionServices({
       cwd: options.cwd,
       agentDir: options.agentDir,
@@ -41,8 +43,8 @@ export async function createSreRuntime(
                   name: "pi-sre-mcp-recovery",
                   hidden: true,
                   factory: (pi: ExtensionAPI) => {
-                    registerMcpRecovery(pi, mcpController);
-                    registerClusterScope(pi, mcpController.clusterContext);
+                    registerMcpRecovery(pi, mcpController, feedback);
+                    registerClusterScope(pi, mcpController.clusterContext, feedback);
                   },
                 },
               ]

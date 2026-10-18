@@ -80,6 +80,8 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
     await writeFile(join(home, "kubernetes-mcp.toml"), "read_only = true\n");
   });
   afterEach(async () => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
     await runtime?.disposeSession();
     await controller?.close();
     for (const path of pids) {
@@ -103,6 +105,171 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
         .toBe(true);
     }
     await rm(home, { recursive: true, force: true });
+  });
+
+  async function observeFeedback() {
+    const notify = vi.fn();
+    await runtime.session.bindExtensions({
+      uiContext: { ...runtime.session.extensionRunner.getUIContext(), notify },
+    });
+    return notify;
+  }
+
+  it("numbers repeated no-ops and status across commands/reload, and isolates new sessions", async () => {
+    await configure("diagnostic-success");
+    await start();
+    const notify = await observeFeedback();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 9, 17, 12, 34, 1));
+    const messages = [...runtime.session.messages];
+    const calls = await readFile(`${pids[0]}.calls`, "utf8");
+    const state = controller.snapshot;
+    await command();
+    await command();
+    await runtime.session.prompt("/cluster --status");
+    await runtime.session.prompt("/cluster --status");
+    await runtime.session.prompt("/cluster alpha");
+    await runtime.session.prompt("/cluster alpha");
+    expect(notify.mock.calls.map(([message]) => message)).toEqual([
+      expect.stringContaining(
+        "[12:34:01 #1] /mcp_restart: MCP already healthy; existing connection retained.",
+      ),
+      expect.stringContaining(
+        "[12:34:01 #2] /mcp_restart: MCP already healthy; existing connection retained.",
+      ),
+      expect.stringContaining("[12:34:01 #3] /cluster --status:"),
+      expect.stringContaining("[12:34:01 #4] /cluster --status:"),
+      expect.stringContaining("[12:34:01 #5] /cluster: Already selected."),
+      expect.stringContaining("[12:34:01 #6] /cluster: Already selected."),
+    ]);
+    expect(controller.snapshot).toBe(state);
+    expect(runtime.session.messages).toEqual(messages);
+    expect(await readFile(`${pids[0]}.calls`, "utf8")).toBe(calls);
+    await runtime.session.reload();
+    await command();
+    expect(notify.mock.lastCall?.[0]).toContain("#7]");
+    await runtime.newSession();
+    const next = await observeFeedback();
+    await command();
+    expect(next.mock.lastCall?.[0]).toContain("#1]");
+  });
+
+  it("acknowledges picker receipt/cancellation, invalid choices, and active-work refusal", async () => {
+    await configure();
+    await start();
+    const notify = vi.fn();
+    const choice = Promise.withResolvers<string | undefined>();
+    const select = vi.fn(() => choice.promise);
+    await runtime.session.bindExtensions({
+      uiContext: { ...runtime.session.extensionRunner.getUIContext(), notify, select },
+    });
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 9, 17, 12, 34, 1));
+    const state = controller.clusterContext.state;
+    const picking = runtime.session.prompt("/cluster");
+    expect(notify.mock.lastCall?.[0]).toBe("[12:34:01 #1] /cluster: Opening cluster picker…");
+    vi.setSystemTime(new Date(2026, 9, 17, 12, 34, 2));
+    choice.resolve(undefined);
+    await picking;
+    expect(notify.mock.lastCall?.[0]).toBe(
+      "[12:34:02 #1] /cluster: Selection cancelled; cluster unchanged.",
+    );
+    await runtime.session.prompt("/cluster missing");
+    expect(notify.mock.lastCall).toEqual([
+      expect.stringContaining("#2] /cluster: Selection refused: Unknown MCP context"),
+      "warning",
+    ]);
+    const release = controller.clusterContext.beginAgentWork();
+    try {
+      await runtime.session.prompt("/cluster prod");
+      expect(notify.mock.lastCall).toEqual([
+        expect.stringContaining("#3] /cluster: Wait for or cancel the active agent turn"),
+        "warning",
+      ]);
+      await runtime.session.prompt("/cluster --status");
+      expect(notify.mock.lastCall?.[0]).toContain("#4] /cluster --status:");
+    } finally {
+      release();
+    }
+    expect(controller.clusterContext.state).toBe(state);
+  });
+
+  it("acknowledges unexpected restart rejection without exposing its raw error", async () => {
+    await configure();
+    await start();
+    const notify = await observeFeedback();
+    vi.spyOn(controller, "restart").mockRejectedValueOnce(new Error("PRIVATE_FIXTURE"));
+    await command("--force");
+    expect(notify.mock.lastCall).toEqual([
+      expect.stringContaining("#1] /mcp_restart --force: Restart failed unexpectedly"),
+      "error",
+    ]);
+    expect(JSON.stringify(notify.mock.calls)).not.toContain("PRIVATE_FIXTURE");
+  });
+
+  it("associates concurrent forced/shared completion with invocation numbers and one replacement PID", async () => {
+    await configure("diagnostic-success");
+    await start();
+    const notify = await observeFeedback();
+    await runtime.session.prompt("/cluster beta");
+    const oldPid = await readFile(pids[0]!, "utf8");
+    await configure("diagnostic-success");
+    const first = command("--force");
+    const second = command();
+    expect(notify.mock.calls.map(([message]) => message)).toEqual([
+      expect.stringContaining("#1] /cluster: Selection changed."),
+      expect.stringContaining("#2] /mcp_restart --force: Replacing MCP connection"),
+      expect.stringContaining("#3] /mcp_restart: Joining MCP restart"),
+    ]);
+    await Promise.all([first, second]);
+    expect(notify.mock.calls.slice(-2).map(([message]) => message)).toEqual([
+      expect.stringContaining("#2] /mcp_restart --force: Restart completed; MCP transport ready."),
+      expect.stringContaining("#3] /mcp_restart: Restart completed; MCP transport ready."),
+    ]);
+    expect(controller.clusterContext.state.connectionGeneration).toBe(2);
+    expect(await readFile(pids[1]!, "utf8")).not.toBe(oldPid);
+    expect(controller.clusterContext.captureScope()).toMatchObject({
+      context: "beta",
+      source: "user",
+    });
+    expect(await invoke(runtime.session.getToolDefinition("pods_list"))).toMatchObject({
+      details: { scope: { context: "beta" } },
+      isError: false,
+    });
+  });
+
+  it("reports failed recovery, ready transport with enumeration failure, and unavailable selection honestly", async () => {
+    await configure("contexts-runtime", "/no/such/mcp");
+    await start();
+    const notify = await observeFeedback();
+    await command();
+    expect(notify.mock.calls[0]?.[0]).toContain("#1] /mcp_restart: Attempting MCP recovery");
+    expect(notify.mock.lastCall).toEqual([
+      expect.stringContaining("#1] /mcp_restart: Restart failed"),
+      "warning",
+    ]);
+    await configure("contexts-malformed");
+    await command();
+    expect(notify.mock.lastCall).toEqual([
+      expect.stringContaining("Registry: failed (invalid-response)"),
+      "warning",
+    ]);
+    expect(notify.mock.lastCall?.[0]).toContain(
+      "#2] /mcp_restart: Restart completed; MCP transport ready.",
+    );
+    await configure("diagnostic-success");
+    await command();
+    await runtime.session.prompt("/cluster beta");
+    await configure("diagnostic-alpha-only");
+    await command("--force");
+    expect(notify.mock.lastCall).toEqual([
+      expect.stringContaining('Requested context: "beta"; selection source: user'),
+      "warning",
+    ]);
+    expect(notify.mock.lastCall?.[0]).toContain("Cluster-dependent calls are blocked");
+    await controller.close();
+    await command();
+    expect(notify.mock.lastCall?.[0]).toContain("Restart refused");
   });
 
   it("recovers from startup and repeated retry failures without replacing the session", async () => {
@@ -426,6 +593,7 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
     const picked = controller.clusterContext.state;
     await session.prompt("/cluster");
     expect(controller.clusterContext.state).toBe(picked);
+    expect(notify.mock.lastCall?.[0]).toContain("Selection cancelled; cluster unchanged.");
     expect(await session.extensionRunner.emitContext([])).toEqual([]);
     expect(session.messages.at(-1)).toMatchObject({
       role: "custom",

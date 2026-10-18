@@ -1,6 +1,6 @@
 # Phase 2 Acceptance — Cluster Context Management
 
-**Status (2026-10-16):** Automated acceptance implemented; validation record below. Live cross-cluster and physical terminal acceptance pending. Phase 2 is not yet complete.
+**Status (2026-10-17): Complete.** The automated gate passed, and the operator confirmed the live tests passed, including Slice 9 scope acceptance and Slice 10 updated installed-package, command-feedback, recovery, and terminal regression. See the validation records and final operator confirmation below.
 
 The [slice plan](./PHASE2_IMPLEMENTATION_SLICES.md#15-slice-9--phase-gate-and-live-scope-acceptance) requires both automated checks and installed-application live evidence. A fake server, a simulated provider stream, or two namespace contexts on one cluster cannot establish live cross-cluster targeting.
 
@@ -36,6 +36,8 @@ Focused acceptance commands are `npm run test:integration` and `npm run test:e2e
 The optional `npm run test:contracts` exercises the installed server against synthetic kubeconfigs and loopback Kubernetes endpoints. It is separate from offline CI and live acceptance. See [the contract record](./PHASE2_CONTRACTS.md) for the supported server 0.0.67 setup and its limitations.
 
 ## Live setup
+
+Follow [the step-by-step live test commands](./PHASE2_LIVE_TEST_COMMANDS.md) to provision fixtures and execute this procedure. All live checks, including terminal acceptance for the Slice 6 UI, belong to Slice 9 and use the current Phase 2 package. No historical checkout is required. [Slice 10](./PHASE2_IMPLEMENTATION_SLICES.md#16-slice-10--operational-command-feedback) adds command feedback and owns the affected regression checks; the operator confirmed those live regression checks passed for the updated package on 2026-10-17.
 
 Use two disposable local kind clusters, each with a distinct API server and a non-sensitive marker Pod in the same test namespace. Prepare resources and read-only credentials outside Pi SRE. Administrative setup tools belong to the operator's terminal; Pi SRE must never acquire them as model tools.
 
@@ -90,6 +92,18 @@ Record sanitized tool results and status alongside observations. A model's final
 | Kubernetes failure  | Use a prepared expired identity, a read-only identity denied a diagnostic resource, or request a missing Pod.                                                                                | Authentication, authorization or resource failure retains originating cluster/namespace and remains distinct from unavailable MCP or missing selection.                                                                                             |
 | Quit                | Record owned MCP PID locally; quit after normal work and after cancelling pending work.                                                                                                      | Child is gone, terminal input/echo/cursor restored. Post-run kubeconfig checksum matches baseline; current context remains A.                                                                                                                       |
 
+### Slice 10 follow-up — command feedback (complete; live regression operator-confirmed)
+
+Live recovery testing on 2026-10-17 exposed ambiguous feedback: an existing ready notification could not distinguish a new `/mcp_restart` invocation from an earlier one. This observation does not establish a restart or routing failure. Preserve existing live observations under their original package identity.
+
+Install the updated Slice 10 package and repeat the affected checks:
+
+- Submit identical `/cluster --status`, same-context selection, and healthy `/mcp_restart` commands repeatedly, including within one second. Every invocation must show a readable timestamp, a distinct session invocation number, and its explicit outcome.
+- Exercise selection changes, cancelled pickers, invalid selections, and active-turn refusal. Verify that each outcome is acknowledged without changing the established scope rules.
+- Exercise forced restart and degraded recovery/failure. Associate acknowledgement/progress and completion with the same invocation number; verify honest transport and enumeration/selection outcomes. Use owned-PID comparison and fresh scoped diagnostics to establish restart and routing behavior.
+- Repeat at normal and narrow widths, including streaming and picker dialogs. Verify feedback and continuous READ ONLY/scope/availability remain readable and Pi's model/session UI works.
+- Record the updated package revision/checksum and results separately. Run the affected deterministic tests and canonical gate; require this follow-up before declaring Phase 2 complete.
+
 Repeat startup with dedicated copies of the safe YAML:
 
 | CLI         | Config default | MCP default               | Expected                                             |
@@ -117,6 +131,47 @@ Baseline revision: `7fa01a466e993f579e3ed25a3f2830060c28bc0e` plus the Slice 9 w
 | Installed npm-linked CLI with real model               | Pending                                                                                 |
 | Two distinct live clusters and read-only identities    | Pending                                                                                 |
 | Live scope, recovery, kubeconfig immutability, cleanup | Pending                                                                                 |
-| Narrow terminal, dialogs, streaming and restart        | Pending (also closes Slice 6 physical verification)                                     |
+| Narrow terminal, dialogs, streaming and restart        | Pending (Slice 9 owns terminal acceptance of the Slice 6 UI)                            |
 
 Append the exact tested revision (including dirty state/archive identity), date, OS, Node/Pi/MCP versions, model identifier, terminal/dimensions, safe A/B labels and marker names, per-step pass/fail, and limitations after live execution. Do not commit credentials, kubeconfig, sensitive endpoints, raw responses, or credential-bearing sessions. Mark Phase 2 complete only when the automated gate and required live acceptance have passed.
+
+The dated records below preserve the evidence and outstanding items as they stood at each stage. The final operator confirmation closes the live gate.
+
+## Live observation — 2026-10-17
+
+User-supplied Step 8 evidence from the [live runbook](./PHASE2_LIVE_TEST_COMMANDS.md#8-degraded-startup-and-repair), after repairing the nonexistent executable path with `ln -s "$P2_MCP" "$P2_DIR/nonexistent-mcp"`:
+
+- Post-repair scope showed `phase2-beta-with-a-long-context-name-for-terminal-verification`, selection source `cli`, namespace policy `*`, READ ONLY, MCP ready, and a validated registry with 3 contexts.
+- A fresh `pods_list` call used `fieldSelector="metadata.namespace=phase2-scope"` and `labelSelector="pi-sre-scope-test=true"`. Its bridge result recorded the exact B context and returned only `phase2-beta-marker` in `phase2-scope`, Ready `1/1`, Running, with 0 restarts.
+- The bridge reported namespace as `server/context policy (not asserted)` because the call had no explicit `namespace` argument. The field selector and returned namespace match the request; this is not evidence of all-namespace coverage.
+
+**Result:** Post-repair recovery and pending B/cli binding are observed, with a successful diagnostic against B's marker. The supplied excerpt does not include the pre-repair unavailable state or the `/mcp_restart` invocation itself; those portions of Step 8 remain unverified by this excerpt. Slice 10 command-feedback retesting remains pending. Tested package revision/archive identity, model, and terminal dimensions must still be associated with this observation before closing the live gate. Phase 2 remains incomplete.
+
+## Operator live confirmation — 2026-10-17
+
+The operator subsequently confirmed that all live tests in the current Slice 9 runbook passed. This confirmation covers installed-application operation, two-cluster routing, switching and scope enforcement, read-only restrictions, terminal visibility, healthy/forced recovery, removed selection, degraded startup and repair, startup precedence, Kubernetes operation/authorization failures, and quit/cleanup verification. It completes the Step 8 confirmation beyond the earlier post-repair excerpt. These are operator-reported results; the agent did not independently execute the live tests.
+
+Server 0.0.67 limitations documented above remain: successful empty/no-default registry cases and authentication failures are covered by automated evidence unless separately exercised live. No additional live coverage is inferred from the overall pass confirmation.
+
+The 2026-10-16 pending rows are retained as the historical automated-gate baseline; the current Slice 9 live result is **passed, operator-confirmed**. Exact tested revision/dirty state, archive checksum, model identifier, and terminal dimensions have not been supplied in this conversation and remain to be attached to the record. This confirmation predates Slice 10; it does not cover the updated command feedback or its subsequent installed-package regression tests. Phase 2 remains open for that follow-up.
+
+## Slice 10 automated regression — 2026-10-17
+
+Tested source: baseline `79acf5de5ccf9a8e712c05592f0bc12adeb21252` plus the uncommitted Slice 10 implementation and documentation changes. Node `26.0.0`, Pi runtime/MCP client `0.99.0`, Darwin arm64. The pre-existing Slice 9 operator observations above remain associated with their original run.
+
+- Focused command, recovery, active-turn routing and scope-presentation checks: 46 passed.
+- Canonical gate passed: `npm run format:check`, `npm run lint`, `npm run check`, `npm test` (390 passed; 7 optional executable-dependent contract tests skipped), and `npm run build`. Full tests include offline packaged-CLI acceptance.
+- Public command/UI tests control the clock and assert same-second invocation numbers, progress/completion association, cancellation and refusal, changed/already-selected outcomes, healthy retention, failed recovery, enumeration/selection errors, shared concurrent restart with one replacement PID and fresh B-scoped diagnostics, sanitized unexpected rejection, reload continuity, and new-session isolation. Unchanged commands add no transcript messages or MCP calls.
+- The installed Pi notification implementation was inspected: consecutive informational statuses replace the previous status. Each replacement now carries its own timestamp and invocation number; asynchronous completion retains its invocation number.
+
+Updated installed-package/model/terminal regression is **pending**. Repeat the Slice 10 follow-up above and record package identity, model and terminal dimensions; physical normal/narrow-width rendering, dialogs and streaming are not established by these automated results. Phase 2 remains open.
+
+Slice 10 regression archive: `pi-sre-0.1.0.tgz`, SHA-256 `13eb9a4e5e6f6632632ac0509820d67ae7ab9a774f201e724f3edf49b608644d`. Generated from the tested working tree above before appending this archive-identity paragraph; this archive is distinct from the earlier Slice 9 live package. Packaging succeeded; live installation and terminal regression have not been run.
+
+## Final operator confirmation — 2026-10-17
+
+The operator confirmed the live test passed and requested that Phase 2 be marked complete. This closes the remaining Slice 10 updated installed-package and terminal regression gate, following the earlier Slice 9 live confirmation and the passing automated gate recorded above. These live results are operator-reported; the agent did not independently execute the live tests.
+
+The Slice 10 regression archive identity remains recorded above. No additional tested package identity, model identifier, or terminal dimensions were supplied with this final confirmation. Earlier metadata gaps and server coverage limitations remain documented; no new measurements or coverage are inferred.
+
+**Phase 2 gate: Complete.** Slices 0–10 are complete and ready for Phase 3 investigation state.

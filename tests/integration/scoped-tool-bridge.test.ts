@@ -184,8 +184,18 @@ describe("Slice 4 scoped bridge over Pi and stdio MCP", () => {
 
       expect(commands).toHaveLength(2);
       expect(notify.mock.calls).toEqual([
-        ["Wait for or cancel the active agent turn before selecting a cluster.", "warning"],
-        ["Wait for or cancel the active agent turn before selecting a cluster.", "warning"],
+        [
+          expect.stringMatching(
+            /^\[\d{2}:\d{2}:\d{2} #1\] \/cluster: Wait for or cancel the active agent turn before selecting a cluster\.$/,
+          ),
+          "warning",
+        ],
+        [
+          expect.stringMatching(
+            /^\[\d{2}:\d{2}:\d{2} #2\] \/cluster: Wait for or cancel the active agent turn before selecting a cluster\.$/,
+          ),
+          "warning",
+        ],
       ]);
       expect(manager.captureScope()?.context).toBe("beta");
       expect(manager.isAgentActive).toBe(false);

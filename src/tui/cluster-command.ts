@@ -6,14 +6,21 @@ import {
   createClusterStatusLines,
 } from "../runtime/cluster-guidance.js";
 
+import { CommandFeedback } from "./command-feedback.js";
+
 /** The manager remains authoritative, including after an awaited picker. */
-export function registerClusterCommand(pi: ExtensionAPI, manager: ClusterContextManager): void {
+export function registerClusterCommand(
+  pi: ExtensionAPI,
+  manager: ClusterContextManager,
+  feedback = new CommandFeedback(),
+): void {
   pi.registerCommand("cluster", {
     description:
       "Select an exact Kubernetes context (no arguments opens the picker; --status shows scope)",
     handler: async (args, ctx) => {
+      const report = feedback.begin(args === "--status" ? "/cluster --status" : "/cluster", ctx.ui);
       if (args === "--status") {
-        ctx.ui.notify(
+        report(
           [
             ...createClusterStatusLines(manager.state),
             createClusterScopeDescription(manager.state),
@@ -25,47 +32,51 @@ export function registerClusterCommand(pi: ExtensionAPI, manager: ClusterContext
         return;
       }
       if (!ctx.isIdle() || manager.isAgentActive) {
-        ctx.ui.notify(
-          "Wait for or cancel the active agent turn before selecting a cluster.",
-          "warning",
-        );
+        report("Wait for or cancel the active agent turn before selecting a cluster.", "warning");
         return;
       }
       const state = manager.state;
       if (!("registry" in state)) {
-        ctx.ui.notify(`${state.message} A current MCP context registry is required.`, "warning");
+        report(`${state.message} A current MCP context registry is required.`, "warning");
         return;
       }
       if (state.registry.contexts.length === 0) {
-        ctx.ui.notify(state.message, "warning");
+        report(state.message, "warning");
         return;
       }
-      const name =
-        args === ""
-          ? await ctx.ui.select(
-              `Cluster (current: ${state.status === "bound" ? JSON.stringify(state.context.name) : "NOT SELECTED"})`,
-              state.registry.contexts.map((context) => context.name),
-            )
-          : args;
-      if (name === undefined) return;
+      if (args === "") report("Opening cluster picker…");
+      let name: string | undefined;
+      try {
+        name =
+          args === ""
+            ? await ctx.ui.select(
+                `Cluster (current: ${state.status === "bound" ? JSON.stringify(state.context.name) : "NOT SELECTED"})`,
+                state.registry.contexts.map((context) => context.name),
+              )
+            : args;
+      } catch {
+        report("Cluster picker failed; no selection applied. Retry /cluster.", "error");
+        return;
+      }
+      if (name === undefined) {
+        report("Selection cancelled; cluster unchanged.");
+        return;
+      }
       if (!ctx.isIdle()) {
-        ctx.ui.notify(
-          "Wait for or cancel the active agent turn before selecting a cluster.",
-          "warning",
-        );
+        report("Wait for or cancel the active agent turn before selecting a cluster.", "warning");
         return;
       }
       try {
         manager.select(name, state.registryRevision);
       } catch (error) {
         if (!(error instanceof Error)) throw error;
-        ctx.ui.notify(error.message, "warning");
+        report(`Selection refused: ${error.message}`, "warning");
         return;
       }
       const selected = manager.captureScope();
       if (selected) {
-        ctx.ui.notify(
-          `Cluster: ${JSON.stringify(selected.context)} (${selected.source}) | Namespace: * | READ ONLY. Selection does not verify Kubernetes authentication or authorization.`,
+        report(
+          `${state.status === "bound" && state.context.name === selected.context ? "Already selected" : "Selection changed"}. Cluster: ${JSON.stringify(selected.context)} (${selected.source}) | Namespace: * | READ ONLY. Selection does not verify Kubernetes authentication or authorization.`,
           "info",
         );
       }

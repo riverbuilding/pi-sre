@@ -106,15 +106,24 @@ export class McpController {
     return this.publish({ status: "ready", message, tools });
   }
 
-  restart(force = false, initial = false): Promise<McpControllerSnapshot> {
-    if (this.controllerClosePromise || this.shutdown.aborted) return Promise.resolve(this.current);
-    if (this.pending) return this.pending;
+  /** Uses the same authority as restart; callers can describe shared/no-op work honestly. */
+  restartDisposition(force = false): "closed" | "shared" | "retained" | "forced" | "recovery" {
+    if (this.controllerClosePromise || this.shutdown.aborted) return "closed";
+    if (this.pending) return "shared";
     if (
       !force &&
       this.connection?.state === "ready" &&
       this.clusterContext.state.status !== "enumeration-failed"
     )
+      return "retained";
+    return force ? "forced" : "recovery";
+  }
+
+  restart(force = false, initial = false): Promise<McpControllerSnapshot> {
+    const disposition = this.restartDisposition(force);
+    if (disposition === "closed" || disposition === "retained")
       return Promise.resolve(this.current);
+    if (this.pending) return this.pending;
     // Reserve the restart before synchronous scope/status listeners can request another one.
     const pending = Promise.withResolvers<McpControllerSnapshot>();
     this.pending = pending.promise;

@@ -5,10 +5,15 @@ import {
   createClusterScopeDescription,
   createClusterStatusLines,
 } from "../runtime/cluster-guidance.js";
+import { CommandFeedback } from "./command-feedback.js";
 import { registerClusterCommand } from "./cluster-command.js";
 
 /** Each Pi extension instance owns its agent-work guard and lifecycle. */
-export function registerClusterScope(pi: ExtensionAPI, manager: ClusterContextManager): void {
+export function registerClusterScope(
+  pi: ExtensionAPI,
+  manager: ClusterContextManager,
+  feedback = new CommandFeedback(),
+): void {
   let releaseWork: (() => void) | undefined;
   let unsubscribe: (() => void) | undefined;
   let lastDescription: string | undefined;
@@ -70,5 +75,5 @@ export function registerClusterScope(pi: ExtensionAPI, manager: ClusterContextMa
     releaseWork?.();
     releaseWork = undefined;
   });
-  registerClusterCommand(pi, manager);
+  registerClusterCommand(pi, manager, feedback);
 }
