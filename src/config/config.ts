@@ -26,7 +26,7 @@ export interface SreConfig {
   readonly results: ParsedSreConfig["results"];
   readonly paths: ApplicationPaths;
   readonly kubernetes: {
-    readonly defaultCluster?: string;
+    readonly contexts?: ParsedSreConfig["kubernetes"]["contexts"];
     readonly mcp: McpServerConfig;
   };
   readonly investigation: ParsedSreConfig["investigation"];

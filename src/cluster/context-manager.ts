@@ -1,12 +1,15 @@
 import type { ClusterContext } from "./cluster-context.js";
 import type { ClusterContextRegistry } from "./context-registry.js";
 import {
-  resolveStartupContext,
+  createExactClusterRule,
+  createStartupSelection,
+  resolveClusterSelection,
+  type ClusterResolution,
+  type ClusterScopeRule,
+  type ClusterSelection,
+  type ClusterSelectionSource,
   type StartupClusterIntent,
-  type StartupSelectionSource,
 } from "./context-resolver.js";
-
-export type ClusterSelectionSource = StartupSelectionSource | "user";
 
 export interface ClusterScopeSnapshot {
   readonly context: string;
@@ -14,12 +17,17 @@ export interface ClusterScopeSnapshot {
   readonly readOnly: true;
   readonly source: ClusterSelectionSource;
   readonly connectionGeneration: number;
-  readonly registryRevision: number;
+  readonly inventoryRevision: number;
+  readonly selectionRevision: number;
 }
 
 interface StateRevision {
+  /** Last successful inventory, retained for inspection but never usable during outages. */
+  readonly inventory: ClusterContextRegistry | undefined;
   readonly connectionGeneration: number;
-  readonly registryRevision: number;
+  readonly inventoryRevision: number;
+  readonly selection: ClusterSelection;
+  readonly resolution: ClusterResolution;
 }
 
 export type ClusterContextState = StateRevision &
@@ -31,15 +39,8 @@ export type ClusterContextState = StateRevision &
         readonly message: string;
       }
     | {
-        readonly status: "not-configured" | "unbound";
+        readonly status: "not-configured" | "resolved" | "selection-error";
         readonly registry: ClusterContextRegistry;
-        readonly message: string;
-      }
-    | {
-        readonly status: "selection-error";
-        readonly registry: ClusterContextRegistry;
-        readonly requestedName: string;
-        readonly source: ClusterSelectionSource;
         readonly message: string;
       }
     | {
@@ -51,27 +52,37 @@ export type ClusterContextState = StateRevision &
       }
   );
 
-/** Session-owned authority; neither transcript text nor Pi conversation identity selects scope. */
+const inventoryUnavailable: ClusterResolution = Object.freeze({
+  status: "blocked",
+  reason: "inventory-unavailable",
+});
+
+/** Session-owned rule and resolution, independent of transcript and MCP default metadata. */
 export class ClusterContextManager {
-  private readonly intent: StartupClusterIntent;
   private readonly listeners = new Set<(state: ClusterContextState) => void>();
   private readonly work = new Set<symbol>();
-  private resolvedStartup = false;
-  private selectionSource:
-    { readonly name: string; readonly source: ClusterSelectionSource } | undefined;
-  private currentContextState: ClusterContextState = Object.freeze({
-    status: "unavailable",
-    connectionGeneration: 0,
-    registryRevision: 0,
-    message: "Kubernetes MCP is unavailable. Use /mcp_restart to retry.",
-  });
+  private validatedSelection = false;
+  private currentWorkEpoch = 0;
+  private currentContextState: ClusterContextState;
 
-  constructor(intent: StartupClusterIntent = {}) {
-    this.intent = Object.freeze({ ...intent });
+  constructor(intent: StartupClusterIntent = {}, configuredRule?: ClusterScopeRule) {
+    this.currentContextState = Object.freeze({
+      status: "unavailable",
+      inventory: undefined,
+      connectionGeneration: 0,
+      inventoryRevision: 0,
+      selection: createStartupSelection(intent, configuredRule),
+      resolution: inventoryUnavailable,
+      message: "Kubernetes MCP is unavailable. Use /mcp_restart to retry.",
+    });
   }
 
   get state(): ClusterContextState {
     return this.currentContextState;
+  }
+
+  get workEpoch(): number {
+    return this.currentWorkEpoch;
   }
 
   get isAgentActive(): boolean {
@@ -92,11 +103,14 @@ export class ClusterContextManager {
   }
 
   beginConnection(): number {
-    const connectionGeneration = this.currentContextState.connectionGeneration + 1;
+    const connectionGeneration = this.state.connectionGeneration + 1;
     this.publishCurrentContextState({
       status: "connecting",
+      inventory: this.state.inventory,
       connectionGeneration,
-      registryRevision: this.currentContextState.registryRevision,
+      inventoryRevision: this.state.inventoryRevision,
+      selection: this.state.selection,
+      resolution: inventoryUnavailable,
       message: "Kubernetes MCP connecting; cluster scope unavailable.",
     });
     return connectionGeneration;
@@ -105,8 +119,11 @@ export class ClusterContextManager {
   markUnavailable(message: string): void {
     this.publishCurrentContextState({
       status: "unavailable",
-      connectionGeneration: this.currentContextState.connectionGeneration,
-      registryRevision: this.currentContextState.registryRevision,
+      inventory: this.state.inventory,
+      connectionGeneration: this.state.connectionGeneration,
+      inventoryRevision: this.state.inventoryRevision,
+      selection: this.state.selection,
+      resolution: inventoryUnavailable,
       message,
     });
   }
@@ -116,134 +133,132 @@ export class ClusterContextManager {
     reason: "incompatible-tool" | "invalid-response" | "tool-error",
     message: string,
   ): void {
-    if (
-      generation !== this.currentContextState.connectionGeneration ||
-      this.currentContextState.status !== "connecting"
-    )
+    if (generation !== this.state.connectionGeneration || this.state.status !== "connecting")
       return;
     this.publishCurrentContextState({
-      ...this.currentContextState,
+      ...this.state,
       status: "enumeration-failed",
       reason,
       message,
     });
   }
 
-  acceptRegistry(
-    generation: number,
-    registry: ClusterContextRegistry,
-    configuredDefault?: string,
-  ): void {
-    if (
-      generation !== this.currentContextState.connectionGeneration ||
-      this.currentContextState.status !== "connecting"
-    )
+  acceptRegistry(generation: number, registry: ClusterContextRegistry): void {
+    if (generation !== this.state.connectionGeneration || this.state.status !== "connecting")
       return;
-    const revision: StateRevision = {
-      connectionGeneration: generation,
-      registryRevision: this.currentContextState.registryRevision + 1,
+    this.installResolution(registry, this.state.selection, this.state.inventoryRevision + 1);
+  }
+
+  private installResolution(
+    registry: ClusterContextRegistry,
+    selection: ClusterSelection,
+    inventoryRevision: number,
+  ): void {
+    const resolution = resolveClusterSelection(registry, selection.rule, this.validatedSelection);
+    if (resolution.status === "resolved") this.validatedSelection = true;
+    const common = {
+      inventory: registry,
+      connectionGeneration: this.state.connectionGeneration,
+      inventoryRevision,
+      selection,
+      resolution,
+      registry,
     };
-    if (!this.resolvedStartup) {
-      const resolution = resolveStartupContext(registry, this.intent, configuredDefault);
-      this.resolvedStartup = true;
-      if (resolution.status !== "unbound") {
-        this.selectionSource = { name: resolution.requestedName, source: resolution.source };
-      }
-      if (resolution.status === "selection-error") {
-        this.publishCurrentContextState({ ...revision, registry, ...resolution });
-        return;
-      }
+    if (resolution.status === "blocked") {
+      this.publishCurrentContextState({
+        ...common,
+        status: "selection-error",
+        message: "The exact selection is not available in MCP inventory; no fallback was applied.",
+      });
+      return;
     }
-    if (this.selectionSource) {
-      const context = registry.get(this.selectionSource.name);
-      if (context) {
-        const scope: ClusterScopeSnapshot = Object.freeze({
-          context: context.name,
-          namespace: "*",
-          readOnly: true,
-          source: this.selectionSource.source,
-          connectionGeneration: generation,
-          registryRevision: revision.registryRevision,
-        });
-        this.publishCurrentContextState({
-          ...revision,
-          registry,
-          status: "bound",
-          context,
-          scope,
-          message: "Cluster scope selected (authentication and authorization are not verified).",
-        });
-      } else {
-        this.publishCurrentContextState({
-          ...revision,
-          registry,
-          status: "selection-error",
-          requestedName: this.selectionSource.name,
-          source: this.selectionSource.source,
-          message:
-            "The selected context is unavailable. Use /cluster to select an exact context; no fallback was applied.",
-        });
-      }
+    const [context] = resolution.available;
+    if (context && resolution.available.length === 1) {
+      // Singleton projection for the existing bridge; multi-target routing lands in Slice 2.
+      const scope: ClusterScopeSnapshot = Object.freeze({
+        context: context.name,
+        namespace: "*",
+        readOnly: true,
+        source: selection.source,
+        connectionGeneration: common.connectionGeneration,
+        inventoryRevision,
+        selectionRevision: selection.selectionRevision,
+      });
+      this.publishCurrentContextState({
+        ...common,
+        status: "bound",
+        context,
+        scope,
+        message: "Cluster scope selected (authentication and authorization are not verified).",
+      });
       return;
     }
     this.publishCurrentContextState({
-      ...revision,
-      registry,
-      status: registry.contexts.length ? "unbound" : "not-configured",
-      message: registry.contexts.length
-        ? "Cluster NOT SELECTED. Use /cluster or --cluster <name>."
-        : "Cluster NOT CONFIGURED. Configure MCP Kubernetes access and use /mcp_restart.",
+      ...common,
+      status: registry.contexts.length === 0 ? "not-configured" : "resolved",
+      message: context
+        ? "Cluster rule resolved; multi-target diagnostic routing awaits Phase 3 Slice 2."
+        : "No selected contexts are available. Configure MCP Kubernetes access and use /mcp_restart.",
     });
   }
 
-  /** Synchronous commit; optional revision prevents stale interactive selections. */
-  select(name: string, expectedRevision = this.currentContextState.registryRevision): void {
+  /** Atomic idle replacement; a failed replacement preserves all current authority. */
+  selectRule(
+    rule: ClusterScopeRule,
+    expectedInventoryRevision = this.state.inventoryRevision,
+    expectedSelectionRevision = this.state.selection.selectionRevision,
+  ): void {
     if (this.isAgentActive)
       throw new Error("Wait for or cancel the active agent turn before selecting a cluster.");
-    const state = this.currentContextState;
-    if (!("registry" in state)) {
+    const state = this.state;
+    if (!("registry" in state) || state.registry.contexts.length === 0) {
       throw new Error(
-        "A current MCP context registry is required. Use /mcp_restart and retry /cluster.",
+        "A current MCP context registry is required. Use /mcp_restart and retry /clusters.",
       );
     }
-    if (expectedRevision !== state.registryRevision) {
-      throw new Error("Cluster context state changed during selection. Retry /cluster.");
+    if (
+      expectedInventoryRevision !== state.inventoryRevision ||
+      expectedSelectionRevision !== state.selection.selectionRevision
+    ) {
+      throw new Error("Cluster context state changed during selection. Retry /clusters.");
     }
-    const context = state.registry.get(name);
-    if (!context)
-      throw new Error("Unknown MCP context. Use /cluster to select an exact available name.");
-    if (state.status === "bound" && state.context.name === name) return;
-    this.selectionSource = { name, source: "user" };
-    const registryRevision = state.registryRevision + 1;
-    const scope: ClusterScopeSnapshot = Object.freeze({
-      context: name,
-      namespace: "*",
-      readOnly: true,
+    const candidate = createStartupSelection({ rule }).rule;
+    if (JSON.stringify(candidate) === JSON.stringify(state.selection.rule)) return;
+    if (resolveClusterSelection(state.registry, candidate).status === "blocked") {
+      throw new Error("Unknown MCP context. Use /clusters to select an exact available name.");
+    }
+    const selection: ClusterSelection = Object.freeze({
+      rule: candidate,
       source: "user",
-      connectionGeneration: state.connectionGeneration,
-      registryRevision,
+      selectionRevision: state.selection.selectionRevision + 1,
     });
-    this.publishCurrentContextState({
-      connectionGeneration: state.connectionGeneration,
-      registry: state.registry,
-      status: "bound",
-      context,
-      registryRevision,
-      scope,
-      message: "Cluster scope selected (authentication and authorization are not verified).",
-    });
+    this.validatedSelection = true;
+    this.installResolution(state.registry, selection, state.inventoryRevision);
+  }
+
+  select(
+    name: string,
+    expectedInventoryRevision = this.state.inventoryRevision,
+    expectedSelectionRevision = this.state.selection.selectionRevision,
+  ): void {
+    this.selectRule(
+      createExactClusterRule([name]),
+      expectedInventoryRevision,
+      expectedSelectionRevision,
+    );
   }
 
   captureScope(): ClusterScopeSnapshot | undefined {
-    return this.currentContextState.status === "bound" ? this.currentContextState.scope : undefined;
+    return this.state.status === "bound" ? this.state.scope : undefined;
   }
 
   isCurrent(scope: ClusterScopeSnapshot): boolean {
-    return this.currentContextState.status === "bound" && this.currentContextState.scope === scope;
+    return this.state.status === "bound" && this.state.scope === scope;
   }
 
   /** Release is idempotent and owned by the calling runtime/extension instance. */
   beginAgentWork(): () => void {
+    this.currentWorkEpoch++;
     const token = Symbol();
     this.work.add(token);
     return () => {

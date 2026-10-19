@@ -119,9 +119,9 @@ export async function loadSreConfig(options: LoadSreConfigOptions = {}): Promise
     results: parsed.data.results,
     paths: { ...paths, config: configPath, kubernetesMcpConfig: configFile },
     kubernetes: {
-      ...(parsed.data.kubernetes.defaultCluster === undefined
+      ...(parsed.data.kubernetes.contexts === undefined
         ? {}
-        : { defaultCluster: parsed.data.kubernetes.defaultCluster }),
+        : { contexts: parsed.data.kubernetes.contexts }),
       mcp: {
         transport: "stdio",
         command: normalizedCommand,

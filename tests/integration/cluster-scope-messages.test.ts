@@ -26,7 +26,7 @@ describe("persistent scope updates", () => {
     setWidget.mockClear();
     notify.mockClear();
     home = await mkdtemp(join(tmpdir(), "pi-sre-scope-messages-"));
-    manager = new ClusterContextManager({ cluster: "alpha" });
+    manager = new ClusterContextManager({ rule: { kind: "exact", contexts: ["alpha"] } });
     manager.acceptRegistry(
       manager.beginConnection(),
       new ClusterContextRegistry(
@@ -64,7 +64,7 @@ describe("persistent scope updates", () => {
       // Status remains usable during active work; selection still has its guard.
       const release = manager.beginAgentWork();
       try {
-        await session.prompt("/cluster --status");
+        await session.prompt("/clusters --status");
       } finally {
         release();
       }
@@ -94,13 +94,13 @@ describe("persistent scope updates", () => {
     manager.markUnavailable("Connection lost");
     await checkStatus("UNAVAILABLE", "unavailable", "unavailable");
     manager.acceptRegistry(manager.beginConnection(), new ClusterContextRegistry([]));
-    // A previous exact selection stays an error instead of silently falling back.
-    await checkStatus("NOT SELECTED", "ready", "validated (0 contexts)");
+    // A validated exact selection retains unavailable members without fallback.
+    await checkStatus("NOT CONFIGURED", "ready", "validated (0 contexts)");
     expect(notify.mock.lastCall?.[0]).toContain(
       'Requested context: "beta"; selection source: user',
     );
     await session.reload();
-    await checkStatus("NOT SELECTED", "ready", "validated (0 contexts)");
+    await checkStatus("NOT CONFIGURED", "ready", "validated (0 contexts)");
     await session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
     expect(setWidget).toHaveBeenLastCalledWith("pi-sre-scope", undefined);
     const calls = setWidget.mock.calls.length;

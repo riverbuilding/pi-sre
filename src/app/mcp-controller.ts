@@ -51,7 +51,7 @@ export class McpController {
       }),
     intent: StartupClusterIntent = {},
   ) {
-    this.clusterContext = new ClusterContextManager(intent);
+    this.clusterContext = new ClusterContextManager(intent, initialConfig.kubernetes.contexts);
     this.initialConfig = initialConfig;
     this.shutdown = shutdown;
     this.reloadConfig = reloadConfig;
@@ -202,7 +202,7 @@ export class McpController {
         const registry = await discoverClusterContexts(scoped, report, signal);
         signal.throwIfAborted();
         if (connection.state !== "ready") throw new Error("Connection dropped during enumeration.");
-        this.clusterContext.acceptRegistry(generation, registry, config.kubernetes.defaultCluster);
+        this.clusterContext.acceptRegistry(generation, registry);
       } catch (error) {
         if (!(error instanceof ContextDiscoveryError)) throw error;
         signal.throwIfAborted();

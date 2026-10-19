@@ -63,9 +63,9 @@ const EMPTY_SUCCESS = "Tool completed successfully with no content.";
 const FAILURE_MESSAGES: Record<ToolFailureCategory, string> = {
   "tool-not-approved": "This Kubernetes MCP tool is not approved for execution.",
   "scope-unbound":
-    "Cluster NOT SELECTED. Use /cluster or --cluster <name> before querying Kubernetes.",
+    "Cluster NOT SELECTED. Use /clusters or --clusters <name> before querying Kubernetes.",
   "scope-unavailable":
-    "Selected cluster context is unavailable. Check MCP status and use /cluster or /mcp_restart.",
+    "Cluster diagnostics are unavailable for the current resolution. Check scope/MCP status; select one available context with /clusters until multi-target routing is implemented.",
   "stale-scope":
     "Cluster scope or MCP connection changed. The stale operation result was withheld; retry with the current scope.",
   "incompatible-schema":

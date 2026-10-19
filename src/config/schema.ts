@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { isValidContextSelection } from "../cluster/context-name.js";
+import { parseClusterRule } from "../cluster/context-resolver.js";
 
 const nonBlank = z.string().trim().min(1);
 
@@ -16,7 +16,17 @@ export type ResultPolicy = z.output<typeof resultPolicySchema>;
 export const sreConfigSchema = z.strictObject({
   results: resultPolicySchema.default(DEFAULT_RESULT_POLICY),
   kubernetes: z.strictObject({
-    defaultCluster: z.string().refine(isValidContextSelection).optional(),
+    contexts: z
+      .array(z.string())
+      .transform((values, ctx) => {
+        try {
+          return parseClusterRule(values);
+        } catch {
+          ctx.addIssue({ code: "custom", message: "Expected a valid exact set or sole wildcard." });
+          return z.NEVER;
+        }
+      })
+      .optional(),
     mcp: z.strictObject({
       transport: z.literal("stdio"),
       command: nonBlank,

@@ -51,7 +51,7 @@ describe("Slice 4 scoped bridge over Pi and stdio MCP", () => {
         name: "pods_list",
         status: "exposed",
       });
-      manager = new ClusterContextManager({ cluster: "beta" });
+      manager = new ClusterContextManager({ rule: { kind: "exact", contexts: ["beta"] } });
       generation = manager.beginConnection();
       manager.acceptRegistry(generation, await discoverClusterContexts(connection, report));
       const tool = createMcpToolBridge(scopedPodTool, connection, DEFAULT_RESULT_POLICY, {
@@ -177,7 +177,7 @@ describe("Slice 4 scoped bridge over Pi and stdio MCP", () => {
       const commands: Promise<void>[] = [];
       simulatePodInvestigation(activeSession, {}, () => {
         expect(manager.isAgentActive).toBe(true);
-        commands.push(activeSession.prompt("/cluster alpha"));
+        commands.push(activeSession.prompt("/clusters alpha"));
       });
       await activeSession.prompt("Inspect pods in beta");
       await Promise.all(commands);
@@ -186,13 +186,13 @@ describe("Slice 4 scoped bridge over Pi and stdio MCP", () => {
       expect(notify.mock.calls).toEqual([
         [
           expect.stringMatching(
-            /^\[\d{2}:\d{2}:\d{2} #1\] \/cluster: Wait for or cancel the active agent turn before selecting a cluster\.$/,
+            /^\[\d{2}:\d{2}:\d{2} #1\] \/clusters: Wait for or cancel the active agent turn before selecting clusters\.$/,
           ),
           "warning",
         ],
         [
           expect.stringMatching(
-            /^\[\d{2}:\d{2}:\d{2} #2\] \/cluster: Wait for or cancel the active agent turn before selecting a cluster\.$/,
+            /^\[\d{2}:\d{2}:\d{2} #2\] \/clusters: Wait for or cancel the active agent turn before selecting clusters\.$/,
           ),
           "warning",
         ],
@@ -215,7 +215,7 @@ describe("Slice 4 scoped bridge over Pi and stdio MCP", () => {
       await activeSession.prompt("Inspect pods in beta");
       const transcript = structuredClone(activeSession.messages);
 
-      await activeSession.prompt("/cluster alpha");
+      await activeSession.prompt("/clusters alpha");
       expect(activeSession.messages.slice(0, transcript.length)).toEqual(transcript);
       expect(activeSession.messages).toHaveLength(transcript.length + 1);
       expect(manager.captureScope()).toMatchObject({ context: "alpha", source: "user" });
@@ -271,7 +271,7 @@ describe("Slice 4 scoped bridge over Pi and stdio MCP", () => {
       toolCallTimeoutMs: 150,
     });
     try {
-      const manager = new ClusterContextManager({ cluster: "beta" });
+      const manager = new ClusterContextManager({ rule: { kind: "exact", contexts: ["beta"] } });
       const generation = manager.beginConnection();
       manager.acceptRegistry(
         generation,
@@ -312,7 +312,7 @@ describe("Slice 4 scoped bridge over Pi and stdio MCP", () => {
       toolCallTimeoutMs: 2_000,
     });
     try {
-      const manager = new ClusterContextManager({ cluster: "alpha" });
+      const manager = new ClusterContextManager({ rule: { kind: "exact", contexts: ["alpha"] } });
       const generation = manager.beginConnection();
       manager.acceptRegistry(
         generation,

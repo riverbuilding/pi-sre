@@ -1,135 +1,231 @@
 import { describe, expect, it } from "vitest";
-
 import { ClusterContextManager } from "../../../src/cluster/context-manager.js";
 import { ClusterContextRegistry } from "../../../src/cluster/context-registry.js";
+import { createExactClusterRule } from "../../../src/cluster/context-resolver.js";
 
-function registry(defaultName?: string) {
+function registry(names: readonly string[] = ["alpha", "beta"], defaultName?: string) {
   return new ClusterContextRegistry(
-    ["alpha", "beta"].map((name) => ({
+    names.map((name) => ({
       name,
-      server: "https://example.invalid",
+      server: "https://shared.example.invalid",
       isDefault: name === defaultName,
     })),
   );
 }
-
-function start(manager: ClusterContextManager, defaultName?: string, configuredDefault?: string) {
-  manager.acceptRegistry(manager.beginConnection(), registry(defaultName), configuredDefault);
+function start(manager: ClusterContextManager, names?: readonly string[], defaultName?: string) {
+  manager.acceptRegistry(manager.beginConnection(), registry(names, defaultName));
 }
 
-describe("application-owned cluster authority", () => {
-  it("owns startup intent, immutable scope and session isolation", () => {
-    const intent = { cluster: "beta" };
-    const manager = new ClusterContextManager(intent);
+describe("session rule authority", () => {
+  it("owns immutable startup intent before connection and isolates sessions", () => {
+    const contexts: [string, ...string[]] = ["beta", "alpha"];
+    const manager = new ClusterContextManager(
+      { rule: { kind: "exact", contexts } },
+      createExactClusterRule(["missing"]),
+    );
     const other = new ClusterContextManager();
-    intent.cluster = "alpha";
-    start(manager, "alpha", "alpha");
-    start(other, "alpha");
-    expect(manager.captureScope()).toMatchObject({
-      context: "beta",
+    contexts[0] = "changed";
+    expect(manager.state.selection).toEqual({
+      rule: { kind: "exact", contexts: ["alpha", "beta"] },
       source: "cli",
-      namespace: "*",
-      readOnly: true,
-      connectionGeneration: 1,
-      registryRevision: 1,
+      selectionRevision: 1,
     });
-    expect(other.captureScope()?.context).toBe("alpha");
+    expect(manager.state.resolution).toEqual({
+      status: "blocked",
+      reason: "inventory-unavailable",
+    });
+    start(manager);
+    start(other, ["alpha", "beta"], "alpha");
+    manager.select("beta");
+    expect(other.state.selection.rule).toEqual({ kind: "all" });
     expect(Object.isFrozen(manager.state)).toBe(true);
+    expect(Object.isFrozen(manager.state.selection)).toBe(true);
+    expect(Object.isFrozen(manager.state.resolution)).toBe(true);
+    if (other.state.resolution.status === "resolved")
+      expect(Object.isFrozen(other.state.resolution.available)).toBe(true);
     expect(Object.isFrozen(manager.captureScope())).toBe(true);
   });
 
-  it("publishes distinct states and disposes subscriptions", () => {
-    const manager = new ClusterContextManager({ cluster: "absent" });
-    const states: string[] = [];
-    const unsubscribe = manager.subscribe((state) => states.push(state.status));
-    start(manager, "alpha");
-    expect(manager.state).toMatchObject({
-      status: "selection-error",
-      source: "cli",
-      requestedName: "absent",
+  it("keeps selection, inventory and generation revisions independent", () => {
+    const manager = new ClusterContextManager({ rule: createExactClusterRule(["alpha"]) });
+    expect(manager.state).toMatchObject({ inventoryRevision: 0, connectionGeneration: 0 });
+    start(manager);
+    const old = manager.captureScope();
+    expect(old).toMatchObject({
+      selectionRevision: 1,
+      inventoryRevision: 1,
+      connectionGeneration: 1,
     });
-    expect(manager.captureScope()).toBeUndefined();
-    manager.select("beta");
-    const scope = manager.captureScope();
-    manager.beginConnection();
-    expect(scope && manager.isCurrent(scope)).toBe(false);
-    manager.markUnavailable("Disconnected");
-    expect(states).toEqual([
-      "unavailable",
-      "connecting",
-      "selection-error",
-      "bound",
-      "connecting",
-      "unavailable",
-    ]);
-    unsubscribe();
-    manager.dispose();
-    expect(states).toHaveLength(6);
+    manager.select("alpha");
+    expect(manager.captureScope()).toBe(old);
+    manager.selectRule(createExactClusterRule(["beta", "alpha"]));
+    expect(manager.state).toMatchObject({
+      selection: { selectionRevision: 2, source: "user" },
+      inventoryRevision: 1,
+      connectionGeneration: 1,
+    });
+    const state = manager.state;
+    manager.selectRule(createExactClusterRule(["alpha", "beta"]));
+    expect(manager.state).toBe(state);
+    start(manager);
+    expect(manager.state).toMatchObject({
+      selection: { selectionRevision: 2 },
+      inventoryRevision: 2,
+      connectionGeneration: 2,
+    });
+    expect(old && manager.isCurrent(old)).toBe(false);
   });
 
-  it("guards active work and validates selections without losing valid scope", () => {
+  it("retains invalid initial exact rule until it validates completely, then permits partial availability", () => {
+    const manager = new ClusterContextManager({ rule: createExactClusterRule(["alpha", "beta"]) });
+    start(manager, ["alpha", "gamma"]);
+    expect(manager.state.resolution).toEqual({ status: "blocked", reason: "invalid-selection" });
+    expect(manager.captureScope()).toBeUndefined();
+    start(manager);
+    expect(manager.state.resolution).toMatchObject({
+      status: "resolved",
+      available: [{ name: "alpha" }, { name: "beta" }],
+      unavailable: [],
+    });
+    start(manager, ["alpha", "gamma"]);
+    expect(manager.state.resolution).toMatchObject({
+      status: "resolved",
+      available: [{ name: "alpha" }],
+      unavailable: ["beta"],
+    });
+    expect(manager.state.selection.selectionRevision).toBe(1);
+    const partial = manager.state;
+    manager.selectRule(createExactClusterRule(["beta", "alpha"]));
+    expect(manager.state).toBe(partial);
+    start(manager, []);
+    expect(manager.state.resolution).toEqual({
+      status: "resolved",
+      available: [],
+      unavailable: ["alpha", "beta"],
+    });
+    start(manager);
+    expect(manager.state.resolution).toMatchObject({ status: "resolved", unavailable: [] });
+  });
+
+  it("follows successful inventory with all, including empty, without accumulating removals", () => {
     const manager = new ClusterContextManager();
-    start(manager, "alpha");
-    const state = manager.state;
-    expect(() => manager.select("missing")).toThrow("Unknown");
-    manager.select("alpha");
-    expect(manager.state).toBe(state);
+    start(manager);
+    start(manager, ["alpha", "gamma"]);
+    expect(manager.state.resolution).toMatchObject({
+      status: "resolved",
+      available: [{ name: "alpha" }, { name: "gamma" }],
+      unavailable: [],
+    });
+    start(manager, []);
+    expect(manager.state.resolution).toEqual({
+      status: "resolved",
+      available: [],
+      unavailable: [],
+    });
+    expect(manager.state.selection).toMatchObject({ rule: { kind: "all" }, selectionRevision: 1 });
+  });
+
+  it("captures config before initial failure and ignores recovery defaults", () => {
+    const manager = new ClusterContextManager({}, createExactClusterRule(["beta"]));
+    const generation = manager.beginConnection();
+    manager.failEnumeration(generation, "invalid-response", "Invalid inventory");
+    expect(manager.state).toMatchObject({
+      inventoryRevision: 0,
+      selection: { source: "config", rule: { kind: "exact", contexts: ["beta"] } },
+    });
+    start(manager, ["alpha", "beta"], "alpha");
+    expect(manager.captureScope()).toMatchObject({ context: "beta", source: "config" });
+    const inventory = manager.state.inventory;
+    manager.markUnavailable("Disconnected");
+    expect(manager.state.inventory).toBe(inventory);
+    expect(manager.state.resolution).toEqual({
+      status: "blocked",
+      reason: "inventory-unavailable",
+    });
+    expect(manager.state.inventoryRevision).toBe(1);
+    const retry = manager.beginConnection();
+    manager.failEnumeration(retry, "tool-error", "Failed");
+    expect(manager.state.inventory).toBe(inventory);
+    expect(manager.state.inventoryRevision).toBe(1);
+    start(manager, ["alpha", "beta"], "alpha");
+    expect(manager.state.selection.selectionRevision).toBe(1);
+  });
+
+  it("privately captures configured sets before failure and preserves them through recovery", () => {
+    const contexts: [string, ...string[]] = ["beta", "alpha"];
+    const manager = new ClusterContextManager({}, { kind: "exact", contexts });
+    contexts[0] = "changed";
+    manager.markUnavailable("Startup failed");
+    start(manager);
+    expect(manager.state.selection).toMatchObject({
+      source: "config",
+      rule: { kind: "exact", contexts: ["alpha", "beta"] },
+    });
+    expect(manager.state.resolution).toMatchObject({
+      status: "resolved",
+      available: [{ name: "alpha" }, { name: "beta" }],
+    });
+    const all = new ClusterContextManager({}, { kind: "all" });
+    start(all);
+    start(all, ["alpha", "gamma"]);
+    expect(all.state.selection).toMatchObject({
+      source: "config",
+      rule: { kind: "all" },
+      selectionRevision: 1,
+    });
+    expect(all.state.resolution).toMatchObject({
+      available: [{ name: "alpha" }, { name: "gamma" }],
+    });
+  });
+
+  it("atomically refuses invalid replacements, stale revisions and active work", () => {
+    const manager = new ClusterContextManager();
+    start(manager);
+    const initial = manager.state;
+    expect(() => manager.selectRule(createExactClusterRule(["alpha", "missing"]))).toThrow(
+      "Unknown",
+    );
+    expect(manager.state).toBe(initial);
+    const workEpoch = manager.workEpoch;
     const release = manager.beginAgentWork();
+    expect(manager.workEpoch).toBe(workEpoch + 1);
     const releaseOther = manager.beginAgentWork();
-    expect(() => manager.select("beta")).toThrow("active agent");
+    expect(() => manager.select("alpha")).toThrow("active agent");
     release();
     release();
     expect(manager.isAgentActive).toBe(true);
     releaseOther();
-    expect(manager.isAgentActive).toBe(false);
+    expect(manager.workEpoch).toBe(workEpoch + 2);
     manager.select("beta");
-    expect(manager.captureScope()?.source).toBe("user");
-    const selectedState = manager.state;
-    expect(() => manager.select("alpha", state.registryRevision)).toThrow(
-      "Cluster context state changed during selection. Retry /cluster.",
-    );
-    expect(manager.state).toBe(selectedState);
+    expect(() =>
+      manager.select("alpha", initial.inventoryRevision, initial.selection.selectionRevision),
+    ).toThrow("state changed");
+    const selected = manager.state;
+    start(manager);
+    expect(() => manager.select("alpha", selected.inventoryRevision)).toThrow("state changed");
     manager.beginConnection();
-    const connectingState = manager.state;
-    expect(() => manager.select("alpha")).toThrow(
-      "A current MCP context registry is required. Use /mcp_restart and retry /cluster.",
-    );
-    expect(manager.state).toBe(connectingState);
+    expect(() => manager.select("alpha")).toThrow("current MCP context registry");
+    manager.acceptRegistry(manager.state.connectionGeneration, registry([]));
+    expect(() => manager.selectRule({ kind: "all" })).toThrow("current MCP context registry");
   });
 
-  it("ignores stale enumeration and retains exact selection through replacement", () => {
+  it("ignores stale/duplicate discovery and disposes listeners and work", () => {
     const manager = new ClusterContextManager();
-    start(manager, "alpha");
-    manager.select("beta");
-    const old = manager.captureScope();
+    const states: string[] = [];
+    const unsubscribe = manager.subscribe((state) => states.push(state.status));
     const stale = manager.beginConnection();
     const generation = manager.beginConnection();
-    manager.acceptRegistry(stale, registry("alpha"));
+    manager.acceptRegistry(stale, registry());
+    manager.failEnumeration(stale, "tool-error", "stale");
     expect(manager.state.status).toBe("connecting");
-    manager.acceptRegistry(generation, registry("alpha"), "alpha");
-    expect(manager.captureScope()).toMatchObject({
-      context: "beta",
-      source: "user",
-      connectionGeneration: generation,
-    });
-    expect(old && manager.isCurrent(old)).toBe(false);
-    manager.acceptRegistry(manager.beginConnection(), new ClusterContextRegistry([]));
-    expect(manager.state.status).toBe("selection-error");
-  });
-
-  it("resolves pending startup after failure, but never applies new defaults to resolved unbound scope", () => {
-    const manager = new ClusterContextManager();
-    const generation = manager.beginConnection();
-    manager.failEnumeration(generation, "invalid-response", "Invalid inventory");
-    expect(manager.state.status).toBe("enumeration-failed");
-    start(manager, "alpha", "beta");
-    expect(manager.captureScope()).toMatchObject({ context: "beta", source: "config" });
-    const unbound = new ClusterContextManager();
-    start(unbound);
-    expect(unbound.state.status).toBe("unbound");
-    start(unbound, "alpha", "beta");
-    expect(unbound.state.status).toBe("unbound");
-    unbound.acceptRegistry(unbound.beginConnection(), new ClusterContextRegistry([]));
-    expect(unbound.state.status).toBe("not-configured");
+    manager.acceptRegistry(generation, registry());
+    manager.acceptRegistry(generation, registry([]));
+    expect(manager.state.inventoryRevision).toBe(1);
+    unsubscribe();
+    manager.beginAgentWork();
+    manager.dispose();
+    expect(manager.isAgentActive).toBe(false);
+    expect(states).toEqual(["unavailable", "connecting", "connecting", "resolved"]);
+    expect(manager.captureScope()).toBeUndefined();
   });
 });

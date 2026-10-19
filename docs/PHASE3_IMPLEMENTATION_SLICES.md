@@ -1,6 +1,6 @@
 # Phase 3 Implementation Slices — Context Selection and Multi-Cluster Routing
 
-**Status:** Accepted plan, October 18, 2026. Slice 0 contracts frozen on October 19, 2026 in [PHASE3_CONTRACTS.md](./PHASE3_CONTRACTS.md). Runtime implementation begins with Slice 1 and remains pending.
+**Status:** Accepted plan, October 18, 2026. Slice 0 contracts frozen on October 19, 2026 in [PHASE3_CONTRACTS.md](./PHASE3_CONTRACTS.md). Slice 1 implements rule state, startup, and CLI; Slices 2–5 remain pending.
 
 **Starting point:** The existing [Phase 2 acceptance](./PHASE2_ACCEPTANCE.md) is complete. Its implementation, tests, contract snapshots, and acceptance records remain the historical baseline. This phase is an explicit forward migration from that working runtime, not a rewrite of what Phase 2 delivered.
 
@@ -25,14 +25,14 @@ Completed Phase 2 singleton runtime
 
 ## 2. Baseline versus target
 
-| Concern   | Completed Phase 2 baseline                                   | Phase 3 target                                                                                   |
-| --------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
-| Command   | `/cluster` picker/direct/status                              | `/clusters` picker/direct/all/status; no singular alias                                          |
-| Startup   | CLI singleton, configured default, MCP default, then unbound | Explicit CLI rule, explicit configured exact choice, then live `*`; MCP default is informational |
-| Scope     | One selected exact context                                   | Session-owned exact set or live all-contexts rule                                                |
-| Arguments | Hide/remove model context and inject selection               | Require and preserve model context for every cluster-dependent tool, even singleton              |
-| Reconnect | Retain selected exact context                                | Re-resolve unchanged exact/all rule and publish inventory changes with compatible tools          |
-| Results   | Exact context and connection/registry provenance             | Exact context plus separated selection/inventory/generation provenance; no evidence IDs yet      |
+| Concern   | Completed Phase 2 baseline                                   | Phase 3 target                                                                                     |
+| --------- | ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
+| Command   | `/cluster` picker/direct/status                              | `/clusters` picker/direct/all/status; no singular alias                                            |
+| Startup   | CLI singleton, configured default, MCP default, then unbound | Explicit CLI rule, explicit configured exact/all rule, then live `*`; MCP default is informational |
+| Scope     | One selected exact context                                   | Session-owned exact set or live all-contexts rule                                                  |
+| Arguments | Hide/remove model context and inject selection               | Require and preserve model context for every cluster-dependent tool, even singleton                |
+| Reconnect | Retain selected exact context                                | Re-resolve unchanged exact/all rule and publish inventory changes with compatible tools            |
+| Results   | Exact context and connection/registry provenance             | Exact context plus separated selection/inventory/generation provenance; no evidence IDs yet        |
 
 Keep Phase 2 success/failure handling, read-only MCP/RBAC, redaction, no-shell policy, per-call finite log limits, exact context identity, cancellation, and unchanged kubeconfig. Change tests whose single-selection contract is intentionally superseded; preserve tests for the remaining invariants and add target behavior. Do not keep a parallel legacy routing mode.
 
@@ -41,7 +41,7 @@ Keep Phase 2 success/failure handling, read-only MCP/RBAC, redaction, no-shell p
 ### Session selection and resolution
 
 - Store a discriminated rule: nonempty exact names or all-contexts. With no explicit CLI/config choice, use live all-contexts displayed as `*`.
-- `--clusters <exact-name> <exact-name>` builds an exact set; quoted names work identically, for example `--clusters "exact-name" "another-exact-name"`. `--clusters '*'` explicitly selects live all-contexts; `*` must be the sole value and should be quoted to prevent shell expansion. Explicit CLI wins over an explicitly configured `kubernetes.defaultCluster`, then live `*`. Preserve exact names; no patterns or implicit aliasing.
+- `--clusters <exact-name> <exact-name>` builds an exact set; quoted names work identically, for example `--clusters "exact-name" "another-exact-name"`. `--clusters '*'` explicitly selects live all-contexts; `*` must be the sole value and should be quoted to prevent shell expansion. Explicit CLI wins over an explicitly configured `kubernetes.contexts` exact/all rule, then live `*`. Preserve exact names; no patterns or implicit aliasing.
 - Invalid explicit names fail selection atomically with no wildcard/default fallback. Empty or failed inventory retains pending selection intent and blocks diagnostics; rule defaulting and infrastructure availability are different states.
 - `/clusters` opens a picker for one/many exact names or all; `/clusters <exact-name>` selects one; `/clusters --all` selects all; `/clusters --status` inspects without mutation. Replace `/cluster` without an alias and update CLI help/docs with the implementation.
 - Because there is no incident in Phase 3, an idle selection changes the current **session** rule and subsequent calls immediately. Block selection during active agent/direct-tool work; stale pickers cannot commit. Phase 4 later adds separate active-incident rule versus next-incident selection. Do not simulate that distinction before incidents exist.
@@ -84,9 +84,17 @@ Read the completed Phase 2 implementation and installed Pi APIs. Specify rule/re
 
 ### Slice 1 — Rule state, startup, and CLI
 
-Extend `context-manager.ts`, `context-resolver.ts`, CLI/config boundaries, and pure fixtures. Implement exact sets/default all, explicit override validation, separated revisions, and current resolution. Keep names opaque and preserve pending intent through failure.
+Extend `context-manager.ts`, `context-resolver.ts`, CLI/config boundaries, and pure fixtures. Configuration uses `kubernetes.contexts: [A, B]` or `["*"]`, with the same value validation as CLI; remove `defaultCluster` without a compatibility alias. Implement exact sets/default all, explicit override validation, separated revisions, and current resolution. Keep names opaque and preserve pending intent through failure.
 
 **Acceptance:** Unit tests cover no user choice despite MCP default, explicit CLI/config choices, duplicate/conflicting arguments, invalid selections without fallback, empty discovery, and session isolation. No kubeconfig mutation.
+
+**Implemented (2026-10-19):** Exact/all rules are copied, canonicalized, validated, and frozen before connecting. Startup uses CLI > configured exact/all rule > default live all, independent of MCP default metadata; retries retain the launch-time choice even after initial failure. Selection/inventory revisions are separate. Initial exact validation is atomic; accepted rules retain unavailable members on later inventory changes, and all follows successful discovery. Failed discovery retains intent and the last successful inventory without dispatch authority. CLI/help/package checks use only `--clusters`, with variadic exact names or sole `*` and the single-value equals form.
+
+**Slice boundary:** The existing singleton bridge projection remains until Slice 2. At the user's request, the `/clusters` command and staged exact/all picker portion of Slice 4 have been brought forward. More than one available target exposes no diagnostic tools; no first member is chosen or fan-out performed. Singleton results carry the separated revisions. Basic status describes resolved counts and pending intent, while full scope presentation, publication, binding/snapshot, concurrency, and routing contracts remain in their later slices. Historical Phase 2 records are unchanged; executable composition tests migrate the affected assertions.
+
+**Validation (2026-10-19):** Focused rule/CLI tests passed, followed by scope/recovery and bridge/normalizer checks. `npm run format:check`, `npm run lint`, `npm run check`, `npm test` (397 passed; 7 optional executable-dependent tests skipped), `npm run build`, and `git diff --check` passed. Packaged CLI checks exercise variadic/equals/wildcard help and invalid inputs without configuration or MCP startup. No live-cluster or installed-terminal acceptance was performed; that remains Slice 5.
+
+**Configuration amendment validation (2026-10-19):** Configuration and CLI now share `parseClusterRule`; both normalize to immutable exact/all rules before startup selection. Tests cover configured sets/all, whole-rule CLI override, malformed/empty/duplicate/mixed/oversized lists, exact name preservation, removal of `defaultCluster`, and launch-time intent through initial failure and recovery. Focused tests passed, then formatting, lint, type checks, the full suite (417 passed; 7 optional executable-dependent tests skipped), build, and diff checks passed. Multi-target routing remains Slice 2 work.
 
 ### Slice 2 — Model schema and bridge routing
 
@@ -105,6 +113,10 @@ Update `mcp-controller.ts` and state publication to reconcile schemas, inventory
 Replace singular registration with `/clusters` and picker/direct/all/status variants. Update help, system policy, scope messages, and widget for model routing and default all. Use existing feedback and lifecycle mechanisms; preserve work guards and compaction/reload behavior.
 
 **Acceptance:** Current session selection changes only while idle; no singular alias; status works during outages/active work; exact rule and available members remain clear; READ ONLY is visible at narrow widths. No incident UI or next-incident fiction.
+
+**Command portion implemented early (2026-10-19):** Production registers only `/clusters`, with direct exact-name, `--all`, `--status`, and staged multi-selection picker forms. Toggle rows stage full exact sets; All selects the live rule; Apply commits once; Cancel/Escape/UI failure preserve authority. Reserved option parsing never splits or trims exact names. Feedback renders a bounded preview of selected names or All, independent of the singleton execution projection. Pickers check manager state (including inventory/selection/generation), a work-start epoch, and extension lifecycle revision after every await and before commit. Full rule/availability widgets, bounded model transition notices, and pagination remain outstanding Slice 4 work; bridge/model routing remains Slice 2.
+
+**Command validation (2026-10-19):** Picker and production Pi/MCP tests cover exact sets, live All, atomic Apply, cancellation, empty drafts, action/name collisions, unavailable-member removal, no singular alias, unknown options, UI failure redaction, and invalidation by restart, another selection, work that starts/ends, and extension reload. Formatting, lint, type checks, the full suite (431 passed; 7 optional executable-dependent tests skipped), build, and diff checks passed. No installed-terminal or live-cluster acceptance was performed.
 
 ### Slice 5 — Full-path and installed acceptance
 

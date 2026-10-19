@@ -53,7 +53,7 @@ describe("reviewed diagnostics through controller, Pi, and managed stdio", () =>
           runtime.session.setActiveToolsByName([...names, "bash", "resources_get"]);
           expect(runtime.session.getActiveToolNames()).toEqual(["configuration_contexts_list"]);
         }
-        await runtime.session.prompt("/cluster beta");
+        await runtime.session.prompt("/clusters beta");
         expect(runtime.session.getActiveToolNames()).toEqual(names);
         expect(controller.snapshot.tools.map((tool) => tool.name)).toEqual(names);
         const requests: readonly [string, Record<string, unknown>][] = [

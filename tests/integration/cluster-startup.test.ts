@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+import { parseClusterRule } from "../../src/cluster/context-resolver.js";
 import { McpController } from "../../src/app/mcp-controller.js";
 import { createApplicationPaths, type SreConfig } from "../../src/config/config.js";
 import { DEFAULT_RESULT_POLICY } from "../../src/config/schema.js";
@@ -16,27 +17,38 @@ describe("scope publication on the owned MCP connection", () => {
     {
       scenario: "contexts-success",
       cli: "beta",
-      configured: "alpha",
+      configured: ["alpha"],
       status: "bound",
       context: "beta",
       source: "cli",
     },
     {
       scenario: "contexts-success",
-      configured: "beta",
+      configured: ["beta"],
       status: "bound",
       context: "beta",
       source: "config",
     },
-    { scenario: "contexts-success", status: "bound", context: "alpha", source: "mcp-default" },
+    { scenario: "contexts-success", configured: ["beta", "alpha"], status: "resolved" },
+    { scenario: "contexts-success", configured: ["*"], status: "resolved" },
+    { scenario: "contexts-success", configured: ["alpha", "missing"], status: "selection-error" },
+    {
+      scenario: "contexts-success",
+      configured: ["*"],
+      cli: "beta",
+      status: "bound",
+      context: "beta",
+      source: "cli",
+    },
+    { scenario: "contexts-success", status: "resolved" },
     {
       scenario: "contexts-success",
       cli: "missing",
-      configured: "alpha",
+      configured: ["alpha"],
       status: "selection-error",
     },
-    { scenario: "contexts-success", configured: "missing", status: "selection-error" },
-    { scenario: "contexts-no-default", status: "unbound" },
+    { scenario: "contexts-success", configured: ["missing"], status: "selection-error" },
+    { scenario: "contexts-no-default", status: "resolved" },
     { scenario: "contexts-empty", status: "not-configured" },
     { scenario: "contexts-malformed", status: "enumeration-failed", reason: "invalid-response" },
     { scenario: "contexts-error", status: "enumeration-failed", reason: "tool-error" },
@@ -48,7 +60,7 @@ describe("scope publication on the owned MCP connection", () => {
     const config: SreConfig = {
       paths: createApplicationPaths(home),
       kubernetes: {
-        ...(test.configured ? { defaultCluster: test.configured } : {}),
+        ...(test.configured ? { contexts: parseClusterRule(test.configured) } : {}),
         mcp: {
           transport: "stdio",
           command: process.execPath,
@@ -66,7 +78,7 @@ describe("scope publication on the owned MCP connection", () => {
       config,
       new AbortController().signal,
       undefined,
-      test.cli ? { cluster: test.cli } : {},
+      test.cli ? { rule: { kind: "exact", contexts: [test.cli] } } : {},
     );
     const observed: string[] = [];
     const unsubscribe = controller.subscribe((state) => {
@@ -84,6 +96,14 @@ describe("scope publication on the owned MCP connection", () => {
           source: test.source,
         });
       else expect(controller.clusterContext.captureScope()).toBeUndefined();
+      expect(controller.clusterContext.state.selection).toMatchObject({
+        source: test.cli ? "cli" : test.configured ? "config" : "default-all",
+        rule: test.cli
+          ? parseClusterRule([test.cli])
+          : test.configured
+            ? parseClusterRule(test.configured)
+            : { kind: "all" },
+      });
       if (test.reason)
         expect(controller.clusterContext.state).toMatchObject({ reason: test.reason });
       if (test.scenario !== "empty-tools") {

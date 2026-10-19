@@ -12,7 +12,7 @@ function logDescriptor(): McpToolDescriptor {
 }
 
 function bridge(descriptor = logDescriptor()) {
-  const manager = new ClusterContextManager({ cluster: "beta" });
+  const manager = new ClusterContextManager({ rule: { kind: "exact", contexts: ["beta"] } });
   const generation = manager.beginConnection();
   manager.acceptRegistry(
     generation,

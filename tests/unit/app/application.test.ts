@@ -133,13 +133,13 @@ describe("SreApplication", () => {
   });
 
   it("owns an immutable copy of startup intent independently for each application", async () => {
-    const intent = { cluster: "alpha" };
+    const intent = { rule: { kind: "exact" as const, contexts: ["alpha"] as [string] } };
     const app = new SreApplication(config(), intent);
-    const other = new SreApplication(config(), { cluster: "beta" });
-    intent.cluster = "changed";
-    expect(app.startupClusterIntent).toEqual({ cluster: "alpha" });
+    const other = new SreApplication(config(), { rule: { kind: "exact", contexts: ["beta"] } });
+    intent.rule.contexts[0] = "changed";
+    expect(app.startupClusterIntent).toEqual({ rule: { kind: "exact", contexts: ["alpha"] } });
     expect(Object.isFrozen(app.startupClusterIntent)).toBe(true);
-    expect(other.startupClusterIntent).toEqual({ cluster: "beta" });
+    expect(other.startupClusterIntent).toEqual({ rule: { kind: "exact", contexts: ["beta"] } });
     await Promise.all([app.close(), other.close()]);
   });
 
@@ -162,7 +162,7 @@ describe("SreApplication", () => {
         })),
       },
     });
-    const app = new SreApplication(config(), { cluster: "beta" });
+    const app = new SreApplication(config(), { rule: { kind: "exact", contexts: ["beta"] } });
     mocks.createRuntime.mockImplementation(() => {
       expect(app.clusterContext.captureScope()).toMatchObject({ context: "beta", source: "cli" });
       return { disposeSession: mocks.dispose, session: { abort: mocks.abort } };
@@ -266,7 +266,7 @@ describe("SreApplication", () => {
           {
             type: "info",
             message:
-              "Cluster: alpha (mcp-default) | Namespace: * | READ ONLY. Cluster scope selected (authentication and authorization are not verified).",
+              "Cluster: alpha (default-all) | Namespace: * | READ ONLY. Cluster scope selected (authentication and authorization are not verified).",
           },
         ],
       },

@@ -4,13 +4,14 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { parseCliArgs } from "../../../src/app/cli.js";
 import { createApplicationPaths } from "../../../src/config/config.js";
 import { loadSreConfig, SreConfigError } from "../../../src/config/loader.js";
 import { getMcpToolPolicy, MCP_TOOL_POLICIES } from "../../../src/runtime/tool-policy.js";
 
 const validYaml = `
 kubernetes:
-  defaultCluster: staging
+  contexts: [staging]
   mcp:
     transport: stdio
     command: kubernetes-mcp-server
@@ -55,7 +56,7 @@ describe("loadSreConfig", () => {
     expect(config.paths.models).toBe(join(applicationHome, "models.json"));
     expect(config.paths.settings).toBe(join(applicationHome, "settings.json"));
     expect(config.paths.sessions).toBe(join(applicationHome, "sessions"));
-    expect(config.kubernetes.defaultCluster).toBe("staging");
+    expect(config.kubernetes.contexts).toEqual({ kind: "exact", contexts: ["staging"] });
     expect(config.results).toEqual({ maxTextChars: 8_000, maxItems: 50, rawRetention: "disabled" });
     expect(config.kubernetes.mcp).toEqual({
       transport: "stdio",
@@ -75,20 +76,20 @@ describe("loadSreConfig", () => {
 
     const config = await load();
     expect(config.kubernetes.mcp.args).toEqual(["--config", mcpConfigPath]);
-    expect(config.kubernetes.defaultCluster).toBeUndefined();
+    expect(config.kubernetes.contexts).toBeUndefined();
   });
 
   it("allows an omitted default without inventing a cluster", async () => {
-    await writeFile(configPath, validYaml.replace("  defaultCluster: staging\n", ""));
-    expect((await load()).kubernetes.defaultCluster).toBeUndefined();
+    await writeFile(configPath, validYaml.replace("  contexts: [staging]\n", ""));
+    expect((await load()).kubernetes.contexts).toBeUndefined();
   });
 
-  it("preserves exact configured context names", async () => {
+  it.each([" staging ", "prod-*"])("preserves exact configured context name %s", async (name) => {
     await writeFile(
       configPath,
-      validYaml.replace("defaultCluster: staging", 'defaultCluster: " staging "'),
+      validYaml.replace("contexts: [staging]", `contexts: ${JSON.stringify([name])}`),
     );
-    expect((await load()).kubernetes.defaultCluster).toBe(" staging ");
+    expect((await load()).kubernetes.contexts).toEqual({ kind: "exact", contexts: [name] });
   });
 
   it.each(["", "   ", "alpha\n", "alpha\u202e", "é".repeat(513)])(
@@ -96,11 +97,60 @@ describe("loadSreConfig", () => {
     async (name) => {
       await writeFile(
         configPath,
-        validYaml.replace("defaultCluster: staging", `defaultCluster: ${JSON.stringify(name)}`),
+        validYaml.replace("contexts: [staging]", `contexts: ${JSON.stringify([name])}`),
       );
-      await expect(load()).rejects.toThrow("kubernetes.defaultCluster");
+      await expect(load()).rejects.toThrow("kubernetes.contexts");
     },
   );
+
+  it.each([["beta", "alpha"], ["*"], Array.from({ length: 1024 }, (_, i) => `context-${i}`)])(
+    "normalizes configured selection exactly like CLI",
+    async (...names) => {
+      await writeFile(
+        configPath,
+        validYaml.replace("contexts: [staging]", `contexts: ${JSON.stringify(names)}`),
+      );
+      const config = await load();
+      const cli = parseCliArgs(["--clusters", ...names]);
+      if (cli.help) throw new Error("Expected startup selection");
+      expect(config.kubernetes.contexts).toEqual(cli.rule);
+      expect(Object.isFrozen(config.kubernetes.contexts)).toBe(true);
+      if (config.kubernetes.contexts?.kind === "exact")
+        expect(Object.isFrozen(config.kubernetes.contexts.contexts)).toBe(true);
+    },
+  );
+
+  it.each(
+    [
+      [],
+      ["a", "a"],
+      ["*", "a"],
+      ["*", "*"],
+      [1],
+      "alpha",
+      null,
+      Array.from({ length: 1025 }, (_, i) => `context-${i}`),
+    ].map((value) => ({ value })),
+  )("rejects malformed, duplicate and conflicting configured selections", async ({ value }) => {
+    await writeFile(
+      configPath,
+      validYaml.replace("contexts: [staging]", `contexts: ${JSON.stringify(value)}`),
+    );
+    await expect(load()).rejects.toThrow("kubernetes.contexts");
+  });
+
+  it("rejects the removed singleton configuration field", async () => {
+    await writeFile(
+      configPath,
+      validYaml.replace("contexts: [staging]", "defaultCluster: staging"),
+    );
+    await expect(load()).rejects.toThrow("kubernetes.defaultCluster");
+  });
+
+  it("rejects the former clusters configuration key", async () => {
+    await writeFile(configPath, validYaml.replace("contexts: [staging]", "clusters: [staging]"));
+    await expect(load()).rejects.toThrow("kubernetes.clusters");
+  });
 
   it("loads explicit model-facing result budgets", async () => {
     await writeFile(

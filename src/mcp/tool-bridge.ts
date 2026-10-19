@@ -27,7 +27,8 @@ export interface McpToolScope {
   readonly namespace?: string;
   readonly readOnly: true;
   readonly connectionGeneration: number;
-  readonly registryRevision: number;
+  readonly inventoryRevision: number;
+  readonly selectionRevision: number;
 }
 
 export interface ToolNameMapping {
@@ -132,16 +133,7 @@ export function createMcpToolBridge(
       if (clusterDependent && binding) {
         snapshot = binding.manager.captureScope();
         if (!snapshot) {
-          const status = binding.manager.state.status;
-          return bridgeResult(
-            normalizeToolFailure(
-              status === "unbound" || status === "not-configured"
-                ? "scope-unbound"
-                : "scope-unavailable",
-              policy,
-            ),
-            mapping,
-          );
+          return bridgeResult(normalizeToolFailure("scope-unavailable", policy), mapping);
         }
         args.context = snapshot.context;
         scope = {
@@ -151,7 +143,8 @@ export function createMcpToolBridge(
             : {}),
           readOnly: true,
           connectionGeneration: snapshot.connectionGeneration,
-          registryRevision: snapshot.registryRevision,
+          inventoryRevision: snapshot.inventoryRevision,
+          selectionRevision: snapshot.selectionRevision,
         };
       }
       if (!validated.validateTransportArguments(args)) {

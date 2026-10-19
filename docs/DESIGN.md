@@ -165,7 +165,7 @@ Pi SRE V0.1 should:
 6. support explicit Kubernetes cluster/context management;
 7. support `/clusters` runtime selection;
 8. support `--clusters` startup rule selection;
-9. support a configured default cluster;
+9. support a configured exact/all cluster rule equivalent to CLI selection;
 10. continuously display the incident scope rule, resolved context availability, and execution profile;
 11. bind every cluster-dependent MCP operation to one exact context permitted by the incident rule;
 12. maintain incident investigation state separately from Pi conversation state;
@@ -709,7 +709,7 @@ Keep the existing context registry and managed connection. Do not implement a se
 
 # 20. Cluster Selection Sources
 
-Use the explicit CLI rule if supplied, otherwise an explicitly configured `kubernetes.defaultCluster` as the user's exact singleton choice, otherwise live all-contexts (`*`). With no user choice, `*` is the default even when MCP advertises a default context. An invalid explicit selection never falls back to broader wildcard access.
+Use the explicit CLI rule if supplied, otherwise an explicitly configured `kubernetes.contexts` exact/all rule, otherwise live all-contexts (`*`). With no user choice, `*` is the default even when MCP advertises a default context. An invalid explicit selection never falls back to broader wildcard access.
 
 In Phase 3, idle `/clusters` changes the current session rule for subsequent calls. In Phase 4, while an incident is active, it selects the next incident's rule without changing that active rule. The singular command has no planned alias.
 
@@ -720,7 +720,7 @@ In Phase 3, idle `/clusters` changes the current session rule for subsequent cal
 ```text
 Discover tools and complete MCP context inventory
     → Explicit CLI exact set or all-contexts rule, if supplied
-    → Otherwise explicit kubernetes.defaultCluster as exact singleton
+    → Otherwise explicit kubernetes.contexts exact set or all-contexts rule
     → Otherwise live *
 ```
 
@@ -745,30 +745,19 @@ Selection changes application state only; kubeconfig stays unchanged.
 
 ---
 
-# 23. Configured Default Cluster
+# 23. Configured Cluster Rule
 
-Example:
+Configuration accepts the same selection values as CLI:
 
 ```yaml
 kubernetes:
-  defaultCluster: staging
+  contexts: [prod-us, prod-eu]
+  # contexts: ["*"] # Live all
 ```
 
-Starting:
+One name is an exact singleton; several names form an exact set; sole `"*"` means live all. Omission defaults to live all. Both input boundaries normalize to `ClusterScopeRule` before startup selection. Preserve exact names, reject duplicates and empty lists, limit sets to 1,024 names, and reject mixed wildcard/exact values. A literal context named `*` remains reachable through the picker. `defaultCluster` is removed without an alias.
 
-```bash
-pi-sre
-```
-
-then selects:
-
-```text
-staging
-```
-
-provided `staging` exists in the MCP context registry.
-
-If the configured context does not exist, startup reports the configuration problem instead of silently selecting another cluster.
+CLI overrides the configured rule entirely. Invalid configuration structure fails loading; an unknown exact name rejects initial resolution atomically without fallback. Recovery re-resolves the unchanged launch-time rule rather than applying edited configuration as new selection intent.
 
 ---
 
@@ -912,7 +901,7 @@ Example Pi SRE configuration:
 ```yaml
 kubernetes:
 
-  defaultCluster: staging
+  contexts: [staging]
 
   mcp:
     transport: stdio
@@ -1648,8 +1637,11 @@ startup must report invalid context
 No CLI/config choice; MCP default = kind-test
 Incident rule = live *; all discovered contexts are permitted
 
-Explicit kubernetes.defaultCluster = staging
-Incident rule = exact {staging}
+Explicit kubernetes.contexts = [staging, production]
+Incident rule = exact {staging, production}
+
+Explicit kubernetes.contexts = ["*"]
+Incident rule = live *
 
 Invalid explicit CLI/config name
 Selection error; never broaden to *
@@ -2096,7 +2088,7 @@ The unified `/clusters` command changes current session selection in Phase 3; Ph
 `--clusters <exact-name> <exact-name>` selects an explicit exact set and `--clusters '*'` explicitly selects live `*`. Wildcard is the sole value and should be quoted against shell expansion. Without CLI/config choice, live `*` is already the default. Parsing is frozen in [Phase 3 contracts](./PHASE3_CONTRACTS.md).
 
 ### ADR-15
-An explicitly configured `kubernetes.defaultCluster` is a user choice establishing an exact singleton rule; otherwise startup defaults to live `*` unless CLI overrides it.
+An explicitly configured `kubernetes.contexts` is a user choice establishing an exact set or live-all rule, with the same validation as CLI values; otherwise startup defaults to live `*` unless CLI overrides it.
 
 ### ADR-16
 MCP default-context metadata does not select or narrow investigation scope. Without an explicit user choice, the rule is live `*`.

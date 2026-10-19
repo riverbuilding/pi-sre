@@ -19,7 +19,9 @@ const registry = new ClusterContextRegistry(
 );
 
 function setup(cluster: string | undefined = "alpha", descriptor = scopedPodTool) {
-  const manager = new ClusterContextManager(cluster ? { cluster } : {});
+  const manager = new ClusterContextManager(
+    cluster ? { rule: { kind: "exact", contexts: [cluster] } } : {},
+  );
   const generation = manager.beginConnection();
   manager.acceptRegistry(generation, registry);
   const callTool = vi.fn().mockResolvedValue({ content: [], structuredContent: { pods: [] } });
@@ -85,7 +87,7 @@ describe("scoped MCP bridge", () => {
   });
 
   it("keeps scoped presentation within configured budgets and redacts raw data", async () => {
-    const manager = new ClusterContextManager({ cluster: "alpha" });
+    const manager = new ClusterContextManager({ rule: { kind: "exact", contexts: ["alpha"] } });
     const generation = manager.beginConnection();
     manager.acceptRegistry(generation, registry);
     const tool = createMcpToolBridge(
@@ -203,11 +205,11 @@ describe("scoped MCP bridge", () => {
     expect(callTool).not.toHaveBeenCalled();
   });
 
-  it.each(["unbound", "missing", "unavailable", "stale", "invalid"])(
+  it.each(["multiple", "missing", "unavailable", "stale", "invalid"])(
     "blocks %s with zero requests",
     async (kind) => {
       const { tool, manager, callTool } = setup(
-        kind === "unbound" ? "" : kind === "missing" ? "missing" : "alpha",
+        kind === "multiple" ? "" : kind === "missing" ? "missing" : "alpha",
       );
       if (kind === "unavailable") manager.markUnavailable("MCP unavailable");
       if (kind === "stale") manager.beginConnection();
@@ -222,13 +224,11 @@ describe("scoped MCP bridge", () => {
         isError: true,
         details: {
           failureCategory:
-            kind === "unbound"
-              ? "scope-unbound"
-              : kind === "stale"
-                ? "stale-scope"
-                : kind === "invalid"
-                  ? "invalid-arguments"
-                  : "scope-unavailable",
+            kind === "stale"
+              ? "stale-scope"
+              : kind === "invalid"
+                ? "invalid-arguments"
+                : "scope-unavailable",
         },
       });
       expect(callTool).not.toHaveBeenCalled();

@@ -87,7 +87,7 @@ describe("Phase 2 acceptance through CLI input, configuration, controller, Pi, a
       join(home, "config.yaml"),
       JSON.stringify({
         kubernetes: {
-          ...(configured === undefined ? {} : { defaultCluster: configured }),
+          ...(configured === undefined ? {} : { contexts: [configured] }),
           mcp: {
             transport: "stdio",
             command: process.execPath,
@@ -129,10 +129,9 @@ describe("Phase 2 acceptance through CLI input, configuration, controller, Pi, a
   }
 
   it.each([
-    { args: ["--cluster", "beta"], configured: "alpha", context: "beta", source: "cli" },
-    { args: ["--cluster=beta"], configured: "alpha", context: "beta", source: "cli" },
+    { args: ["--clusters", "beta"], configured: "alpha", context: "beta", source: "cli" },
+    { args: ["--clusters=beta"], configured: "alpha", context: "beta", source: "cli" },
     { args: [], configured: "beta", context: "beta", source: "config" },
-    { args: [], context: "alpha", source: "mcp-default" },
   ])("routes startup $source selection despite attempted model override: $args", async (test) => {
     const pid = await configure("diagnostic-success", test.configured);
     const session = await start(test.args);
@@ -156,13 +155,13 @@ describe("Phase 2 acceptance through CLI input, configuration, controller, Pi, a
   it.each([
     {
       scenario: "diagnostic-success",
-      args: ["--cluster=missing"],
+      args: ["--clusters=missing"],
       configured: "alpha",
       status: "selection-error",
     },
     { scenario: "diagnostic-success", args: [], configured: "missing", status: "selection-error" },
     { scenario: "diagnostic-empty", args: [], status: "not-configured" },
-    { scenario: "diagnostic-unbound", args: [], status: "unbound" },
+    { scenario: "diagnostic-unbound", args: [], status: "resolved" },
   ])("sends no diagnostic request for $status with $args", async (test) => {
     const pid = await configure(test.scenario, test.configured);
     const session = await start(test.args);
@@ -180,12 +179,12 @@ describe("Phase 2 acceptance through CLI input, configuration, controller, Pi, a
 
   it("retains observations across idle switching and recovery without rebinding a removed selection", async () => {
     const initial = await configure("diagnostic-success");
-    const session = await start(["--cluster=alpha"]);
+    const session = await start(["--clusters=alpha"]);
     const activeController = controller!;
     requestPods(session);
     await session.prompt("Inspect alpha");
     const history = structuredClone(session.messages);
-    await session.prompt("/cluster beta");
+    await session.prompt("/clusters beta");
     requestPods(session);
     await session.prompt("Inspect beta");
     expect(session.messages.slice(0, history.length)).toEqual(history);
@@ -222,7 +221,7 @@ describe("Phase 2 acceptance through CLI input, configuration, controller, Pi, a
     ]);
     const removed = await configure("diagnostic-alpha-only", "alpha");
     await session.prompt("/mcp_restart --force");
-    expect(activeController.clusterContext.state.status).toBe("selection-error");
+    expect(activeController.clusterContext.state.status).toBe("resolved");
     expect(session.getCallableToolNames()).toEqual(["configuration_contexts_list"]);
     requestPods(session);
     await session.prompt("Inspect pods after selected context disappeared");

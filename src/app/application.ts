@@ -3,7 +3,7 @@ import { mkdir } from "node:fs/promises";
 import { InteractiveMode } from "@earendil-works/pi-coding-agent";
 
 import type { SreConfig } from "../config/config.js";
-import type { StartupClusterIntent } from "../cluster/context-resolver.js";
+import { createStartupSelection, type StartupClusterIntent } from "../cluster/context-resolver.js";
 import { McpController } from "./mcp-controller.js";
 import type { ToolDiscoveryReport } from "../mcp/tool-discovery.js";
 import { createSreRuntime, PI_AGENT_DIR_ENV } from "../runtime/pi-runtime.js";
@@ -38,7 +38,7 @@ export class SreApplication {
   ) {
     // Copy selection intent before the owned MCP lifecycle resolves startup scope.
     this.startupClusterIntent = Object.freeze(
-      intent.cluster === undefined ? {} : { cluster: intent.cluster },
+      intent.rule === undefined ? {} : { rule: createStartupSelection(intent).rule },
     );
     this.mcpController = new McpController(
       config,

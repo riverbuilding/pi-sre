@@ -6,7 +6,7 @@ import {
   createClusterStatusLines,
 } from "../runtime/cluster-guidance.js";
 import { CommandFeedback } from "./command-feedback.js";
-import { registerClusterCommand } from "./cluster-command.js";
+import { registerClustersCommand } from "./cluster-command.js";
 
 /** Each Pi extension instance owns its agent-work guard and lifecycle. */
 export function registerClusterScope(
@@ -75,5 +75,5 @@ export function registerClusterScope(
     releaseWork?.();
     releaseWork = undefined;
   });
-  registerClusterCommand(pi, manager, feedback);
+  registerClustersCommand(pi, manager, feedback);
 }

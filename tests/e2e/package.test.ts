@@ -40,24 +40,33 @@ it("packs a built executable that launches outside the source checkout", async (
       },
       timeout: 10_000,
     };
-    for (const args of [["--help"], ["--cluster", "alpha", "--help"], ["-h", "--cluster=alpha"]]) {
+    for (const args of [
+      ["--help"],
+      ["--clusters", "alpha", "beta", "--help"],
+      ["-h", "--clusters=alpha"],
+      ["--clusters", "*", "--help"],
+    ]) {
       const { stdout, stderr } = await run(process.execPath, [executable, ...args], options);
       expect(stdout).toContain("Pi SRE — read-only Kubernetes incident diagnosis");
       expect(stdout).toContain("/mcp_restart");
-      expect(stdout).toContain("--cluster=<name>");
-      expect(stdout).toContain("--cluster > kubernetes.defaultCluster > MCP default > unbound");
-      expect(stdout).toContain("/cluster --status");
+      expect(stdout).toContain("--clusters=<name>");
+      expect(stdout).toContain("--clusters > kubernetes.contexts > live all (*)");
+      expect(stdout).toContain("/clusters --status");
       expect(stdout).toContain("Unknown selections never fall back");
       expect(stderr).toBe("");
     }
     for (const [args, message] of [
-      [["--cluster="], "--cluster requires"],
-      [["--help", "--cluster"], "--cluster requires"],
-      [["--cluster", "--help"], "--cluster requires"],
-      [["--cluster", "   "], "--cluster requires"],
-      [["--cluster=alpha\n"], "--cluster requires"],
-      [["--cluster=alpha", "--cluster", "beta"], "Duplicate --cluster"],
+      [["--clusters="], "--clusters requires"],
+      [["--help", "--clusters"], "--clusters requires"],
+      [["--clusters", "--help"], "--clusters requires"],
+      [["--clusters", "   "], "--clusters requires"],
+      [["--clusters=alpha\n"], "--clusters requires"],
+      [["--clusters=alpha", "--clusters", "beta"], "Duplicate --clusters"],
       [["--help", "--unknown"], "Unknown argument"],
+      [["--cluster", "alpha"], "Unknown argument"],
+      [["--all-clusters"], "Unknown argument"],
+      [["--clusters", "alpha", "alpha"], "--clusters requires"],
+      [["--clusters", "alpha", "*"], "must be the sole"],
     ] as const) {
       await expect(run(process.execPath, [executable, ...args], options)).rejects.toMatchObject({
         code: 1,
