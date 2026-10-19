@@ -10,6 +10,8 @@ import { McpController } from "../../src/app/mcp-controller.js";
 import { loadSreConfig } from "../../src/config/loader.js";
 import { createSreRuntime } from "../../src/runtime/pi-runtime.js";
 import type { SreRuntime } from "../../src/runtime/sre-runtime.js";
+import * as clusterPickerDialog from "../../src/tui/cluster-picker-dialog.js";
+import { pickClusterRule } from "../../src/tui/cluster-picker.js";
 
 const fixture = fileURLToPath(new URL("../fixtures/fake-mcp-server.ts", import.meta.url));
 
@@ -73,6 +75,11 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
     return definition.execute("contexts", {}, new AbortController().signal, undefined, {} as never);
   }
   beforeEach(async () => {
+    // Mock terminal interaction; exercise the real draft loop and command authority guards.
+    vi.spyOn(clusterPickerDialog, "showClusterPicker").mockImplementation(
+      (_ui, names, rule, assertCurrent) =>
+        pickClusterRule(runtime.session.extensionRunner.getUIContext(), names, rule, assertCurrent),
+    );
     home = await mkdtemp(join(tmpdir(), "pi-sre-restart-"));
     generation = 0;
     pids.length = 0;
@@ -619,7 +626,7 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
     await session.prompt("/clusters");
     expect(select).toHaveBeenLastCalledWith(
       "Clusters — 1 selected (toggle names, then Apply)",
-      ["All (*)", "Apply selection", "Cancel", '[x] "dev"', '[ ] "prod"'],
+      ["All (*)", '[x] "dev"', '[ ] "prod"', "Apply selection", "Cancel"],
       undefined,
     );
     expect(controller.clusterContext.captureScope()?.context).toBe("dev");

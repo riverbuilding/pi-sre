@@ -16,6 +16,7 @@
     "check": "tsc --noEmit",
     "dev": "tsx src/main.ts",
     "start": "node dist/main.js",
+    "manual:clusters": "tsx scripts/manual-clusters.ts",
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",
     "test:unit": "vitest run tests/unit --passWithNoTests",
@@ -29,6 +30,7 @@
   "dependencies": {
     "@earendil-works/pi-coding-agent": "0.99.0",
     "@earendil-works/pi-mcp": "0.99.0",
+    "@earendil-works/pi-tui": "0.99.0",
     "smol-toml": "1.9.0",
     "typebox": "1.3.27",
     "yaml": "^2.8.2",

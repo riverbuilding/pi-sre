@@ -7,7 +7,7 @@ export class ClusterPickerError extends Error {
   }
 }
 
-/** Pi provides a single-row picker; toggles stage a set until Apply commits it. */
+/** Toggles stage a set until Apply commits it; the UI owns focus and rendering. */
 export async function pickClusterRule(
   ui: Pick<ExtensionUIContext, "select">,
   availableNames: readonly string[],
@@ -24,12 +24,11 @@ export async function pickClusterRule(
       (name) =>
         `[${all || selectedNames.has(name) ? "x" : " "}] ${JSON.stringify(name)}${available.has(name) ? "" : " (unavailable)"}`,
     );
-    const actions = ["All (*)", "Apply selection", "Cancel"];
     let choice: string | undefined;
     try {
       choice = await ui.select(
         `Clusters — ${all ? "All (*)" : `${selectedNames.size} selected`} (toggle names, then Apply)`,
-        [...actions, ...contextRows],
+        ["All (*)", ...contextRows, "Apply selection", "Cancel"],
       );
     } catch (cause) {
       throw new ClusterPickerError(cause);

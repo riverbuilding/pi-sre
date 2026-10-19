@@ -7,7 +7,8 @@ import {
   createClusterStatusLines,
   formatClusterRule,
 } from "../runtime/cluster-guidance.js";
-import { ClusterPickerError, pickClusterRule } from "./cluster-picker.js";
+import { ClusterPickerError } from "./cluster-picker.js";
+import { showClusterPicker } from "./cluster-picker-dialog.js";
 import { CommandFeedback } from "./command-feedback.js";
 
 /** The manager remains authoritative; staged drafts grant no execution permission. */
@@ -80,7 +81,7 @@ export function registerClustersCommand(
       try {
         if (args === "") {
           report("Opening clusters picker…");
-          selectedRule = await pickClusterRule(
+          selectedRule = await showClusterPicker(
             ctx.ui,
             state.registry.contexts.map((context) => context.name),
             state.selection.rule,
