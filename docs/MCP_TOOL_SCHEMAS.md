@@ -1,5 +1,7 @@
 # MCP Tool Policy and Schemas
 
+**Implementation baseline:** This guide describes the current Phase 2 single-context runtime. The accepted [multi-cluster plan](./MULTI_CLUSTER_INVESTIGATION_PLAN.md) defines the new Phase 3 session-selection migration and required model schemas/execution snapshots: every cluster-dependent call requires an explicit validated model target for every rule, including singleton; the application no longer removes or injects context. Those changes are not implemented yet.
+
 ## Trust boundary
 
 Pi SRE trusts the configured Kubernetes MCP Server to execute its tools and return diagnostic data. The server owns Kubernetes access, tool descriptions, input schemas, and result formats. Pi SRE owns its diagnostic capability allowlist, model-argument validation, cluster selection, and retrieval/presentation limits.
@@ -55,6 +57,14 @@ All five diagnostic operations inject application-owned context. Arguments below
 | `namespaces_list` | `fieldSelector`                                      | Cluster-scoped namespace inventory.                                                       |
 
 `configuration_view`, exec/attach, mutation operations, generic resource/Secret access, and shell remain outside the allowlist. Result details retain originating context and any explicit namespace. Namespace `*` in application status means no application-level namespace restriction, not that every tool queries every namespace.
+
+## New Phase 3 migration (not implemented)
+
+Every cluster-dependent model schema retains a required exact `context` for singleton, exact-set, and live-`*` rules. Intersect discovered constraints with application-permitted compatible contexts. Never remove, infer, inject, or overwrite that value; missing or out-of-scope model targets fail before dispatch. Context-independent discovery does not require a selector. Startup defaults to live `*` unless explicitly overridden; planned `/clusters` is the sole scope command.
+
+Phase 3 has no incident/evidence dependency: validate the current session rule and publish bounded result provenance. Phase 4 later supplies incident-owned authority and evidence capture through the same seam.
+
+On reconnect, tool discovery and Kubernetes context enumeration must both succeed before publishing a matching connection, inventory, rule resolution, and model schema. Exact names remain fixed; wildcard membership follows validated inventory. Removed targets are unavailable, new members are not checked, and old-generation success is withheld; Phase 4 additionally prevents stale evidence commits. Model enumeration alone cannot install a new authoritative registry. See the [delivery plan](./MULTI_CLUSTER_INVESTIGATION_PLAN.md).
 
 ## Code map
 

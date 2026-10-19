@@ -10,6 +10,8 @@ toolsets = [
 # Never expose kubeconfig content to the model.
 disabled_tools = ["configuration_view"]
 
-# Pi SRE exposes only approved diagnostics with an explicit selected context.
+# Pi SRE exposes only approved diagnostics with one explicit validated context per call.
+# Current runtime uses a singleton selection; planned exact-set/live-* routing
+# remains application-enforced and requires no write capability.
 # Keep multi-cluster support enabled; the server must enumerate contexts and
 # declare an explicit context parameter for cluster-dependent operations.

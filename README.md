@@ -8,7 +8,26 @@ Slice 9 completes the [Phase 1 acceptance gate and live smoke test](docs/PHASE1_
 
 The [Phase 2 implementation slices](docs/PHASE2_IMPLEMENTATION_SLICES.md) cover context discovery, startup selection, explicit scope enforcement, cluster commands and status, MCP recovery, and live targeting acceptance. Slices 1–3 provide validated MCP enumeration, exact startup selection, and application-owned scope. Slice 4 enforces explicit context injection at the bridge. Slice 5 adds `/cluster`, safe idle switching, and persistent scope-change messages. Slice 6 adds `/cluster --status` and a continuous scope widget. Slice 7 enables reviewed pod, log, event, and namespace diagnostics when a compatible explicit cluster scope is bound. Slice 8 reconciles scope and tool availability during MCP recovery while retaining exact selection intent.
 
-Slice 9 adds full-path routing acceptance and expanded packaged CLI checks. The [Phase 2 acceptance record and live runbook](docs/PHASE2_ACCEPTANCE.md) track the gate and operator-confirmed Slice 9 live acceptance. Slice 10 adds distinct operational command feedback. The operator confirmed the live tests, including the updated installed-package and terminal regression, passed on 2026-10-17. Phase 2 is complete and ready for Phase 3 investigation state.
+Slice 9 adds full-path routing acceptance and expanded packaged CLI checks. The [Phase 2 acceptance record and live runbook](docs/PHASE2_ACCEPTANCE.md) track the gate and operator-confirmed Slice 9 live acceptance. Slice 10 adds distinct operational command feedback. The operator confirmed the live tests, including the updated installed-package and terminal regression, passed on 2026-10-17. Phase 2 is complete; new Phase 3 context selection is the next implementation step.
+
+The next milestone is [Phase 3 — Context Selection and Multi-Cluster Routing](docs/PHASE3_IMPLEMENTATION_SLICES.md), an explicit migration from the completed Phase 2 runtime. It delivers unified `/clusters`, default live `*`, exact sets, required model-supplied context on every diagnostic call, and deterministic reconnect reconciliation. It works with the current tools and one MCP server **without** an incident model or evidence store.
+
+[Phase 4 — Investigation Domain](docs/PHASE4_IMPLEMENTATION_SLICES.md) then adds incidents, evidence storage, hypotheses, and per-incident budgets on the accepted Phase 3 execution seam. Before incidents exist, idle `/clusters` changes session selection immediately. In Phase 4, an active incident keeps its own rule and selection applies to the next incident.
+
+| Phase | Delivery                                                                              | Status                       |
+| ----- | ------------------------------------------------------------------------------------- | ---------------------------- |
+| 1     | Runtime and MCP integration                                                           | Complete                     |
+| 2     | Original singleton context management                                                 | Complete                     |
+| 3     | New context selection and multi-cluster routing                                       | Planned; next implementation |
+| 4     | Investigation Domain                                                                  | Planned                      |
+| 5     | All 22 Kubernetes MCP config/core definitions, including opt-in controlled operations | Planned                      |
+| 6     | Kubernetes Diagnostic Skills                                                          | Planned                      |
+| 7     | Eval Framework                                                                        | Planned                      |
+| 8     | TUI Refinement                                                                        | Planned                      |
+
+The [multi-cluster plan](docs/MULTI_CLUSTER_INVESTIGATION_PLAN.md) records accepted semantics and the staged handoff. Exact names stay fixed; live `*` follows validated inventory, with new members marked not checked. The model supplies a context even for singleton rules; the application validates it without injection/overwrite. [Phase 5](docs/PHASE5_IMPLEMENTATION_SLICES.md) and the [HolmesGPT capability comparison](docs/HOLMESGPT_KUBERNETES_MCP_PARITY.md) cover the separate tool-parity milestone.
+
+The command/setup documentation below describes the **currently implemented Phase 2 package**. Repeated `--cluster`, `--all-clusters`, unified `/clusters`, default live `*`, and model-supplied routing are Phase 3 targets, not runnable behavior yet. Completed Phase 1/2 acceptance records are preserved; no runtime code changes accompany this roadmap update.
 
 ## Prerequisites
 

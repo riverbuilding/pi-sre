@@ -1,5 +1,7 @@
 # Session Projection 与 TranscriptContext
 
+**Implementation baseline:** Cluster examples below describe the current Phase 2 runtime. The accepted [multi-cluster plan](./MULTI_CLUSTER_INVESTIGATION_PLAN.md) first migrates session selection in new Phase 3 (rules, resolved membership, inventory revisions, and added/removed notices), independently of incidents. Phase 4 later adds incident identity and next-selection summaries. Steering delivery still cannot authorize calls or replace reconnect enforcement; execution uses application state even before the model consumes an update.
+
 本文基于项目当前使用的 `@earendil-works/pi-coding-agent` **0.99.0**，说明
 `session.sessionManager.buildSessionProjection().messages` 与 `TranscriptContext` 的关系。
 

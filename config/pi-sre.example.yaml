@@ -1,6 +1,8 @@
 # Copy to ~/.pi-sre/config.yaml or pass its path with PI_SRE_CONFIG.
 # This template intentionally enables diagnostic, read-only operation only.
 kubernetes:
+  # Current runtime still uses Phase 2 singleton resolution. The accepted Phase 3
+  # target defaults to live * when this explicit user choice and CLI choices are unset.
   # Opt in only with an exact context returned by Kubernetes MCP.
   # An unavailable default is a selection error; it never falls back.
   # defaultCluster: staging

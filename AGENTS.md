@@ -2,7 +2,7 @@
 
 Pi SRE is an independent, read-only TypeScript application for Kubernetes incident diagnosis. It reuses Pi as its agent runtime and Kubernetes MCP Server as its Kubernetes access boundary.
 
-V0.1 supports observing, diagnosing, and explaining incidents. It does not remediate them.
+Phases 1–2 are implemented and accepted with read-only, single-context diagnosis. New Phase 3 upgrades context selection/routing directly from that baseline: exact sets, default live `*`, unified `/clusters`, and required model-supplied context through one agent/one MCP server. Phase 4 then adds Investigation Domain and evidence; Phase 5 separately plans opt-in, human-approved controlled operations. These future phases are not implemented. Read-only remains the default; autonomous remediation is outside scope.
 
 ## Core Architecture
 
@@ -53,26 +53,28 @@ npm run build
 ## Kubernetes Context Rules
 
 - Discover available contexts through the MCP `configuration_contexts_list` tool.
-- Resolve startup scope in this order: `--cluster`, configured default cluster, MCP default context, then unbound.
-- Treat the active cluster as application/session state; never modify kubeconfig or run `kubectl config use-context`.
-- Inject the selected context explicitly into every cluster-dependent MCP operation.
-- Never allow the model to silently infer or switch clusters.
-- If no cluster is selected, block cluster-dependent calls and guide the user to `/cluster` or `--cluster`.
+- Target startup precedence is explicit CLI rule, explicitly configured `kubernetes.defaultCluster` as a user choice, then live `*`. With no user choice, default to live `*`; MCP default metadata never narrows it. Invalid explicit names fail without wildcard fallback. Current runtime still uses Phase 2 singleton resolution until implementation.
+- The user owns the scope rule: exact context set or live `*`, session-owned in Phase 3 and incident-owned in Phase 4. The application resolves it against validated inventory; the model can explore only within that resolution. Patterns and active-incident rule amendment are later extensions.
+- Phase 3 owns a session rule: idle `/clusters` selection changes subsequent calls immediately; no incident model is required. Phase 4 captures an immutable incident rule and makes selection apply to the next incident while one is active. Inventory refresh can change live `*` resolution without amending its rule; it never expands an exact set. Replace the singular command without an alias.
+- Every cluster-dependent operation requires one exact model-supplied `context` for all rules, including singleton sets. Preserve and validate it; never hide, infer, inject, or overwrite it. Reject missing/out-of-scope values before dispatch. Never route through a mutable global current context.
+- Reconnect blocks dispatch, invalidates old generations, rediscovers tools and contexts, re-resolves the unchanged rule, and publishes state/tools and added/removed notices before dispatch resumes. Late invalidated results cannot return fresh success; Phase 4 additionally rejects stale evidence commits.
+- Inventory availability, incident permission, and investigation coverage are distinct. Keep per-context failures and evidence origin explicit; new wildcard members start as not checked.
+- Never modify kubeconfig or run `kubectl config use-context`. If inventory/rule resolution is unavailable or has no usable target, block affected calls without implicit fallback.
 
 ## Tool Usage Rules
 
-- Expose only approved diagnostic MCP tools.
+- Expose only approved diagnostic MCP tools in the default read-only profile. The separately planned Phase 5 controlled profile requires its explicit capability and per-call approval boundary.
 - Keep tool handling thin: validate input, resolve scope, call MCP, normalize the response, and return a compact result.
 - Enforce read-only behavior in Pi SRE, the MCP server configuration, and Kubernetes RBAC.
 - Preserve large raw responses outside the model context and return concise, relevant summaries.
 
 ## Diagnosis vs. Remediation
 
-Diagnosis is in scope. Automatic or manual remediation is not part of V0.1. Do not add write-capable tools, mutation workflows, or remediation logic without an explicit design change.
+Phases 1–4, including context selection and Investigation Domain, are diagnosis-only. The existing explicit controlled-operations design expansion, now Phase 5, separately plans opt-in, human-approved operations; wildcard diagnostic scope never grants blanket mutation authority. Do not add write-capable tools or mutation workflows outside that design. Autonomous remediation remains outside scope.
 
 ## Safety Rules
 
-- Display the active cluster, namespace, and read-only state continuously in the TUI.
+- Display the effective session/incident scope rule, resolved contexts/availability, namespace policy, and actual execution profile continuously. Show the exact context on each call; Phase 4 adds next selection separately when different.
 - Do not log credentials, tokens, kubeconfig contents, secrets, or raw sensitive resource data.
 - Treat an unavailable MCP server, unavailable Kubernetes authentication, and a failed Kubernetes operation as distinct states.
 - Do not claim access to infrastructure when MCP is unavailable.
@@ -87,6 +89,8 @@ Diagnosis is in scope. Automatic or manual remediation is not part of V0.1. Do n
 
 Use kind-based evaluation for end-to-end scenarios. Cover cluster selection and fault diagnosis, including CrashLoopBackOff, OOMKilled, ImagePullBackOff, missing ConfigMaps or Secrets, failed readiness probes, pending Pods, service-selector mismatches, and DNS failures.
 
+For the planned multi-cluster surface, cover exact versus live-`*` resolution after reconnect, added/removed contexts, stale results, independent parallel targets, same-named resources, per-context failures, bounded budgets, and coverage attribution. Keep current Phase 1/2 acceptance records historical.
+
 ## Definition of Done
 
 A change is complete when it preserves the read-only safety model, keeps cluster scope explicit, has proportionate tests, and passes the relevant commands in `package.json`.
@@ -94,7 +98,9 @@ A change is complete when it preserves the read-only safety model, keeps cluster
 ## Documentation Map
 
 - `docs/DESIGN.md` is the authoritative V0.1 scope and architecture.
-- `README.md` documents local setup and available project commands.
+- `README.md` documents local setup and currently available project commands.
+- `docs/PHASE3_IMPLEMENTATION_SLICES.md` migrates completed Phase 2 context selection without requiring incidents/evidence. Phase 4 owns Investigation Domain; Phase 5 owns tool parity.
+- `docs/MULTI_CLUSTER_INVESTIGATION_PLAN.md` records the accepted exact-set/live-wildcard target, reconnect contracts, and later extensions; it is not a claim of runtime implementation.
 - `config/*.example.*` contains versioned, safe configuration templates.
 
 ## TypeScript Conventions
