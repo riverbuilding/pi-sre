@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ClusterContextManager } from "../../src/cluster/context-manager.js";
 import { ClusterContextRegistry } from "../../src/cluster/context-registry.js";
+import { createInventoryTransitionLines } from "../../src/runtime/cluster-guidance.js";
 import { createSreResourceLoaderOptions } from "../../src/runtime/resource-loader.js";
 import { registerClusterScope } from "../../src/tui/cluster-extension.js";
 
@@ -72,7 +73,13 @@ describe("persistent scope updates", () => {
       expect(session.messages).toEqual(messages);
       expect(setWidget).toHaveBeenLastCalledWith(
         "pi-sre-scope",
-        ["READ ONLY", `Cluster: ${cluster}`, "Namespace: *", `MCP: ${mcp} | Registry: ${registry}`],
+        [
+          "READ ONLY",
+          `Cluster: ${cluster}`,
+          "Namespace: *",
+          `MCP: ${mcp} | Registry: ${registry}`,
+          ...createInventoryTransitionLines(state),
+        ],
         { placement: "belowEditor" },
       );
       const status: unknown = notify.mock.lastCall?.[0];

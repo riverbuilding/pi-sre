@@ -29,6 +29,7 @@ export function createClusterStatusLines(state: ClusterContextState): string[] {
     `Cluster: ${cluster}`,
     "Namespace: *",
     `MCP: ${mcp} | Registry: ${registry}`,
+    ...createInventoryTransitionLines(state),
   ];
 }
 
@@ -44,6 +45,7 @@ export function createClusterScopeDescription(state: ClusterContextState): strin
         : `Cluster scope resolved: ${resolution.available.length} available contexts. Supply one exact context on every diagnostic call.`
       : `Cluster scope unavailable (${state.status}). Cluster-dependent calls are blocked. ${redactDiagnosticText(state.message).replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, " ")}`,
     "Namespace: *. READ ONLY.",
+    ...createInventoryTransitionLines(state),
     ...createClusterStatusLines(state).filter((line) => line.startsWith("MCP:")),
     state.selection.rule.kind === "exact" && state.selection.rule.contexts.length === 1
       ? `Requested context: ${JSON.stringify(state.selection.rule.contexts[0])}; selection source: ${state.selection.source}.`
@@ -69,4 +71,29 @@ export function formatClusterRule(rule: ClusterScopeRule): string {
   }
   const omitted = rule.contexts.length - names.length;
   return `[${names.join(", ")}]${omitted ? ` (${omitted} more)` : ""}`;
+}
+
+/** Reconnect notices contain only bounded names/counts, never endpoint metadata. */
+export function createInventoryTransitionLines(state: ClusterContextState): string[] {
+  const transition = state.inventoryTransition;
+  if (!transition || !("registry" in state)) return [];
+  return [
+    `Inventory reconciliation (revision ${state.inventoryRevision}):`,
+    ...(["added", "removed", "changed"] as const).map((kind) => {
+      const names = transition[kind];
+      const preview: string[] = [];
+      let length = 0;
+      for (const name of names.slice(0, 8)) {
+        const rendered = JSON.stringify(name);
+        if (length + rendered.length > 1_000) break;
+        preview.push(rendered);
+        length += rendered.length + 2;
+      }
+      return `${kind}: ${names.length} [${preview.join(", ")}]${names.length > preview.length ? ` (${names.length - preview.length} more)` : ""}.`;
+    }),
+    state.selection.rule.kind === "all"
+      ? "Live * follows this inventory. Added contexts are not checked; availability does not establish health."
+      : "Inventory changes never expand exact permission. Unselected additions remain outside permission; missing selected contexts are unavailable. Reappearing contexts are not checked.",
+    "Changed context metadata does not establish health or preserve prior observations as current. Interrupted calls are not replayed.",
+  ];
 }

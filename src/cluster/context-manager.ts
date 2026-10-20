@@ -29,7 +29,14 @@ export interface ClusterExecutionAuthority {
   beginAgentWork(): () => void;
 }
 
+export interface ClusterInventoryTransition {
+  readonly added: readonly string[];
+  readonly removed: readonly string[];
+  readonly changed: readonly string[];
+}
+
 interface StateRevision {
+  readonly inventoryTransition?: ClusterInventoryTransition | undefined;
   /** Last successful inventory, retained for inspection but never usable during outages. */
   readonly inventory: ClusterContextRegistry | undefined;
   readonly connectionGeneration: number;
@@ -61,6 +68,7 @@ const inventoryUnavailable: ClusterResolution = Object.freeze({
 /** Session-owned rule and resolution, independent of transcript and MCP default metadata. */
 export class ClusterContextManager implements ClusterExecutionAuthority {
   private disposed = false;
+  private publicationBlocks = 0;
   private readonly snapshots = new Set<ClusterExecutionSnapshot>();
   private readonly listeners = new Set<(state: ClusterContextState) => void>();
   private readonly work = new Set<symbol>();
@@ -110,6 +118,7 @@ export class ClusterContextManager implements ClusterExecutionAuthority {
     this.publishCurrentContextState({
       status: "connecting",
       inventory: this.state.inventory,
+      inventoryTransition: this.state.inventoryTransition,
       connectionGeneration,
       inventoryRevision: this.state.inventoryRevision,
       selection: this.state.selection,
@@ -123,6 +132,7 @@ export class ClusterContextManager implements ClusterExecutionAuthority {
     this.publishCurrentContextState({
       status: "unavailable",
       inventory: this.state.inventory,
+      inventoryTransition: this.state.inventoryTransition,
       connectionGeneration: this.state.connectionGeneration,
       inventoryRevision: this.state.inventoryRevision,
       selection: this.state.selection,
@@ -149,18 +159,48 @@ export class ClusterContextManager implements ClusterExecutionAuthority {
   acceptRegistry(generation: number, registry: ClusterContextRegistry): void {
     if (generation !== this.state.connectionGeneration || this.state.status !== "connecting")
       return;
-    this.installResolution(registry, this.state.selection, this.state.inventoryRevision + 1);
+    const previous = this.state.inventory;
+    const transition = previous
+      ? Object.freeze({
+          added: Object.freeze(
+            registry.contexts
+              .filter((entry) => !previous.get(entry.name))
+              .map((entry) => entry.name),
+          ),
+          removed: Object.freeze(
+            previous.contexts
+              .filter((entry) => !registry.get(entry.name))
+              .map((entry) => entry.name),
+          ),
+          changed: Object.freeze(
+            registry.contexts
+              .filter((entry) => {
+                const old = previous.get(entry.name);
+                return old && (old.server !== entry.server || old.isDefault !== entry.isDefault);
+              })
+              .map((entry) => entry.name),
+          ),
+        })
+      : undefined;
+    this.installResolution(
+      registry,
+      this.state.selection,
+      this.state.inventoryRevision + 1,
+      transition,
+    );
   }
 
   private installResolution(
     registry: ClusterContextRegistry,
     selection: ClusterSelection,
     inventoryRevision: number,
+    inventoryTransition = this.state.inventoryTransition,
   ): void {
     const resolution = resolveClusterSelection(registry, selection.rule, this.validatedSelection);
     if (resolution.status === "resolved") this.validatedSelection = true;
     const common = {
       inventory: registry,
+      inventoryTransition,
       connectionGeneration: this.state.connectionGeneration,
       inventoryRevision,
       selection,
@@ -194,6 +234,8 @@ export class ClusterContextManager implements ClusterExecutionAuthority {
     if (this.isAgentActive)
       throw new Error("Wait for or cancel the active agent turn before selecting a cluster.");
     const state = this.state;
+    if (this.publicationBlocks > 0 && "registry" in state)
+      throw new Error("Cluster context publication is in progress. Retry /clusters.");
     if (!("registry" in state) || state.registry.contexts.length === 0) {
       throw new Error(
         "A current MCP context registry is required. Use /mcp_restart and retry /clusters.",
@@ -231,8 +273,23 @@ export class ClusterContextManager implements ClusterExecutionAuthority {
     );
   }
 
+  /** Keep all handlers closed until matching tools and scope notices have been published. */
+  blockDispatch(): () => void {
+    this.publicationBlocks++;
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      this.publicationBlocks--;
+    };
+  }
+
   isConnectionCurrent(generation: number): boolean {
-    return !this.disposed && generation === this.state.connectionGeneration;
+    return (
+      !this.disposed &&
+      this.publicationBlocks === 0 &&
+      generation === this.state.connectionGeneration
+    );
   }
 
   captureExecution(generation: number, context: string): ClusterExecutionSnapshot | undefined {

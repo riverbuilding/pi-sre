@@ -135,6 +135,177 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
     return notify;
   }
 
+  async function inspect(context: string, tool = runtime.session.getToolDefinition("pods_list")) {
+    if (!tool) throw new Error("Expected diagnostic tool");
+    return tool.execute("inspect", { context }, undefined, undefined, {} as never);
+  }
+
+  it.each(["exact", "all"] as const)(
+    "reconciles %s scope, tools and notices before reopening dispatch",
+    async (kind) => {
+      await configure(
+        "diagnostic-success",
+        process.execPath,
+        kind === "exact" ? ["alpha", "beta"] : ["*"],
+      );
+      await start();
+      const selection = controller.clusterContext.state.selection;
+      const old = runtime.session.getToolDefinition("pods_list");
+      const setWidget = vi.fn();
+      await runtime.session.bindExtensions({
+        uiContext: { ...runtime.session.extensionRunner.getUIContext(), setWidget },
+      });
+      const attempted: ReturnType<typeof inspect>[] = [];
+      const unsubscribe = controller.subscribe((state) => {
+        if (state.status !== "ready" || controller.clusterContext.state.inventoryRevision !== 2)
+          return;
+        // Reentrant listeners must see a matching inventory/schema, but cannot dispatch yet.
+        expect(controller.discoveryReport).toBeDefined();
+        expect(
+          controller.clusterContext.state.inventory?.contexts.map((entry) => entry.name),
+        ).toEqual(["alpha", "gamma"]);
+        attempted.push(inspect("alpha"));
+        const enumeration = state.tools.find((tool) => tool.name === "configuration_contexts_list");
+        if (!enumeration) throw new Error("Expected enumeration tool");
+        attempted.push(invoke(enumeration));
+      });
+      const unsubscribeScope = controller.clusterContext.subscribe((scope) => {
+        if (scope.status !== "resolved" || scope.inventoryRevision !== 2) return;
+        expect(controller.snapshot.status).toBe("ready");
+        expect(runtime.session.getToolDefinition("pods_list")).toBeDefined();
+        expect(runtime.session.messages.at(-1)).toMatchObject({
+          content: expect.stringContaining('added: 1 ["gamma"]'),
+        });
+        expect(setWidget.mock.lastCall?.[1]).toEqual(
+          expect.arrayContaining(['removed: 1 ["beta"].']),
+        );
+        attempted.push(inspect("alpha"));
+        expect(() => controller.clusterContext.select("alpha")).toThrow("publication");
+      });
+      // Reloaded config does not replace the session-owned rule.
+      await configure("diagnostic-reconciled", process.execPath, ["gamma"]);
+      await command("--force");
+      unsubscribe();
+      unsubscribeScope();
+      expect(attempted).toHaveLength(3);
+      for (const result of await Promise.all(attempted))
+        expect(result).toMatchObject({
+          isError: true,
+          details: { failureCategory: "stale-scope" },
+        });
+      expect(controller.clusterContext.state.selection).toBe(selection);
+      expect(controller.clusterContext.state.inventoryTransition).toEqual({
+        added: ["gamma"],
+        removed: ["beta"],
+        changed: ["alpha"],
+      });
+      expect(await inspect("alpha")).toMatchObject({
+        isError: false,
+        details: { scope: { context: "alpha", connectionGeneration: 2, inventoryRevision: 2 } },
+      });
+      expect(await inspect("beta")).toMatchObject({ isError: true });
+      expect(await inspect("gamma")).toMatchObject({ isError: kind === "exact" });
+      expect(await inspect("alpha", old)).toMatchObject({
+        isError: true,
+        details: { failureCategory: "stale-scope" },
+      });
+      const calls = await readFile(`${pids.at(-1)}.calls`, "utf8");
+      expect(calls).not.toContain('"context":"beta"');
+      if (kind === "exact") expect(calls).not.toContain('"context":"gamma"');
+      else
+        expect(runtime.session.messages.at(-1)).toMatchObject({
+          content: expect.stringContaining("Added contexts are not checked"),
+        });
+
+      await configure("diagnostic-success");
+      await command("--force");
+      expect(controller.clusterContext.state.selection).toBe(selection);
+      expect(controller.clusterContext.state.inventoryTransition).toEqual({
+        added: ["beta"],
+        removed: ["gamma"],
+        changed: ["alpha"],
+      });
+      expect(await inspect("beta")).toMatchObject({
+        isError: false,
+        details: { scope: { context: "beta" } },
+      });
+    },
+  );
+
+  it.each(["exact", "all"] as const)(
+    "publishes replacement schemas only for compatible permitted %s targets",
+    async (kind) => {
+      await configure(
+        "diagnostic-success",
+        process.execPath,
+        kind === "exact" ? ["alpha", "beta"] : ["*"],
+      );
+      await start();
+      await configure("diagnostic-reconciled-restricted");
+      await command("--force");
+      expect(runtime.session.getActiveToolNames().includes("pods_list")).toBe(kind === "all");
+      expect(runtime.session.getActiveToolNames()).toContain("pods_get");
+      if (kind === "all") {
+        expect(await inspect("alpha")).toMatchObject({
+          isError: true,
+          details: { failureCategory: "invalid-arguments" },
+        });
+        expect(await inspect("gamma")).toMatchObject({ isError: false });
+      }
+    },
+  );
+
+  it.each(["diagnostic-inventory-error", "diagnostic-inventory-malformed", "diagnostic-empty"])(
+    "retains selection and recovers after %s without granting stale inventory authority",
+    async (scenario) => {
+      await configure("diagnostic-success", process.execPath, ["alpha", "beta"]);
+      await start();
+      const selection = controller.clusterContext.state.selection;
+      const inventory = controller.clusterContext.state.inventory;
+      const old = runtime.session.getToolDefinition("pods_list");
+      await configure(scenario);
+      await command("--force");
+      expect(controller.snapshot.status).toBe("ready");
+      expect(runtime.session.getActiveToolNames()).not.toContain("pods_list");
+      expect(controller.clusterContext.state.selection).toBe(selection);
+      if (scenario !== "diagnostic-empty") {
+        expect(controller.clusterContext.state.status).toBe("enumeration-failed");
+        expect(controller.clusterContext.state.inventory).toBe(inventory);
+        expect(controller.clusterContext.state.inventoryRevision).toBe(1);
+        expect(runtime.session.getActiveToolNames()).toEqual([]);
+      } else {
+        expect(controller.clusterContext.state.resolution).toEqual({
+          status: "resolved",
+          available: [],
+          unavailable: ["alpha", "beta"],
+        });
+      }
+      expect(await inspect("alpha", old)).toMatchObject({ isError: true });
+      await configure("diagnostic-success");
+      await command(scenario === "diagnostic-empty" ? "--force" : "");
+      expect(controller.clusterContext.state.selection).toBe(selection);
+      expect(await inspect("beta")).toMatchObject({ isError: false });
+    },
+  );
+
+  it("keeps authorization failures local to their exact target after reconnect", async () => {
+    await configure("diagnostic-success");
+    await start();
+    await configure("diagnostic-beta-authorization");
+    await command("--force");
+    const state = controller.clusterContext.state;
+    expect(await inspect("beta")).toMatchObject({
+      isError: true,
+      details: { failureCategory: "authorization-failed", scope: { context: "beta" } },
+    });
+    expect(await inspect("alpha")).toMatchObject({
+      isError: false,
+      details: { scope: { context: "alpha" } },
+    });
+    expect(controller.clusterContext.state).toBe(state);
+    expect(controller.snapshot.status).toBe("ready");
+  });
+
   it("numbers repeated no-ops and status across commands/reload, and isolates new sessions", async () => {
     await configure("diagnostic-success");
     await start("alpha");

@@ -52,6 +52,22 @@ function listToolsResult(scenario: string, params?: FixtureParams): Record<strin
       })),
     };
   }
+  if (scenario === "diagnostic-reconciled-restricted")
+    return {
+      tools: captured.cases["multiple-default"].descriptors.map((tool) => ({
+        ...tool,
+        inputSchema:
+          tool.name === "pods_list"
+            ? {
+                ...tool.inputSchema,
+                properties: {
+                  ...tool.inputSchema.properties,
+                  context: { type: "string", const: "gamma" },
+                },
+              }
+            : tool.inputSchema,
+      })),
+    };
   if (scenario.startsWith("diagnostic-"))
     return { tools: captured.cases["multiple-default"].descriptors };
   if (scenario.startsWith("scoped-")) {
@@ -97,6 +113,21 @@ function callToolResult(scenario: string, params?: FixtureParams): Record<string
     if (params?.name === "configuration_contexts_list") {
       if (scenario === "diagnostic-empty")
         return { content: [], structuredContent: { contexts: [] } };
+      if (scenario === "diagnostic-inventory-error")
+        return { content: [{ type: "text", text: "401 Unauthorized" }], isError: true };
+      if (scenario === "diagnostic-inventory-malformed")
+        return { content: [], structuredContent: { contexts: ["alpha"] } };
+      if (scenario.startsWith("diagnostic-reconciled"))
+        return {
+          content: [],
+          structuredContent: {
+            defaultContext: "gamma",
+            contexts: [
+              { name: "alpha", server: "https://changed.example.invalid", default: false },
+              { name: "gamma", server: "https://shared.example.invalid", default: true },
+            ],
+          },
+        };
       return {
         content: [],
         structuredContent: {
@@ -110,6 +141,8 @@ function callToolResult(scenario: string, params?: FixtureParams): Record<string
         },
       };
     }
+    if (scenario === "diagnostic-beta-authorization" && params?.arguments?.context === "beta")
+      return { content: [{ type: "text", text: "403 Forbidden" }], isError: true };
     if (
       ["diagnostic-authentication", "diagnostic-authorization", "diagnostic-operation"].includes(
         scenario,

@@ -1,6 +1,6 @@
 # Phase 3 Implementation Slices — Context Selection and Multi-Cluster Routing
 
-**Status:** Accepted plan, October 18, 2026. Slice 0 contracts frozen on October 19, 2026 in [PHASE3_CONTRACTS.md](./PHASE3_CONTRACTS.md). Slice 1 implements rule state, startup, and CLI; Slice 2 implements explicit model routing; Slices 3–5 remain pending.
+**Status:** Accepted plan, October 18, 2026. Slice 0 contracts frozen on October 19, 2026 in [PHASE3_CONTRACTS.md](./PHASE3_CONTRACTS.md). Slice 1 implements rule state, startup, and CLI; Slice 2 implements explicit model routing; Slice 3 implements transactional recovery and inventory notices; Slices 4–5 remain pending.
 
 **Scheduling amendment (2026-10-20):** Slice 2 uses Pi sequential tool execution. Parallel scheduling, shared capacity admission, and overlapping-call tests move to a separate pending Slice 4a.
 
@@ -117,6 +117,14 @@ Update `tool-policy.ts`, `tool-call-preparation.ts`, and `tool-bridge.ts` togeth
 Update `mcp-controller.ts` and state publication to reconcile schemas, inventory, rule resolution, and connection generations as one usable boundary. Build replacement tools only against the corresponding inventory and current rule.
 
 **Acceptance:** Added/removed/reappearing contexts distinguish exact/all behavior; failed enumeration blocks calls; zero resolution retains intent; old generation calls cannot return fresh success; per-context failures leave other targets usable.
+
+**Implemented (2026-10-20):** Reconnect blocks every bridged handler before generation invalidation and keeps the gate closed through synchronous tool publication and downstream scope/UI/model notifications. Replacement discovery completes before registry installation; the controller's first scope listener publishes tools filtered against that inventory and the unchanged rule before other scope listeners run. Reentrant publication listeners cannot dispatch diagnostics or enumeration, or change selection. Enumeration failure retains the last successful inventory for inspection, publishes no tools, and blocks diagnostics. Empty resolution retains intent and exposes no diagnostic tools. Unexpected publication failure withdraws tools and authority.
+
+Successful reconciliation records immutable added/removed/changed name sets relative to the last successful inventory. The widget, command feedback, and persistent model scope snapshot show bounded names/counts without endpoint metadata. Live `*` additions are explicitly not checked; exact additions remain outside permission, missing selected members become unavailable, and reappearing selected members become usable without amending selection. Metadata changes do not establish health. Existing cancellation, late-result withholding, and per-target failure categories remain intact; interrupted calls are not replayed.
+
+**Validation (2026-10-20):** Production Pi/stdio recovery tests cover `{alpha, beta}` → `{alpha, gamma}` and reappearance for exact/all rules, unchanged selection despite config reload, metadata/default changes, reentrant dispatch/selection refusal, UI/model notice ordering, target-compatible replacement schemas, failed/malformed/empty enumeration and recovery, old-handler refusal, and per-context authorization isolation. Existing delayed-result/cancellation tests continue to pass. Notice bounds are unit-tested at 1,024 contexts. Formatting, lint, type checks, the full suite (474 passed; 7 optional executable-dependent tests skipped), build, and diff checks passed. No installed-terminal or live-cluster acceptance was performed.
+
+**Slice boundary:** Full rule/member presentation and pagination remain Slice 4. Pi tool execution remains sequential; shared capacity admission and overlapping-call acceptance remain Slice 4a. Installed-terminal and disposable-cluster acceptance remain Slice 5. No incident, evidence, coverage store, new diagnostic operation, or mutation workflow is added.
 
 ### Slice 4 — Unified command, prompt, and TUI
 

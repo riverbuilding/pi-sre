@@ -75,6 +75,27 @@ describe("operational scope presentation", () => {
     );
   });
 
+  it("bounds reconnect notices and omits endpoint metadata", () => {
+    const manager = new ClusterContextManager();
+    manager.acceptRegistry(manager.beginConnection(), new ClusterContextRegistry([]));
+    manager.acceptRegistry(
+      manager.beginConnection(),
+      new ClusterContextRegistry(
+        Array.from({ length: 1024 }, (_, index) => ({
+          name: `${index}-${"x".repeat(900)}`,
+          server: "https://private.invalid",
+          isDefault: false,
+        })),
+      ),
+    );
+    const description = createClusterScopeDescription(manager.state);
+    expect(description).toContain("added: 1024");
+    expect(description).toContain("1023 more");
+    expect(description).toContain("Added contexts are not checked");
+    expect(description.length).toBeLessThan(3000);
+    expect(description).not.toContain("private.invalid");
+  });
+
   it("does not render terminal controls or credential diagnostics", () => {
     const manager = new ClusterContextManager();
     manager.markUnavailable("Failure\u001b[2J\nAuthorization: Bearer supersecret\u202e");

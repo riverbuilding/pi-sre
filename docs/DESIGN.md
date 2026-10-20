@@ -511,6 +511,16 @@ Call preparation copies arguments, handles context according to the incident rul
 
 ---
 
+## 11.1 Dynamic Tools and Prompt Cache Preservation
+
+Track implementation and verification in [Dynamic Tool Changes and Prompt Cache Preservation](./DYNAMIC_TOOL_PROMPT_CACHE_PLAN.md). This is planned runtime optimization work; the current Pi dependency baseline remains 0.99.0 and no cache-preservation guarantee is claimed.
+
+Pi owns provider-specific serialization of tool declarations and transcript changes. Pi SRE should adopt supported upstream append-only tool updates, keep unchanged declarations and ordering deterministic, and measure actual request prefixes and cache usage for each supported provider/model/authentication path. Dynamic scope and availability remain bounded application messages rather than repeated system-prompt rewrites. A dependency upgrade must verify Pi SRE's real hide/re-register and reconnect paths, including hidden-declaration and forced-prompt projections; upstream merge status alone does not establish local support.
+
+Cache preservation never grants execution authority. Tools withdrawn by policy or availability remain unreachable; every call still validates its schema, exact context, current scope, and connection generation. Reconnect retains its dispatch gate and stale-result rejection. Historical definitions or provider removal notices cannot authorize calls. Unsupported provider paths may rebuild declarations and incur cache misses while preserving correct behavior. This work does not gate or renumber the existing phase plan.
+
+---
+
 # 12. Tool Filtering
 
 The Kubernetes MCP Server contains both read and write capabilities.
