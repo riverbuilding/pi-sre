@@ -29,17 +29,15 @@ describe("discovered MCP argument schemas", () => {
     );
   });
 
-  it("uses discovered constraints and hides only application-owned context", () => {
+  it("uses discovered constraints and requires model context", () => {
     const prepared = prepareMcpToolSchema(descriptor);
-    expect(prepared.transportParameters).toEqual(descriptor.inputSchema);
-    expect(prepared.modelParameters).toMatchObject({ required: ["name"] });
-    expect(prepared.modelParameters).not.toHaveProperty("properties.context");
-    expect(prepared.validateModelArguments({ name: "api", detail: null })).toBe(true);
+    expect(prepared.parameters).toMatchObject({ required: ["context", "name"] });
+    expect(prepared.parameters).toHaveProperty("properties.context");
+    expect(prepared.validateArguments({ name: "api", context: "alpha", detail: null })).toBe(true);
     for (const args of [{}, { name: "x" }, { name: 1 }, { name: "api", extra: true }])
-      expect(prepared.validateModelArguments(args)).toBe(false);
-    expect(prepared.validateTransportArguments({ name: "api", context: "alpha" })).toBe(true);
-    expect(prepared.validateTransportArguments({ name: "api", context: "beta" })).toBe(false);
-    expect(prepared.validateTransportArguments({ name: "api" })).toBe(false);
+      expect(prepared.validateArguments(args)).toBe(false);
+    expect(prepared.validateArguments({ name: "api", context: "beta" })).toBe(false);
+    expect(prepared.validateArguments({ name: "api" })).toBe(false);
     expect(acceptsToolContext(descriptor, "alpha")).toBe(true);
     expect(acceptsToolContext(descriptor, "beta")).toBe(false);
     expect(descriptor.inputSchema.required).toEqual(["context", "name"]);
@@ -49,7 +47,7 @@ describe("discovered MCP argument schemas", () => {
     const tool = structuredClone(descriptor);
     const prepared = prepareMcpToolSchema(tool);
     Object.assign(tool.inputSchema, { required: [] });
-    expect(prepared.validateTransportArguments({})).toBe(false);
+    expect(prepared.validateArguments({})).toBe(false);
   });
 
   it("honors server object openness instead of imposing a local argument list", () => {
@@ -57,14 +55,18 @@ describe("discovered MCP argument schemas", () => {
       ...descriptor,
       inputSchema: { ...descriptor.inputSchema, additionalProperties: true },
     };
-    expect(prepareMcpToolSchema(tool).validateModelArguments({ name: "api", newArgument: 5 })).toBe(
-      true,
-    );
+    expect(
+      prepareMcpToolSchema(tool).validateArguments({
+        name: "api",
+        context: "alpha",
+        newArgument: 5,
+      }),
+    ).toBe(true);
   });
 
   it("keeps output declarations out of argument admission and validation", () => {
     const prepared = prepareMcpToolSchema({ ...descriptor, outputSchema: { type: "array" } });
-    expect(prepared.validateModelArguments({ name: "api" })).toBe(true);
+    expect(prepared.validateArguments({ name: "api", context: "alpha" })).toBe(true);
   });
 
   it("does not dispatch when a server constraint cannot be evaluated", () => {
@@ -72,7 +74,7 @@ describe("discovered MCP argument schemas", () => {
       name: "configuration_contexts_list",
       inputSchema: { type: "object", properties: { name: { type: "string", pattern: "[" } } },
     });
-    expect(prepared.validateModelArguments({ name: "api" })).toBe(false);
+    expect(prepared.validateArguments({ name: "api" })).toBe(false);
   });
 
   it("accepts optional enumeration arguments but requires startup enumeration to accept {}", async () => {

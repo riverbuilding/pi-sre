@@ -34,7 +34,13 @@ describe("reviewed diagnostic contracts", () => {
   it.each([0, -1, 1001, 1.5, "100", null, Infinity])("rejects unsafe log tail %j", async (tail) => {
     const { tool, callTool } = bridge();
     expect(
-      await tool.execute("log", { name: "api", tail }, undefined, undefined, {} as never),
+      await tool.execute(
+        "log",
+        { context: "beta", name: "api", tail },
+        undefined,
+        undefined,
+        {} as never,
+      ),
     ).toMatchObject({ isError: true, details: { failureCategory: "invalid-arguments" } });
     expect(callTool).not.toHaveBeenCalled();
   });
@@ -43,7 +49,7 @@ describe("reviewed diagnostic contracts", () => {
     const { tool, callTool } = bridge();
     await tool.execute(
       "log",
-      { name: "api", ...(tail === undefined ? {} : { tail }) },
+      { context: "beta", name: "api", ...(tail === undefined ? {} : { tail }) },
       undefined,
       undefined,
       {} as never,
@@ -67,7 +73,13 @@ describe("reviewed diagnostic contracts", () => {
     async (args) => {
       const { tool, callTool } = bridge();
       expect(
-        await tool.execute("log", { name: "api", ...args }, undefined, undefined, {} as never),
+        await tool.execute(
+          "log",
+          { context: "beta", name: "api", ...args },
+          undefined,
+          undefined,
+          {} as never,
+        ),
       ).toMatchObject({ isError: true, details: { failureCategory: "invalid-arguments" } });
       expect(callTool).not.toHaveBeenCalled();
     },
@@ -76,7 +88,9 @@ describe("reviewed diagnostic contracts", () => {
   it("enforces execution limits in the Pi preparation hook as well as direct execution", () => {
     const { tool, callTool } = bridge();
     for (const tail of [0, 1001]) {
-      expect(() => tool.prepareArguments?.({ name: "api", tail })).toThrow("Invalid arguments");
+      expect(() => tool.prepareArguments?.({ context: "beta", name: "api", tail })).toThrow(
+        "Invalid arguments",
+      );
     }
     expect(callTool).not.toHaveBeenCalled();
   });
@@ -89,11 +103,18 @@ describe("reviewed diagnostic contracts", () => {
       properties: { name: { type: "string" }, tail: { type: "integer" } },
     });
     expect(
-      await tool.execute("log", { name: "api", tail: 1001 }, undefined, undefined, {} as never),
+      await tool.execute(
+        "log",
+        { context: "beta", name: "api", tail: 1001 },
+        undefined,
+        undefined,
+        {} as never,
+      ),
     ).toMatchObject({ isError: true, details: { failureCategory: "invalid-arguments" } });
     expect(callTool).not.toHaveBeenCalled();
-    expect(tool.prepareArguments?.({ name: "api", context: "alpha" })).toEqual({
+    expect(tool.prepareArguments?.({ context: "beta", name: "api" })).toEqual({
       name: "api",
+      context: "beta",
       tail: 100,
     });
   });

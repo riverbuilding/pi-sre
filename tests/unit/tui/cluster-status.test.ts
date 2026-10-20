@@ -27,7 +27,7 @@ describe("operational scope presentation", () => {
         ),
       );
       const lines = createClusterStatusLines(manager.state);
-      expect(lines).toContain(empty ? "Cluster: NOT CONFIGURED" : 'Cluster: "alpha"');
+      expect(lines).toContain(empty ? "Cluster: NOT CONFIGURED" : 'Cluster: "alpha" (live *)');
       expect(lines[0]).toBe("READ ONLY");
       const description = createClusterScopeDescription(manager.state);
       expect(description).toContain(
@@ -37,6 +37,43 @@ describe("operational scope presentation", () => {
       expect(description).not.toMatch(/password|secret|example.invalid/);
     },
   );
+
+  it("keeps live all visible as inventory grows from one context to several", () => {
+    const manager = new ClusterContextManager();
+    for (const names of [["alpha"], ["alpha", "beta"]]) {
+      manager.acceptRegistry(
+        manager.beginConnection(),
+        new ClusterContextRegistry(
+          names.map((name) => ({ name, server: "https://example.invalid", isDefault: false })),
+        ),
+      );
+      expect(manager.state.status).toBe("resolved");
+      expect(manager.state.selection.rule).toEqual({ kind: "all" });
+      const description = createClusterScopeDescription(manager.state);
+      expect(description).toContain("Selection rule: live *");
+      expect(description).toContain(`Resolution: ${names.length} available, 0 unavailable`);
+      expect(description).toContain("Supply one exact context on every diagnostic call.");
+    }
+  });
+
+  it("shows missing members when an exact set has one available context", () => {
+    const manager = new ClusterContextManager({
+      rule: { kind: "exact", contexts: ["alpha", "beta"] },
+    });
+    for (const names of [["alpha", "beta"], ["alpha"]]) {
+      manager.acceptRegistry(
+        manager.beginConnection(),
+        new ClusterContextRegistry(
+          names.map((name) => ({ name, server: "https://example.invalid", isDefault: false })),
+        ),
+      );
+    }
+    expect(manager.state.status).toBe("resolved");
+    expect(createClusterStatusLines(manager.state)).toContain('Cluster: "alpha"');
+    expect(createClusterScopeDescription(manager.state)).toContain(
+      "Resolution: 1 available, 1 unavailable",
+    );
+  });
 
   it("does not render terminal controls or credential diagnostics", () => {
     const manager = new ClusterContextManager();

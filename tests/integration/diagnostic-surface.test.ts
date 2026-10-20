@@ -46,13 +46,9 @@ describe("reviewed diagnostics through controller, Pi, and managed stdio", () =>
         await controller.restart(false, true);
         runtime = await createSreRuntime(config, [], undefined, controller);
         await runtime.session.bindExtensions({});
-        if (scenario === "diagnostic-unbound") {
-          expect(controller.snapshot.tools.map((tool) => tool.name)).toEqual([
-            "configuration_contexts_list",
-          ]);
-          runtime.session.setActiveToolsByName([...names, "bash", "resources_get"]);
-          expect(runtime.session.getActiveToolNames()).toEqual(["configuration_contexts_list"]);
-        }
+        expect(controller.snapshot.tools.map((tool) => tool.name)).toEqual(names);
+        runtime.session.setActiveToolsByName([...names, "bash", "resources_get"]);
+        expect(runtime.session.getActiveToolNames()).toEqual(names);
         await runtime.session.prompt("/clusters beta");
         expect(runtime.session.getActiveToolNames()).toEqual(names);
         expect(controller.snapshot.tools.map((tool) => tool.name)).toEqual(names);
@@ -73,7 +69,7 @@ describe("reviewed diagnostics through controller, Pi, and managed stdio", () =>
         if (scenario === "diagnostic-evolved") {
           const pod = runtime.session.getToolDefinition("pods_get");
           if (!pod) throw new Error("Expected evolved diagnostic tool");
-          expect(pod.parameters).toMatchObject({ required: ["name", "view"] });
+          expect(pod.parameters).toMatchObject({ required: ["name", "view", "context"] });
           for (const args of [{ name: "api" }, { name: "api", view: "invalid" }]) {
             expect(
               await pod.execute("invalid", args, undefined, undefined, {} as never),
@@ -87,10 +83,10 @@ describe("reviewed diagnostics through controller, Pi, and managed stdio", () =>
         for (const [name, args] of requests) {
           const tool = runtime.session.getToolDefinition(name);
           if (!tool) throw new Error("Expected diagnostic tool");
-          expect(JSON.stringify(tool.parameters)).not.toContain('"context"');
+          expect(JSON.stringify(tool.parameters)).toContain('"context"');
           const result = await tool.execute(
             name,
-            { ...args, context: "alpha" },
+            { ...args, context: "beta" },
             undefined,
             undefined,
             {} as never,
@@ -116,7 +112,24 @@ describe("reviewed diagnostics through controller, Pi, and managed stdio", () =>
           })),
         ]);
 
+        const previous = runtime.session.getToolDefinition("pods_list");
+        const previousEnumeration = runtime.session.getToolDefinition(
+          "configuration_contexts_list",
+        );
         await runtime.session.reload();
+        for (const retained of [previous, previousEnumeration]) {
+          if (!retained) throw new Error("Expected pre-reload tool");
+          expect(runtime.session.getToolDefinition(retained.name)).toBe(retained);
+          expect(
+            await retained.execute(
+              "retained",
+              retained.name === "pods_list" ? { context: "beta" } : {},
+              undefined,
+              undefined,
+              {} as never,
+            ),
+          ).toMatchObject({ isError: false });
+        }
         expect(runtime.session.getActiveToolNames()).toEqual(names);
         const captured = runtime.session.getToolDefinition("pods_list");
         if (!captured) throw new Error("Expected captured tool");
@@ -134,7 +147,7 @@ describe("reviewed diagnostics through controller, Pi, and managed stdio", () =>
             .map((tool) => tool.name),
         ).toEqual(["configuration_contexts_list"]);
         expect(
-          await captured.execute("blocked", {}, undefined, undefined, {} as never),
+          await captured.execute("blocked", { context: "beta" }, undefined, undefined, {} as never),
         ).toMatchObject({ isError: true, details: { failureCategory: "scope-unavailable" } });
         expect(runtime.session.getCallableToolNames()).toEqual(["configuration_contexts_list"]);
         expect(await calls()).toEqual(before);

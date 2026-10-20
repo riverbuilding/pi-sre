@@ -796,7 +796,7 @@ Never implement selection or routing with `kubectl config use-context` or other 
 
 # 28. Scope Rule and Execution Authority
 
-Phase 3 captures the session rule/revision, exact context, inventory revision, connection generation, and session binding per call. Phase 4 extends that execution seam with `Incident.scope.rule` as the durable incident boundary. The application computes its current resolution and checks each target against inventory, discovered tool constraints, lifecycle, and budgets.
+Phase 3 captures the session rule/revision, exact context, inventory revision, and connection generation per call. Pi owns agent cancellation and settlement before conversation replacement; interactive reload requires idle work. Pi SRE does not add runtime attachment tokens or a separate detach protocol. Phase 4 extends that execution seam with `Incident.scope.rule` as the durable incident boundary. The application computes its current resolution and checks each target against inventory, discovered tool constraints, lifecycle, and budgets.
 
 The Phase 4 incident execution lease adds incident ID and lifecycle epoch to the Phase 3 execution snapshot, alongside scope revision, one exact context, inventory revision, and connection generation. It is not a global active-context pointer. Ordinary evidence updates and next-selection changes do not invalidate other good calls. Connection replacement, incident/session replacement, conclusion, and cancellation invalidate pending authority.
 

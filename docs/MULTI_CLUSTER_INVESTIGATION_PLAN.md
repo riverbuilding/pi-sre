@@ -25,7 +25,7 @@ Phase 3 keeps these values separate:
 1. **Inventory:** validated MCP context identities and sanitized metadata.
 2. **Session selection:** the user's exact/all rule and selection revision.
 3. **Resolution:** current permitted/available contexts and unavailable previously known members.
-4. **Execution snapshot:** one call's session binding, exact context, selection revision, inventory revision, and connection generation.
+4. **Execution snapshot:** one call's exact context, selection revision, inventory revision, and connection generation.
 
 Phase 4 adds next selection for another incident, the active incident's captured rule/scope revision, incident identity/lifecycle, and aggregate evidence revisions. Its execution lease extends the Phase 3 snapshot; it does not replace the routing implementation. The initial Phase 4 delivery has no active-incident rule amendment API. Ordinary evidence updates and next-selection changes do not invalidate incident leases. Incident/session replacement, conclusion, connection replacement, and cancellation do.
 

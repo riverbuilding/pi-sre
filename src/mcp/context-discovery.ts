@@ -157,7 +157,7 @@ export async function discoverClusterContexts(
   const tool = candidates[0];
   if (candidates.length !== 1 || !tool) throw new ContextDiscoveryError("incompatible-tool");
   try {
-    if (!prepareMcpToolSchema(tool).validateTransportArguments({})) throw new McpToolSchemaError();
+    if (!prepareMcpToolSchema(tool).validateArguments({})) throw new McpToolSchemaError();
   } catch (error) {
     if (!(error instanceof McpToolSchemaError)) throw error;
     throw new ContextDiscoveryError("incompatible-tool", undefined, { cause: error });

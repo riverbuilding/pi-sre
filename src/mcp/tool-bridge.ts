@@ -1,6 +1,9 @@
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_RESULT_POLICY, type ResultPolicy } from "../config/schema.js";
-import type { ClusterContextManager, ClusterScopeSnapshot } from "../cluster/context-manager.js";
+import type {
+  ClusterExecutionAuthority,
+  ClusterExecutionSnapshot,
+} from "../cluster/context-manager.js";
 import {
   classifyToolFailure,
   normalizeMcpResult,
@@ -13,16 +16,20 @@ import type { McpConnection } from "./connection.js";
 import type { McpToolDescriptor } from "./tool-discovery.js";
 import { evaluateToolPolicy, prepareMcpToolSchema } from "../runtime/tool-policy.js";
 import { prepareMcpToolArguments } from "../runtime/tool-call-preparation.js";
-import { allowsMcpToolExecution } from "../runtime/tool-execution-policy.js";
+import {
+  allowsMcpToolExecution,
+  validateMcpToolExecution,
+} from "../runtime/tool-execution-policy.js";
 import { redactDiagnosticText } from "./redaction.js";
 
 export interface ToolScopeBinding {
-  readonly manager: ClusterContextManager;
+  readonly manager: ClusterExecutionAuthority;
   readonly connectionGeneration: number;
 }
 
 export interface McpToolScope {
   readonly context: string;
+  readonly namespacePolicy: "unrestricted";
   /** Omission means server/context policy, not an all-namespace query. */
   readonly namespace?: string;
   readonly readOnly: true;
@@ -86,10 +93,10 @@ export function createMcpToolBridge(
   policy: ResultPolicy = DEFAULT_RESULT_POLICY,
   binding?: ToolScopeBinding,
 ): ToolDefinition {
-  const validated = prepareMcpToolSchema(descriptor);
+  const schema = prepareMcpToolSchema(descriptor);
   // Capture the approved name; descriptor and public schema mutations cannot change calls.
   const tool = { name: descriptor.name };
-  const { policy: toolPolicy, modelParameters } = validated;
+  const { policy: toolPolicy } = schema;
   const clusterDependent = toolPolicy.clusterDependent;
   if (clusterDependent && !binding) {
     throw new Error(
@@ -97,17 +104,20 @@ export function createMcpToolBridge(
     );
   }
 
+  const authority = binding?.manager;
+  const generation = binding?.connectionGeneration;
   const mapping: ToolNameMapping = { piName: tool.name, mcpName: tool.name };
   function prepareArguments(value: unknown): Record<string, unknown> | undefined {
     const args = prepareMcpToolArguments(toolPolicy, value);
-    if (!args || !validated.validateModelArguments(args)) return undefined;
+    if (!args || !schema.validateArguments(args)) return undefined;
     return allowsMcpToolExecution(tool.name, args) ? args : undefined;
   }
   return {
     name: mapping.piName,
     label: mapping.piName,
     description: `${descriptor.description ?? descriptor.name}${tool.name === "pods_log" ? " Pi SRE limits: tail defaults to 100 lines; allowed range 1–1000; streaming is disabled." : ""}`,
-    parameters: structuredClone(modelParameters),
+    parameters: structuredClone(schema.parameters),
+    executionMode: "sequential",
     prepareArguments(args: unknown) {
       const prepared = prepareArguments(args);
       if (!prepared) throw new Error("Invalid arguments for the Kubernetes MCP tool.");
@@ -115,81 +125,66 @@ export function createMcpToolBridge(
     },
     async execute(_toolCallId, params, signal) {
       signal?.throwIfAborted();
-      if (evaluateToolPolicy(tool).status !== "exposed") {
-        return bridgeResult(normalizeToolFailure("tool-not-approved", policy), mapping);
-      }
-      if (binding && binding.manager.state.connectionGeneration !== binding.connectionGeneration) {
-        return bridgeResult(normalizeToolFailure("stale-scope", policy), mapping);
-      }
-      if (connection.state && connection.state !== "ready") {
-        return bridgeResult(normalizeToolFailure("transport-unavailable", policy), mapping);
-      }
-      const args = prepareArguments(params);
-      if (!args) {
-        return bridgeResult(normalizeToolFailure("invalid-arguments", policy), mapping);
-      }
-      let snapshot: ClusterScopeSnapshot | undefined;
+      const fail = (category: ToolFailureCategory, scope?: McpToolScope) =>
+        bridgeResult(normalizeToolFailure(category, policy), mapping, scope, policy);
+      const connectionCurrent = () =>
+        !authority || (generation !== undefined && authority.isConnectionCurrent(generation));
+      if (evaluateToolPolicy(tool).status !== "exposed") return fail("tool-not-approved");
+      if (!connectionCurrent()) return fail("stale-scope");
+      if (connection.state && connection.state !== "ready") return fail("transport-unavailable");
+      const args = prepareMcpToolArguments(toolPolicy, params);
+      if (!args || !schema.validateArguments(args)) return fail("invalid-arguments");
+      const execution = validateMcpToolExecution(toolPolicy, args, authority?.state);
+      if (!execution.ok) return fail(execution.category);
+      let snapshot: ClusterExecutionSnapshot | undefined;
       let scope: McpToolScope | undefined;
-      if (clusterDependent && binding) {
-        snapshot = binding.manager.captureScope();
-        if (!snapshot) {
-          return bridgeResult(normalizeToolFailure("scope-unavailable", policy), mapping);
-        }
-        args.context = snapshot.context;
-        scope = {
-          context: snapshot.context,
-          ...(typeof args.namespace === "string"
-            ? { namespace: redactDiagnosticText(args.namespace).slice(0, 253) }
-            : {}),
-          readOnly: true,
-          connectionGeneration: snapshot.connectionGeneration,
-          inventoryRevision: snapshot.inventoryRevision,
-          selectionRevision: snapshot.selectionRevision,
-        };
-      }
-      if (!validated.validateTransportArguments(args)) {
-        return bridgeResult(
-          normalizeToolFailure("incompatible-schema", policy),
-          mapping,
-          scope,
-          policy,
-        );
-      }
-      // Also protect direct bridge callers, independently of Pi's agent lifecycle hooks.
-      const release = snapshot ? binding?.manager.beginAgentWork() : undefined;
-      let raw: unknown;
+      let release: (() => void) | undefined;
       try {
-        raw = await connection.callTool(mapping.mcpName, args, signal);
-      } catch (error) {
-        if (signal?.aborted) signal.throwIfAborted();
-        if (snapshot && binding && !binding.manager.isCurrent(snapshot)) {
-          return bridgeResult(normalizeToolFailure("stale-scope", policy), mapping, scope, policy);
+        if (execution.context !== undefined && authority && generation !== undefined) {
+          snapshot = authority.captureExecution(generation, execution.context);
+          if (!snapshot) return fail("scope-unavailable");
+          scope = {
+            context: snapshot.context,
+            namespacePolicy: snapshot.namespacePolicy,
+            ...(typeof args.namespace === "string"
+              ? { namespace: redactDiagnosticText(args.namespace).slice(0, 253) }
+              : {}),
+            readOnly: true,
+            connectionGeneration: snapshot.connectionGeneration,
+            inventoryRevision: snapshot.inventoryRevision,
+            selectionRevision: snapshot.selectionRevision,
+          };
         }
-        const category =
-          connection.state && connection.state !== "ready"
-            ? "transport-unavailable"
-            : classifyToolFailure(error);
-        return bridgeResult(normalizeToolFailure(category, policy), mapping, scope, policy);
+        release = authority?.beginAgentWork();
+        const current = () =>
+          connectionCurrent() && (!snapshot || authority?.isExecutionCurrent(snapshot));
+        signal?.throwIfAborted();
+        if (!current()) return fail("stale-scope", scope);
+        let raw: unknown;
+        try {
+          raw = await connection.callTool(mapping.mcpName, args, signal);
+        } catch (error) {
+          signal?.throwIfAborted();
+          if (!current()) return fail("stale-scope", scope);
+          return fail(
+            connection.state && connection.state !== "ready"
+              ? "transport-unavailable"
+              : classifyToolFailure(error),
+            scope,
+          );
+        }
+        signal?.throwIfAborted();
+        if (!current()) return fail("stale-scope", scope);
+        if (connection.state && connection.state !== "ready")
+          return fail("transport-unavailable", scope);
+        const result = bridgeResult(normalizeMcpResult(raw, policy), mapping, scope, policy);
+        signal?.throwIfAborted();
+        if (!current()) return fail("stale-scope", scope);
+        return result;
       } finally {
+        if (snapshot) authority?.releaseExecution(snapshot);
         release?.();
       }
-      signal?.throwIfAborted();
-      if (
-        binding &&
-        (binding.manager.state.connectionGeneration !== binding.connectionGeneration ||
-          (snapshot && !binding.manager.isCurrent(snapshot)))
-      ) {
-        return bridgeResult(normalizeToolFailure("stale-scope", policy), mapping, scope, policy);
-      }
-      if (connection.state && connection.state !== "ready") {
-        return bridgeResult(
-          normalizeToolFailure("transport-unavailable", policy),
-          mapping,
-          scope,
-          policy,
-        );
-      }
-      return bridgeResult(normalizeMcpResult(raw, policy), mapping, scope, policy);
     },
   };
 }

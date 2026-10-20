@@ -1,4 +1,3 @@
-import type { ClusterContext } from "./cluster-context.js";
 import type { ClusterContextRegistry } from "./context-registry.js";
 import {
   createExactClusterRule,
@@ -7,18 +6,27 @@ import {
   type ClusterResolution,
   type ClusterScopeRule,
   type ClusterSelection,
-  type ClusterSelectionSource,
   type StartupClusterIntent,
 } from "./context-resolver.js";
 
-export interface ClusterScopeSnapshot {
-  readonly context: string;
-  readonly namespace: "*";
-  readonly readOnly: true;
-  readonly source: ClusterSelectionSource;
-  readonly connectionGeneration: number;
-  readonly inventoryRevision: number;
+export interface ClusterExecutionSnapshot {
+  readonly rule: ClusterScopeRule;
   readonly selectionRevision: number;
+  readonly inventoryRevision: number;
+  readonly connectionGeneration: number;
+  readonly context: string;
+  readonly namespacePolicy: "unrestricted";
+  readonly readOnly: true;
+}
+
+/** Scope authority seam; independent of Pi and MCP transport. */
+export interface ClusterExecutionAuthority {
+  readonly state: ClusterContextState;
+  isConnectionCurrent(generation: number): boolean;
+  captureExecution(generation: number, context: string): ClusterExecutionSnapshot | undefined;
+  isExecutionCurrent(snapshot: ClusterExecutionSnapshot): boolean;
+  releaseExecution(snapshot: ClusterExecutionSnapshot): void;
+  beginAgentWork(): () => void;
 }
 
 interface StateRevision {
@@ -43,13 +51,6 @@ export type ClusterContextState = StateRevision &
         readonly registry: ClusterContextRegistry;
         readonly message: string;
       }
-    | {
-        readonly status: "bound";
-        readonly registry: ClusterContextRegistry;
-        readonly context: ClusterContext;
-        readonly scope: ClusterScopeSnapshot;
-        readonly message: string;
-      }
   );
 
 const inventoryUnavailable: ClusterResolution = Object.freeze({
@@ -58,7 +59,9 @@ const inventoryUnavailable: ClusterResolution = Object.freeze({
 });
 
 /** Session-owned rule and resolution, independent of transcript and MCP default metadata. */
-export class ClusterContextManager {
+export class ClusterContextManager implements ClusterExecutionAuthority {
+  private disposed = false;
+  private readonly snapshots = new Set<ClusterExecutionSnapshot>();
   private readonly listeners = new Set<(state: ClusterContextState) => void>();
   private readonly work = new Set<symbol>();
   private validatedSelection = false;
@@ -172,33 +175,13 @@ export class ClusterContextManager {
       });
       return;
     }
-    const [context] = resolution.available;
-    if (context && resolution.available.length === 1) {
-      // Singleton projection for the existing bridge; multi-target routing lands in Slice 2.
-      const scope: ClusterScopeSnapshot = Object.freeze({
-        context: context.name,
-        namespace: "*",
-        readOnly: true,
-        source: selection.source,
-        connectionGeneration: common.connectionGeneration,
-        inventoryRevision,
-        selectionRevision: selection.selectionRevision,
-      });
-      this.publishCurrentContextState({
-        ...common,
-        status: "bound",
-        context,
-        scope,
-        message: "Cluster scope selected (authentication and authorization are not verified).",
-      });
-      return;
-    }
     this.publishCurrentContextState({
       ...common,
       status: registry.contexts.length === 0 ? "not-configured" : "resolved",
-      message: context
-        ? "Cluster rule resolved; multi-target diagnostic routing awaits Phase 3 Slice 2."
-        : "No selected contexts are available. Configure MCP Kubernetes access and use /mcp_restart.",
+      message:
+        resolution.available.length > 0
+          ? "Cluster rule resolved (authentication and authorization are not verified)."
+          : "No selected contexts are available. Configure MCP Kubernetes access and use /mcp_restart.",
     });
   }
 
@@ -248,12 +231,44 @@ export class ClusterContextManager {
     );
   }
 
-  captureScope(): ClusterScopeSnapshot | undefined {
-    return this.state.status === "bound" ? this.state.scope : undefined;
+  isConnectionCurrent(generation: number): boolean {
+    return !this.disposed && generation === this.state.connectionGeneration;
   }
 
-  isCurrent(scope: ClusterScopeSnapshot): boolean {
-    return this.state.status === "bound" && this.state.scope === scope;
+  captureExecution(generation: number, context: string): ClusterExecutionSnapshot | undefined {
+    const state = this.state;
+    if (
+      !this.isConnectionCurrent(generation) ||
+      state.resolution.status !== "resolved" ||
+      !state.resolution.available.some((entry) => entry.name === context)
+    )
+      return undefined;
+    const snapshot: ClusterExecutionSnapshot = Object.freeze({
+      rule: state.selection.rule,
+      selectionRevision: state.selection.selectionRevision,
+      inventoryRevision: state.inventoryRevision,
+      connectionGeneration: generation,
+      context,
+      namespacePolicy: "unrestricted",
+      readOnly: true,
+    });
+    this.snapshots.add(snapshot);
+    return snapshot;
+  }
+
+  isExecutionCurrent(snapshot: ClusterExecutionSnapshot): boolean {
+    return (
+      this.snapshots.has(snapshot) &&
+      this.isConnectionCurrent(snapshot.connectionGeneration) &&
+      snapshot.selectionRevision === this.state.selection.selectionRevision &&
+      snapshot.inventoryRevision === this.state.inventoryRevision &&
+      this.state.resolution.status === "resolved" &&
+      this.state.resolution.available.some((entry) => entry.name === snapshot.context)
+    );
+  }
+
+  releaseExecution(snapshot: ClusterExecutionSnapshot): void {
+    this.snapshots.delete(snapshot);
   }
 
   /** Release is idempotent and owned by the calling runtime/extension instance. */
@@ -267,6 +282,8 @@ export class ClusterContextManager {
   }
 
   dispose(): void {
+    this.disposed = true;
+    this.snapshots.clear();
     this.markUnavailable("Kubernetes MCP closed; cluster scope unavailable.");
     this.listeners.clear();
     this.work.clear();

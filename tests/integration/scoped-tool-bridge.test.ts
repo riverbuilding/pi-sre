@@ -54,17 +54,30 @@ describe("Slice 4 scoped bridge over Pi and stdio MCP", () => {
       manager = new ClusterContextManager({ rule: { kind: "exact", contexts: ["beta"] } });
       generation = manager.beginConnection();
       manager.acceptRegistry(generation, await discoverClusterContexts(connection, report));
-      const tool = createMcpToolBridge(scopedPodTool, connection, DEFAULT_RESULT_POLICY, {
-        manager,
-        connectionGeneration: generation,
-      });
+      const managedConnection = connection;
       const services = await createAgentSessionServices({
         cwd: home,
         agentDir: home,
         resourceLoaderOptions: {
           ...createSreResourceLoaderOptions(),
           extensionFactories: [
-            { name: "test-scoped-cluster", factory: (pi) => registerClusterScope(pi, manager) },
+            {
+              name: "test-scoped-cluster",
+              factory: (pi) => {
+                registerClusterScope(pi, manager);
+                const unsubscribe = manager.subscribe(() =>
+                  pi.registerTool(
+                    createMcpToolBridge(scopedPodTool, managedConnection, DEFAULT_RESULT_POLICY, {
+                      manager,
+                      connectionGeneration: generation,
+                    }),
+                  ),
+                );
+                pi.on("session_shutdown", () => {
+                  unsubscribe();
+                });
+              },
+            },
           ],
         },
       });
@@ -72,7 +85,7 @@ describe("Slice 4 scoped bridge over Pi and stdio MCP", () => {
         services,
         sessionManager: SessionManager.inMemory(home),
         noTools: "builtin",
-        customTools: [tool],
+        customTools: [],
       }));
       // The model stream is simulated; only credential preflight is bypassed.
       vi.spyOn(session.modelRuntime, "hasConfiguredAuth").mockReturnValue(true);
@@ -94,8 +107,9 @@ describe("Slice 4 scoped bridge over Pi and stdio MCP", () => {
 
     function simulatePodInvestigation(
       activeSession: AgentSession,
-      args: Record<string, string> = {},
+      args: Record<string, string> = { context: "beta" },
       onRequest?: (context: ModelContext) => void,
+      targets?: readonly string[],
     ): void {
       let turns = 0;
       activeSession.agent.streamFunction = (model, context) => {
@@ -109,7 +123,12 @@ describe("Slice 4 scoped bridge over Pi and stdio MCP", () => {
           provider: model.provider,
           model: model.id,
           content: first
-            ? [{ type: "toolCall", id: "pods", name: "pods_list", arguments: args }]
+            ? (targets ?? [args.context ?? "beta"]).map((context, index) => ({
+                type: "toolCall" as const,
+                id: `pods-${index}`,
+                name: "pods_list",
+                arguments: { ...args, context },
+              }))
             : [{ type: "text", text: "Observed pods in the selected context." }],
           stopReason: first ? "toolUse" : "stop",
           timestamp: Date.now(),
@@ -140,8 +159,8 @@ describe("Slice 4 scoped bridge over Pi and stdio MCP", () => {
         .map((line): unknown => JSON.parse(line));
     }
 
-    it.each([{}, { context: "alpha", labelSelector: "app=api" }])(
-      "injects the exact selected context in an agent-loop call with arguments %j",
+    it.each([{ context: "beta" }, { context: "beta", labelSelector: "app=api" }])(
+      "preserves the exact model context in an agent-loop call with arguments %j",
       async (args) => {
         const activeSession = session!;
         simulatePodInvestigation(activeSession, args);
@@ -168,6 +187,43 @@ describe("Slice 4 scoped bridge over Pi and stdio MCP", () => {
       },
     );
 
+    it("executes model-requested targets sequentially through Pi", async () => {
+      const activeSession = session!;
+      manager.selectRule({ kind: "all" });
+      const firstResponse = Promise.withResolvers<void>();
+      const calls: string[] = [];
+      let firstFinished = false;
+      let overlapped = false;
+      const managedConnection = connection!;
+      const callTool = managedConnection.callTool.bind(managedConnection);
+      vi.spyOn(managedConnection, "callTool").mockImplementation(async (name, args, signal) => {
+        calls.push(String(args.context));
+        if (calls.length === 1) await firstResponse.promise;
+        else overlapped = !firstFinished;
+        const result = await callTool(name, args, signal);
+        firstFinished = true;
+        return result;
+      });
+      simulatePodInvestigation(activeSession, {}, undefined, ["beta", "alpha"]);
+      const pending = activeSession.prompt("Inspect beta and alpha pods");
+      try {
+        await expect.poll(() => calls.length).toBe(1);
+        expect(manager.isAgentActive).toBe(true);
+      } finally {
+        firstResponse.resolve();
+        await pending;
+      }
+      expect(calls).toEqual(["beta", "alpha"]);
+      expect(overlapped).toBe(false);
+      expect(
+        activeSession.messages.filter((message) => message.role === "toolResult"),
+      ).toMatchObject([
+        { isError: false, details: { scope: { context: "beta" } } },
+        { isError: false, details: { scope: { context: "alpha" } } },
+      ]);
+      expect(manager.isAgentActive).toBe(false);
+    });
+
     it("rejects cluster switching throughout an active agent turn", async () => {
       const activeSession = session!;
       const notify = vi.fn();
@@ -175,7 +231,7 @@ describe("Slice 4 scoped bridge over Pi and stdio MCP", () => {
         uiContext: { ...activeSession.extensionRunner.getUIContext(), notify },
       });
       const commands: Promise<void>[] = [];
-      simulatePodInvestigation(activeSession, {}, () => {
+      simulatePodInvestigation(activeSession, { context: "beta" }, () => {
         expect(manager.isAgentActive).toBe(true);
         commands.push(activeSession.prompt("/clusters alpha"));
       });
@@ -197,7 +253,10 @@ describe("Slice 4 scoped bridge over Pi and stdio MCP", () => {
           "warning",
         ],
       ]);
-      expect(manager.captureScope()?.context).toBe("beta");
+      expect(manager.state.resolution).toMatchObject({
+        status: "resolved",
+        available: [{ name: "beta" }],
+      });
       expect(manager.isAgentActive).toBe(false);
       expect(await readCalls()).toEqual([
         { name: "configuration_contexts_list", arguments: {} },
@@ -211,16 +270,20 @@ describe("Slice 4 scoped bridge over Pi and stdio MCP", () => {
       const recordRequest = (context: ModelContext): void => {
         requests.push(structuredClone(context.messages));
       };
-      simulatePodInvestigation(activeSession, {}, recordRequest);
+      simulatePodInvestigation(activeSession, { context: "beta" }, recordRequest);
       await activeSession.prompt("Inspect pods in beta");
       const transcript = structuredClone(activeSession.messages);
 
       await activeSession.prompt("/clusters alpha");
       expect(activeSession.messages.slice(0, transcript.length)).toEqual(transcript);
       expect(activeSession.messages).toHaveLength(transcript.length + 1);
-      expect(manager.captureScope()).toMatchObject({ context: "alpha", source: "user" });
+      expect(manager.state).toMatchObject({
+        status: "resolved",
+        selection: { rule: { kind: "exact", contexts: ["alpha"] }, source: "user" },
+        resolution: { status: "resolved", available: [{ name: "alpha" }] },
+      });
 
-      simulatePodInvestigation(activeSession, {}, recordRequest);
+      simulatePodInvestigation(activeSession, { context: "alpha" }, recordRequest);
       await activeSession.prompt("Inspect pods after switching");
       expect(requests).toHaveLength(4);
       for (let index = 1; index < requests.length; index += 1) {
@@ -281,7 +344,13 @@ describe("Slice 4 scoped bridge over Pi and stdio MCP", () => {
         manager,
         connectionGeneration: generation,
       });
-      const result = await tool.execute("pods", {}, undefined, undefined, {} as never);
+      const result = await tool.execute(
+        "pods",
+        { context: "beta" },
+        undefined,
+        undefined,
+        {} as never,
+      );
       expect(result).toMatchObject({
         isError: scenario !== "scoped-empty",
         details: {
@@ -323,7 +392,13 @@ describe("Slice 4 scoped bridge over Pi and stdio MCP", () => {
         connectionGeneration: generation,
       });
       const cancellation = new AbortController();
-      const pending = tool.execute("pods", {}, cancellation.signal, undefined, {} as never);
+      const pending = tool.execute(
+        "pods",
+        { context: "alpha" },
+        cancellation.signal,
+        undefined,
+        {} as never,
+      );
       cancellation.abort();
       await expect(pending).rejects.toThrow(/abort/i);
       expect(manager.isAgentActive).toBe(false);

@@ -164,7 +164,11 @@ describe("SreApplication", () => {
     });
     const app = new SreApplication(config(), { rule: { kind: "exact", contexts: ["beta"] } });
     mocks.createRuntime.mockImplementation(() => {
-      expect(app.clusterContext.captureScope()).toMatchObject({ context: "beta", source: "cli" });
+      expect(app.clusterContext.state).toMatchObject({
+        status: "resolved",
+        selection: { rule: { kind: "exact", contexts: ["beta"] }, source: "cli" },
+        resolution: { status: "resolved", available: [{ name: "beta" }] },
+      });
       return { disposeSession: mocks.dispose, session: { abort: mocks.abort } };
     });
     await app.run();
@@ -173,7 +177,7 @@ describe("SreApplication", () => {
       {},
       expect.any(AbortSignal),
     );
-    expect(app.clusterContext.captureScope()).toBeUndefined();
+    expect(app.clusterContext.state.resolution.status).toBe("blocked");
     expect(mocks.mcpClose).toHaveBeenCalledOnce();
   });
 
@@ -265,8 +269,9 @@ describe("SreApplication", () => {
           },
           {
             type: "info",
-            message:
-              "Cluster: alpha (default-all) | Namespace: * | READ ONLY. Cluster scope selected (authentication and authorization are not verified).",
+            message: expect.stringContaining(
+              "Selection rule: live *; selection source: default-all.",
+            ),
           },
         ],
       },
@@ -277,6 +282,28 @@ describe("SreApplication", () => {
       expect.any(Function),
       expect.anything(),
     );
+  });
+
+  it("reports a usable multi-context startup as informational", async () => {
+    mocks.mcpListTools.mockResolvedValue([
+      { name: "configuration_contexts_list", inputSchema: { type: "object", properties: {} } },
+    ]);
+    mocks.mcpCallTool.mockResolvedValue({
+      content: [],
+      structuredContent: { contexts: ["alpha", "beta"].map((name) => ({ name, default: false })) },
+    });
+    await new SreApplication(config()).run();
+    expect(mocks.modeOptions).toEqual([
+      {
+        startupDiagnostics: [
+          expect.anything(),
+          {
+            type: "info",
+            message: expect.stringContaining("Cluster scope resolved: 2 available contexts."),
+          },
+        ],
+      },
+    ]);
   });
 
   it("opens without tools when startup enumeration requires arguments", async () => {

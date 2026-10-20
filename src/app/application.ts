@@ -1,4 +1,5 @@
 import { mkdir } from "node:fs/promises";
+import { createClusterScopeDescription } from "../runtime/cluster-guidance.js";
 
 import { InteractiveMode } from "@earendil-works/pi-coding-agent";
 
@@ -98,11 +99,13 @@ export class SreApplication {
     }
     const scope = this.mcpController.clusterContext.state;
     startupDiagnostics.push({
-      type: scope.status === "bound" ? "info" : "warning",
-      message:
-        scope.status === "bound"
-          ? `Cluster: ${scope.context.name} (${scope.scope.source}) | Namespace: * | READ ONLY. ${scope.message}`
-          : scope.message,
+      type:
+        scope.status === "resolved" &&
+        scope.resolution.status === "resolved" &&
+        scope.resolution.available.length > 0
+          ? "info"
+          : "warning",
+      message: scope.status === "resolved" ? createClusterScopeDescription(scope) : scope.message,
     });
     if (this.cancellation.signal.aborted) return;
     try {

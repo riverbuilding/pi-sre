@@ -7,7 +7,6 @@ export function prepareMcpToolArguments(
 ): Record<string, unknown> | undefined {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
   const args: Record<string, unknown> = { ...value };
-  if (policy.clusterDependent) delete args.context;
   if (policy.name === "pods_log" && args.tail === undefined) args.tail = 100;
   return structuredClone(args);
 }

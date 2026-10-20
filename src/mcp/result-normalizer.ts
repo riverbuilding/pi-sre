@@ -65,7 +65,7 @@ const FAILURE_MESSAGES: Record<ToolFailureCategory, string> = {
   "scope-unbound":
     "Cluster NOT SELECTED. Use /clusters or --clusters <name> before querying Kubernetes.",
   "scope-unavailable":
-    "Cluster diagnostics are unavailable for the current resolution. Check scope/MCP status; select one available context with /clusters until multi-target routing is implemented.",
+    "Cluster diagnostics are unavailable for the requested target or current resolution. Check /clusters --status and MCP availability.",
   "stale-scope":
     "Cluster scope or MCP connection changed. The stale operation result was withheld; retry with the current scope.",
   "incompatible-schema":

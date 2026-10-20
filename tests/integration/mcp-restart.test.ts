@@ -72,7 +72,20 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
   async function invoke(tool?: ToolDefinition) {
     const definition = tool ?? runtime.session.getToolDefinition("configuration_contexts_list");
     if (!definition) throw new Error("Expected approved tool");
-    return definition.execute("contexts", {}, new AbortController().signal, undefined, {} as never);
+    return definition.execute(
+      "contexts",
+      definition.name === "configuration_contexts_list"
+        ? {}
+        : {
+            context:
+              controller.clusterContext.state.selection.rule.kind === "exact"
+                ? controller.clusterContext.state.selection.rule.contexts[0]
+                : "alpha",
+          },
+      new AbortController().signal,
+      undefined,
+      {} as never,
+    );
   }
   beforeEach(async () => {
     // Mock terminal interaction; exercise the real draft loop and command authority guards.
@@ -235,9 +248,10 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
     ]);
     expect(controller.clusterContext.state.connectionGeneration).toBe(2);
     expect(await readFile(pids[1]!, "utf8")).not.toBe(oldPid);
-    expect(controller.clusterContext.captureScope()).toMatchObject({
-      context: "beta",
-      source: "user",
+    expect(controller.clusterContext.state).toMatchObject({
+      status: "resolved",
+      selection: { rule: { kind: "exact", contexts: ["beta"] }, source: "user" },
+      resolution: { status: "resolved", available: [{ name: "beta" }] },
     });
     expect(await invoke(runtime.session.getToolDefinition("pods_list"))).toMatchObject({
       details: { scope: { context: "beta" } },
@@ -356,9 +370,9 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
     session.setActiveToolsByName(["bash", "read", "pods_list", "configuration_contexts_list"]);
     expect(session.getActiveToolNames()).toEqual(["configuration_contexts_list"]);
     controller.clusterContext.select("prod");
-    const scope = controller.clusterContext.captureScope();
+    const scope = controller.clusterContext.state;
     await runtime.newSession();
-    expect(controller.clusterContext.captureScope()).toBe(scope);
+    expect(controller.clusterContext.state).toBe(scope);
     await runtime.session.bindExtensions({
       uiContext: runtime.session.extensionRunner.getUIContext(),
     });
@@ -371,7 +385,7 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
     const newSessionMessages = [...runtime.session.messages];
     await runtime.session.reload();
     expect(runtime.session.messages).toEqual(newSessionMessages);
-    expect(controller.clusterContext.captureScope()).toBe(scope);
+    expect(controller.clusterContext.state).toBe(scope);
     expect(runtime.session.getActiveToolNames()).toEqual(["configuration_contexts_list"]);
     await configure("empty-tools");
     await command("--force");
@@ -395,9 +409,13 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
       await start(cluster);
       await configure("diagnostic-success", process.execPath, ["beta"]);
       await command();
-      expect(controller.clusterContext.captureScope()).toMatchObject({
-        context: cluster ?? "alpha",
-        source: cluster ? "cli" : "config",
+      expect(controller.clusterContext.state).toMatchObject({
+        status: "resolved",
+        selection: {
+          rule: { kind: "exact", contexts: [cluster ?? "alpha"] },
+          source: cluster ? "cli" : "config",
+        },
+        resolution: { status: "resolved", available: [{ name: cluster ?? "alpha" }] },
       });
       expect(runtime.session.getActiveToolNames()).toContain("pods_list");
     },
@@ -451,9 +469,10 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
     });
     await configure("diagnostic-success", process.execPath, ["alpha"]);
     await command("--force");
-    expect(controller.clusterContext.captureScope()).toMatchObject({
-      context: "beta",
-      source: "user",
+    expect(controller.clusterContext.state).toMatchObject({
+      status: "resolved",
+      selection: { rule: { kind: "exact", contexts: ["beta"] }, source: "user" },
+      resolution: { status: "resolved", available: [{ name: "beta" }] },
     });
     expect(await invoke(runtime.session.getToolDefinition("pods_list"))).toMatchObject({
       isError: false,
@@ -474,13 +493,18 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
   it("keeps live all when replacement adds configured and MCP defaults", async () => {
     await configure("diagnostic-unbound");
     await start();
+    const notify = await observeFeedback();
     await configure("diagnostic-success", process.execPath, ["beta"]);
     await command("--force");
+    expect(notify.mock.lastCall).toEqual([
+      expect.stringContaining("Cluster scope resolved: 2 available contexts."),
+      "info",
+    ]);
     expect(controller.clusterContext.state).toMatchObject({
       status: "resolved",
       selection: { rule: { kind: "all" }, source: "default-all" },
     });
-    expect(runtime.session.getActiveToolNames()).toEqual(["configuration_contexts_list"]);
+    expect(runtime.session.getActiveToolNames()).toContain("pods_list");
   });
 
   it("publishes coherent recovery state, coalesces listener retries, and validates new schemas", async () => {
@@ -522,7 +546,7 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
     expect(
       await tool.execute(
         "new-schema",
-        { name: "api", view: "summary" },
+        { name: "api", view: "summary", context: "alpha" },
         undefined,
         undefined,
         {} as never,
@@ -550,7 +574,34 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
       await command();
       expect(controller.snapshot).toBe(state);
       expect(controller.snapshot.status).toBe("ready");
-      expect(controller.clusterContext.captureScope()?.context).toBe("beta");
+      expect(controller.clusterContext.state.resolution).toMatchObject({
+        status: "resolved",
+        available: [{ name: "beta" }],
+      });
+    },
+  );
+
+  it.each(["reload", "new-session"])(
+    "retains MCP tools and scope across idle %s",
+    async (transition) => {
+      await configure("diagnostic-success");
+      await start("beta");
+      const scope = controller.clusterContext.state;
+      const connection = controller.snapshot;
+      expect(await invoke(runtime.session.getToolDefinition("pods_list"))).toMatchObject({
+        isError: false,
+        details: { scope: { context: "beta" } },
+      });
+      if (transition === "reload") await runtime.session.reload();
+      else await runtime.newSession();
+      expect(controller.clusterContext.state).toBe(scope);
+      expect(controller.snapshot).toBe(connection);
+      expect(controller.clusterContext.isAgentActive).toBe(false);
+      expect(await invoke(runtime.session.getToolDefinition("pods_list"))).toMatchObject({
+        isError: false,
+        details: { scope: { context: "beta" } },
+      });
+      expect(await invoke()).toMatchObject({ isError: false });
     },
   );
 
@@ -614,9 +665,10 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
       uiContext: { ...session.extensionRunner.getUIContext(), select, notify },
     });
     await session.prompt("/clusters prod");
-    expect(controller.clusterContext.captureScope()).toMatchObject({
-      context: "prod",
-      source: "user",
+    expect(controller.clusterContext.state).toMatchObject({
+      status: "resolved",
+      selection: { rule: { kind: "exact", contexts: ["prod"] }, source: "user" },
+      resolution: { status: "resolved", available: [{ name: "prod" }] },
     });
     expect(notify).toHaveBeenLastCalledWith(expect.stringContaining('["prod"] (user)'), "info");
     const selected = controller.clusterContext.state;
@@ -629,7 +681,10 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
       ["All (*)", '[x] "dev"', '[ ] "prod"', "Apply selection", "Cancel"],
       undefined,
     );
-    expect(controller.clusterContext.captureScope()?.context).toBe("dev");
+    expect(controller.clusterContext.state.resolution).toMatchObject({
+      status: "resolved",
+      available: [{ name: "dev" }],
+    });
     const picked = controller.clusterContext.state;
     await session.prompt("/clusters");
     expect(controller.clusterContext.state).toBe(picked);
@@ -806,9 +861,10 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
     await runtime.session.prompt("/clusters prod");
     await runtime.session.reload();
     await runtime.session.prompt("/clusters dev");
-    expect(controller.clusterContext.captureScope()).toMatchObject({
-      context: "dev",
-      source: "user",
+    expect(controller.clusterContext.state).toMatchObject({
+      status: "resolved",
+      selection: { rule: { kind: "exact", contexts: ["dev"] }, source: "user" },
+      resolution: { status: "resolved", available: [{ name: "dev" }] },
     });
     expect(runtime.session.extensionRunner.getCommandDiagnostics()).toEqual([]);
   });
@@ -818,9 +874,10 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
     await start("absent");
     expect(controller.clusterContext.state.status).toBe("selection-error");
     await runtime.session.prompt("/clusters prod");
-    expect(controller.clusterContext.captureScope()).toMatchObject({
-      context: "prod",
-      source: "user",
+    expect(controller.clusterContext.state).toMatchObject({
+      status: "resolved",
+      selection: { rule: { kind: "exact", contexts: ["prod"] }, source: "user" },
+      resolution: { status: "resolved", available: [{ name: "prod" }] },
     });
   });
 

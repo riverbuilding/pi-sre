@@ -43,21 +43,47 @@ describe("session rule authority", () => {
     expect(Object.isFrozen(manager.state.resolution)).toBe(true);
     if (other.state.resolution.status === "resolved")
       expect(Object.isFrozen(other.state.resolution.available)).toBe(true);
-    expect(Object.isFrozen(manager.captureScope())).toBe(true);
+    expect(
+      Object.isFrozen(manager.captureExecution(manager.state.connectionGeneration, "beta")),
+    ).toBe(true);
   });
+
+  it.each(["exact", "all"] as const)(
+    "uses resolved for singleton and multi-context %s rules",
+    (kind) => {
+      const manager = new ClusterContextManager({
+        rule: kind === "exact" ? createExactClusterRule(["alpha", "beta"]) : { kind: "all" },
+      });
+      start(manager);
+      const selection = manager.state.selection;
+      for (const names of [["alpha"], ["alpha", "beta"]]) {
+        start(manager, names);
+        expect(manager.state.status).toBe("resolved");
+        expect(manager.state.selection).toBe(selection);
+        expect(manager.state).not.toHaveProperty("scope");
+        expect(manager.state).not.toHaveProperty("context");
+        const snapshot = manager.captureExecution(manager.state.connectionGeneration, "alpha");
+        expect(snapshot).toMatchObject({ context: "alpha", rule: selection.rule });
+        expect(snapshot && manager.isExecutionCurrent(snapshot)).toBe(true);
+        expect(
+          manager.captureExecution(manager.state.connectionGeneration, "missing"),
+        ).toBeUndefined();
+      }
+    },
+  );
 
   it("keeps selection, inventory and generation revisions independent", () => {
     const manager = new ClusterContextManager({ rule: createExactClusterRule(["alpha"]) });
     expect(manager.state).toMatchObject({ inventoryRevision: 0, connectionGeneration: 0 });
     start(manager);
-    const old = manager.captureScope();
+    const old = manager.captureExecution(manager.state.connectionGeneration, "alpha");
     expect(old).toMatchObject({
       selectionRevision: 1,
       inventoryRevision: 1,
       connectionGeneration: 1,
     });
     manager.select("alpha");
-    expect(manager.captureScope()).toBe(old);
+    expect(old && manager.isExecutionCurrent(old)).toBe(true);
     manager.selectRule(createExactClusterRule(["beta", "alpha"]));
     expect(manager.state).toMatchObject({
       selection: { selectionRevision: 2, source: "user" },
@@ -73,14 +99,14 @@ describe("session rule authority", () => {
       inventoryRevision: 2,
       connectionGeneration: 2,
     });
-    expect(old && manager.isCurrent(old)).toBe(false);
+    expect(old && manager.isExecutionCurrent(old)).toBe(false);
   });
 
   it("retains invalid initial exact rule until it validates completely, then permits partial availability", () => {
     const manager = new ClusterContextManager({ rule: createExactClusterRule(["alpha", "beta"]) });
     start(manager, ["alpha", "gamma"]);
     expect(manager.state.resolution).toEqual({ status: "blocked", reason: "invalid-selection" });
-    expect(manager.captureScope()).toBeUndefined();
+    expect(manager.captureExecution(manager.state.connectionGeneration, "alpha")).toBeUndefined();
     start(manager);
     expect(manager.state.resolution).toMatchObject({
       status: "resolved",
@@ -134,7 +160,11 @@ describe("session rule authority", () => {
       selection: { source: "config", rule: { kind: "exact", contexts: ["beta"] } },
     });
     start(manager, ["alpha", "beta"], "alpha");
-    expect(manager.captureScope()).toMatchObject({ context: "beta", source: "config" });
+    expect(manager.state).toMatchObject({
+      status: "resolved",
+      selection: { rule: { kind: "exact", contexts: ["beta"] }, source: "config" },
+      resolution: { status: "resolved", available: [{ name: "beta" }] },
+    });
     const inventory = manager.state.inventory;
     manager.markUnavailable("Disconnected");
     expect(manager.state.inventory).toBe(inventory);
@@ -226,6 +256,6 @@ describe("session rule authority", () => {
     manager.dispose();
     expect(manager.isAgentActive).toBe(false);
     expect(states).toEqual(["unavailable", "connecting", "connecting", "resolved"]);
-    expect(manager.captureScope()).toBeUndefined();
+    expect(manager.state.resolution.status).toBe("blocked");
   });
 });

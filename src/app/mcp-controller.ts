@@ -36,6 +36,8 @@ export class McpController {
   private stopObserving: (() => void) | undefined;
   private availableTools: readonly ToolDefinition[] = [];
   private report: ToolDiscoveryReport | undefined;
+  private bridgeConnection: McpConnection | undefined;
+  private resultPolicy: SreConfig["results"];
   private current: McpControllerSnapshot = {
     status: "unavailable",
     message: "Kubernetes MCP is unavailable. Use /mcp_restart to retry.",
@@ -53,6 +55,7 @@ export class McpController {
   ) {
     this.clusterContext = new ClusterContextManager(intent, initialConfig.kubernetes.contexts);
     this.initialConfig = initialConfig;
+    this.resultPolicy = initialConfig.results;
     this.shutdown = shutdown;
     this.reloadConfig = reloadConfig;
     this.clusterContext.subscribe(() => {
@@ -82,15 +85,22 @@ export class McpController {
   }
 
   private publishReady(): McpControllerSnapshot {
-    const scope = this.clusterContext.captureScope();
-    const tools = this.availableTools.filter((tool) => {
-      if (!getMcpToolPolicy(tool.name)?.clusterDependent) return true;
+    const resolution = this.clusterContext.state.resolution;
+    const tools = this.availableTools.flatMap((tool) => {
+      if (!getMcpToolPolicy(tool.name)?.clusterDependent) return [tool];
       const descriptor = this.report?.exposed.find((entry) => entry.name === tool.name);
-      return (
-        scope !== undefined &&
-        descriptor !== undefined &&
-        acceptsToolContext(descriptor, scope.context)
-      );
+      if (!descriptor || !this.bridgeConnection || resolution.status !== "resolved") return [];
+      const contexts = resolution.available
+        .filter((entry) => acceptsToolContext(descriptor, entry.name))
+        .map((entry) => entry.name);
+      return contexts.length
+        ? [
+            createMcpToolBridge(descriptor, this.bridgeConnection, this.resultPolicy, {
+              manager: this.clusterContext,
+              connectionGeneration: this.clusterContext.state.connectionGeneration,
+            }),
+          ]
+        : [];
     });
     const message =
       this.clusterContext.state.status === "enumeration-failed"
@@ -148,6 +158,7 @@ export class McpController {
     const old = this.connection;
     await old?.close();
     this.connection = undefined;
+    this.bridgeConnection = undefined;
   }
 
   private async replace(initial: boolean): Promise<McpControllerSnapshot> {
@@ -236,6 +247,8 @@ export class McpController {
         this.publish(this.current);
       });
       this.report = report;
+      this.bridgeConnection = scoped;
+      this.resultPolicy = config.results;
       this.availableTools = tools;
       return this.publishReady();
     } catch (error) {

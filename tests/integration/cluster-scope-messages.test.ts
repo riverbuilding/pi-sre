@@ -232,7 +232,7 @@ describe("persistent scope updates", () => {
       ),
       display: false,
     });
-    expect(manager.captureScope()).toBeUndefined();
+    expect(manager.state.resolution.status).toBe("blocked");
     expect(manager.isAgentActive).toBe(false);
   });
 });

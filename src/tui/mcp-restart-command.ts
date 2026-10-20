@@ -60,7 +60,12 @@ export function registerMcpRecovery(
               : "Restart completed; MCP transport ready.";
         report(
           `${prefix} ${state.message}\n${createClusterScopeDescription(scope)}`,
-          state.status === "ready" && scope.status === "bound" ? "info" : "warning",
+          state.status === "ready" &&
+            scope.status === "resolved" &&
+            scope.resolution.status === "resolved" &&
+            scope.resolution.available.length > 0
+            ? "info"
+            : "warning",
         );
       } catch {
         // Unexpected failures must be acknowledged without exposing transport diagnostics.

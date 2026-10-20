@@ -49,10 +49,8 @@ export class McpToolSchemaError extends Error {
 
 export interface PreparedToolSchema {
   readonly policy: McpToolPolicy;
-  readonly modelParameters: TUnsafe<Record<string, unknown>>;
-  readonly transportParameters: TUnsafe<Record<string, unknown>>;
-  validateModelArguments(value: unknown): boolean;
-  validateTransportArguments(value: unknown): boolean;
+  readonly parameters: TUnsafe<Record<string, unknown>>;
+  validateArguments(value: unknown): boolean;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -68,7 +66,7 @@ function matches(schema: TUnsafe<Record<string, unknown>>, value: unknown): bool
   }
 }
 
-/** Copy discovered schemas; change only the model's visibility of application-owned context. */
+/** Copy discovered schemas; require exact model context while retaining discovered constraints. */
 export function prepareMcpToolSchema(tool: McpToolDescriptor): PreparedToolSchema {
   const policy = getMcpToolPolicy(tool.name);
   if (!policy) throw new McpToolSchemaError("not-allowlisted");
@@ -87,22 +85,22 @@ export function prepareMcpToolSchema(tool: McpToolDescriptor): PreparedToolSchem
   )
     throw new McpToolSchemaError();
 
-  const transportParameters = Type.Unsafe<Record<string, unknown>>(structuredClone(schema));
   const modelSchema: Record<string, unknown> = structuredClone(schema);
   if (policy.clusterDependent) {
     if (!isRecord(modelSchema.properties)) throw new McpToolSchemaError();
-    delete modelSchema.properties.context;
-    modelSchema.required = Array.isArray(modelSchema.required)
-      ? modelSchema.required.filter((name) => name !== "context")
-      : [];
+    const original = modelSchema.properties.context;
+    modelSchema.properties.context = {
+      allOf: [original, { type: "string", minLength: 1 }],
+    };
+    modelSchema.required = [
+      ...new Set([...(Array.isArray(modelSchema.required) ? modelSchema.required : []), "context"]),
+    ];
   }
-  const modelParameters = Type.Unsafe<Record<string, unknown>>(modelSchema);
+  const parameters = Type.Unsafe<Record<string, unknown>>(modelSchema);
   return {
     policy,
-    modelParameters,
-    transportParameters,
-    validateModelArguments: (value) => matches(modelParameters, value),
-    validateTransportArguments: (value) => matches(transportParameters, value),
+    parameters,
+    validateArguments: (value) => matches(parameters, value),
   };
 }
 

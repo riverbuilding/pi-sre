@@ -45,11 +45,12 @@ describe("scoped MCP bridge", () => {
       inputSchema: captured.inputSchema,
       annotations: captured.annotations,
     });
+    const signal = new AbortController().signal;
     expect(
       await tool.execute(
         "valid",
-        { labelSelector: "app=api", fieldSelector: "status.phase=Running" },
-        undefined,
+        { context: "beta", labelSelector: "app=api", fieldSelector: "status.phase=Running" },
+        signal,
         undefined,
         {} as never,
       ),
@@ -61,7 +62,7 @@ describe("scoped MCP bridge", () => {
         labelSelector: "app=api",
         fieldSelector: "status.phase=Running",
       },
-      undefined,
+      signal,
     );
     callTool.mockClear();
     expect(
@@ -76,7 +77,9 @@ describe("scoped MCP bridge", () => {
       .spyOn(toolPolicy, "evaluateToolPolicy")
       .mockReturnValue({ status: "rejected", reason: "not-allowlisted" });
     try {
-      expect(await tool.execute("call", {}, undefined, undefined, {} as never)).toMatchObject({
+      expect(
+        await tool.execute("call", { context: "alpha" }, undefined, undefined, {} as never),
+      ).toMatchObject({
         isError: true,
         details: { failureCategory: "tool-not-approved" },
       });
@@ -104,7 +107,13 @@ describe("scoped MCP bridge", () => {
       { ...DEFAULT_RESULT_POLICY, maxTextChars: 256, maxItems: 5 },
       { manager, connectionGeneration: generation },
     );
-    const result = await tool.execute("call", {}, undefined, undefined, {} as never);
+    const result = await tool.execute(
+      "call",
+      { context: "alpha" },
+      undefined,
+      undefined,
+      {} as never,
+    );
     expect(result.details).toMatchObject({ truncated: true, scope: { context: "alpha" } });
     expect(JSON.stringify(result)).not.toContain("PRIVATE_FIXTURE");
     expect(JSON.stringify(result)).not.toContain("pod-99");
@@ -121,7 +130,9 @@ describe("scoped MCP bridge", () => {
       DEFAULT_RESULT_POLICY,
       { manager, connectionGeneration: generation },
     );
-    expect(await tool.execute("call", {}, undefined, undefined, {} as never)).toMatchObject({
+    expect(
+      await tool.execute("call", { context: "alpha" }, undefined, undefined, {} as never),
+    ).toMatchObject({
       details: { failureCategory: "transport-unavailable" },
     });
     expect(callTool).not.toHaveBeenCalled();
@@ -136,31 +147,25 @@ describe("scoped MCP bridge", () => {
     );
   });
 
-  it.each([{}, { context: "beta" }, { context: { malicious: true } }])(
-    "injects scope after removing untrusted context %j without mutating the contract or caller",
-    async (args) => {
-      const { tool, callTool } = setup();
-      const original = structuredClone(args);
-      expect(tool.parameters).toMatchObject({
-        required: [],
-        properties: {
-          labelSelector: { type: "string", pattern: expect.any(String) },
-        },
-      });
-      expect(JSON.stringify(tool.parameters)).not.toContain('"context"');
-      expect(Value.Check(tool.parameters, {})).toBe(true);
-      const signal = new AbortController().signal;
-      const result = await tool.execute("call", args, signal, undefined, {} as never);
-      expect(callTool).toHaveBeenCalledWith("pods_list", { context: "alpha" }, signal);
-      expect(args).toEqual(original);
-      expect(scopedPodTool.inputSchema.required).toBeUndefined();
-      expect(result).toMatchObject({
-        isError: false,
-        details: { scope: { context: "alpha", readOnly: true } },
-      });
-      expect(JSON.stringify(result.content)).toContain("server/context policy");
-    },
-  );
+  it.each([
+    {},
+    { context: "beta" },
+    { context: { malicious: true } },
+    { context: "" },
+    { context: "missing" },
+  ])("refuses invalid or excluded context %j without rewriting the caller", async (args) => {
+    const { tool, callTool } = setup();
+    const original = structuredClone(args);
+    expect(tool.parameters).toMatchObject({ required: ["context"] });
+    expect(Value.Check(tool.parameters, {})).toBe(false);
+    expect(await tool.execute("call", args, undefined, undefined, {} as never)).toMatchObject({
+      isError: true,
+      details: { failureCategory: "invalid-arguments" },
+    });
+    expect(args).toEqual(original);
+    expect(callTool).not.toHaveBeenCalled();
+    expect(scopedPodTool.inputSchema.required).toBeUndefined();
+  });
 
   it("preserves namespace independently on events_list", async () => {
     const descriptor = diagnosticTools.find((tool) => tool.name === "events_list");
@@ -168,7 +173,7 @@ describe("scoped MCP bridge", () => {
     const { tool, callTool } = setup("beta", descriptor);
     const result = await tool.execute(
       "call",
-      { context: "alpha", namespace: "payments" },
+      { context: "beta", namespace: "payments" },
       undefined,
       undefined,
       {} as never,
@@ -198,24 +203,24 @@ describe("scoped MCP bridge", () => {
         properties: { context: { type: "string", enum: ["alpha"] } },
       },
     });
-    expect(await tool.execute("call", {}, undefined, undefined, {} as never)).toMatchObject({
+    expect(
+      await tool.execute("call", { context: "beta" }, undefined, undefined, {} as never),
+    ).toMatchObject({
       isError: true,
-      details: { failureCategory: "incompatible-schema" },
+      details: { failureCategory: "invalid-arguments" },
     });
     expect(callTool).not.toHaveBeenCalled();
   });
 
-  it.each(["multiple", "missing", "unavailable", "stale", "invalid"])(
+  it.each(["missing", "unavailable", "stale", "invalid"])(
     "blocks %s with zero requests",
     async (kind) => {
-      const { tool, manager, callTool } = setup(
-        kind === "multiple" ? "" : kind === "missing" ? "missing" : "alpha",
-      );
+      const { tool, manager, callTool } = setup(kind === "missing" ? "missing" : "alpha");
       if (kind === "unavailable") manager.markUnavailable("MCP unavailable");
       if (kind === "stale") manager.beginConnection();
       const result = await tool.execute(
         "call",
-        kind === "invalid" ? { labelSelector: "?" } : {},
+        kind === "invalid" ? { context: "alpha", labelSelector: "?" } : { context: "alpha" },
         undefined,
         undefined,
         {} as never,
@@ -247,7 +252,13 @@ describe("scoped MCP bridge", () => {
           }),
       );
       const cancellation = new AbortController();
-      const pending = tool.execute("call", {}, cancellation.signal, undefined, {} as never);
+      const pending = tool.execute(
+        "call",
+        { context: "alpha" },
+        cancellation.signal,
+        undefined,
+        {} as never,
+      );
       expect(() => manager.select("beta")).toThrow("active agent turn");
       if (kind === "restart") {
         const generation = manager.beginConnection();
@@ -269,9 +280,11 @@ describe("scoped MCP bridge", () => {
 
   it("uses the new exact context on subsequent idle calls", async () => {
     const { tool, manager, callTool } = setup();
-    await tool.execute("alpha", {}, undefined, undefined, {} as never);
+    await tool.execute("alpha", { context: "alpha" }, undefined, undefined, {} as never);
     manager.select("beta");
-    await tool.execute("beta", {}, undefined, undefined, {} as never);
+    expect(
+      await tool.execute("beta", { context: "beta" }, undefined, undefined, {} as never),
+    ).toMatchObject({ isError: false, details: { scope: { context: "beta" } } });
     expect(callTool.mock.calls.map((call) => call[1])).toEqual([
       { context: "alpha" },
       { context: "beta" },

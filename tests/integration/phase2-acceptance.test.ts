@@ -16,7 +16,7 @@ const fixture = fileURLToPath(new URL("../fixtures/fake-mcp-server.ts", import.m
 const tsx = fileURLToPath(import.meta.resolve("tsx"));
 
 /** Simulate only the provider stream; command dispatch, Pi loop, and MCP are real. */
-function requestPods(session: AgentSession): void {
+function requestPods(session: AgentSession, context: string | readonly string[] | undefined): void {
   let requests = 0;
   session.agent.streamFunction = (model) => {
     const first = requests++ === 0;
@@ -28,7 +28,14 @@ function requestPods(session: AgentSession): void {
       provider: model.provider,
       model: model.id,
       content: first
-        ? [{ type: "toolCall", id: "pods", name: "pods_list", arguments: { context: "other" } }]
+        ? (typeof context === "string" || context === undefined ? [context] : context).map(
+            (target, index) => ({
+              type: "toolCall" as const,
+              id: `pods-${index}`,
+              name: "pods_list",
+              arguments: target === undefined ? {} : { context: target },
+            }),
+          )
         : [{ type: "text", text: "Observation complete." }],
       stopReason: first ? "toolUse" : "stop",
       timestamp: Date.now(),
@@ -132,14 +139,15 @@ describe("Phase 2 acceptance through CLI input, configuration, controller, Pi, a
     { args: ["--clusters", "beta"], configured: "alpha", context: "beta", source: "cli" },
     { args: ["--clusters=beta"], configured: "alpha", context: "beta", source: "cli" },
     { args: [], configured: "beta", context: "beta", source: "config" },
-  ])("routes startup $source selection despite attempted model override: $args", async (test) => {
+  ])("routes startup $source selection with explicit model context: $args", async (test) => {
     const pid = await configure("diagnostic-success", test.configured);
     const session = await start(test.args);
-    expect(controller?.clusterContext.captureScope()).toMatchObject({
-      context: test.context,
-      source: test.source,
+    expect(controller?.clusterContext.state).toMatchObject({
+      status: "resolved",
+      selection: { rule: { kind: "exact", contexts: [test.context] }, source: test.source },
+      resolution: { status: "resolved", available: [{ name: test.context }] },
     });
-    requestPods(session);
+    requestPods(session, test.context);
     await session.prompt("Inspect pods in the selected cluster");
     expect(session.messages.find((message) => message.role === "toolResult")).toMatchObject({
       isError: false,
@@ -152,6 +160,46 @@ describe("Phase 2 acceptance through CLI input, configuration, controller, Pi, a
     ]);
   });
 
+  it("routes explicit A/B model calls under default all on one connection", async () => {
+    const pid = await configure("diagnostic-success");
+    const session = await start();
+    requestPods(session, ["alpha", "beta"]);
+    await session.prompt("Inspect alpha and beta");
+    const results = session.messages.filter((message) => message.role === "toolResult");
+    expect(results).toHaveLength(2);
+    for (const context of ["alpha", "beta"]) {
+      expect(results).toContainEqual(
+        expect.objectContaining({
+          isError: false,
+          details: expect.objectContaining({
+            scope: expect.objectContaining({ context, readOnly: true }),
+          }),
+        }),
+      );
+      expect(JSON.stringify(results)).toContain(`${context}-pods_list`);
+    }
+    expect(controller?.clusterContext.state.selection.rule).toEqual({ kind: "all" });
+    expect(await calls(pid)).toEqual([
+      { name: "configuration_contexts_list", arguments: {} },
+      { name: "pods_list", arguments: { context: "alpha" } },
+      { name: "pods_list", arguments: { context: "beta" } },
+    ]);
+  });
+
+  it.each([undefined, "other", "alpha"])(
+    "rejects model target %j for singleton beta without MCP dispatch",
+    async (context) => {
+      const pid = await configure("diagnostic-success");
+      const session = await start(["--clusters", "beta"]);
+      requestPods(session, context);
+      await session.prompt("Inspect pods");
+      expect(session.messages.find((message) => message.role === "toolResult")).toMatchObject({
+        isError: true,
+      });
+      expect(await calls(pid)).toEqual([{ name: "configuration_contexts_list", arguments: {} }]);
+    },
+  );
+
   it.each([
     {
       scenario: "diagnostic-success",
@@ -161,14 +209,13 @@ describe("Phase 2 acceptance through CLI input, configuration, controller, Pi, a
     },
     { scenario: "diagnostic-success", args: [], configured: "missing", status: "selection-error" },
     { scenario: "diagnostic-empty", args: [], status: "not-configured" },
-    { scenario: "diagnostic-unbound", args: [], status: "resolved" },
   ])("sends no diagnostic request for $status with $args", async (test) => {
     const pid = await configure(test.scenario, test.configured);
     const session = await start(test.args);
     expect(controller?.clusterContext.state.status).toBe(test.status);
     expect(session.getCallableToolNames()).toEqual(["configuration_contexts_list"]);
     // Even a provider emitting an unavailable operation cannot dispatch it to MCP.
-    requestPods(session);
+    requestPods(session, "alpha");
     await session.prompt("Inspect pods despite unavailable scope");
     expect(session.messages.find((message) => message.role === "toolResult")).toMatchObject({
       toolName: "pods_list",
@@ -181,11 +228,11 @@ describe("Phase 2 acceptance through CLI input, configuration, controller, Pi, a
     const initial = await configure("diagnostic-success");
     const session = await start(["--clusters=alpha"]);
     const activeController = controller!;
-    requestPods(session);
+    requestPods(session, "alpha");
     await session.prompt("Inspect alpha");
     const history = structuredClone(session.messages);
     await session.prompt("/clusters beta");
-    requestPods(session);
+    requestPods(session, "beta");
     await session.prompt("Inspect beta");
     expect(session.messages.slice(0, history.length)).toEqual(history);
     expect(await calls(initial)).toEqual([
@@ -197,14 +244,15 @@ describe("Phase 2 acceptance through CLI input, configuration, controller, Pi, a
     if (!stale) throw new Error("Expected diagnostic tool before restart");
     const replacement = await configure("diagnostic-success", "alpha");
     await session.prompt("/mcp_restart --force");
-    expect(activeController.clusterContext.captureScope()).toMatchObject({
-      context: "beta",
-      source: "user",
+    expect(activeController.clusterContext.state).toMatchObject({
+      status: "resolved",
+      selection: { rule: { kind: "exact", contexts: ["beta"] }, source: "user" },
+      resolution: { status: "resolved", available: [{ name: "beta" }] },
     });
     expect(await stale.execute("stale", {}, undefined, undefined, {} as never)).toMatchObject({
       isError: true,
     });
-    requestPods(session);
+    requestPods(session, "beta");
     await session.prompt("Inspect beta after replacement");
     const observations = session.messages.filter((message) => message.role === "toolResult");
     expect(observations).toHaveLength(3);
@@ -223,7 +271,7 @@ describe("Phase 2 acceptance through CLI input, configuration, controller, Pi, a
     await session.prompt("/mcp_restart --force");
     expect(activeController.clusterContext.state.status).toBe("resolved");
     expect(session.getCallableToolNames()).toEqual(["configuration_contexts_list"]);
-    requestPods(session);
+    requestPods(session, "beta");
     await session.prompt("Inspect pods after selected context disappeared");
     expect(await calls(removed)).toEqual([{ name: "configuration_contexts_list", arguments: {} }]);
     expect(session.messages.slice(0, history.length)).toEqual(history);

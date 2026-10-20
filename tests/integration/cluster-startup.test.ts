@@ -18,14 +18,14 @@ describe("scope publication on the owned MCP connection", () => {
       scenario: "contexts-success",
       cli: "beta",
       configured: ["alpha"],
-      status: "bound",
+      status: "resolved",
       context: "beta",
       source: "cli",
     },
     {
       scenario: "contexts-success",
       configured: ["beta"],
-      status: "bound",
+      status: "resolved",
       context: "beta",
       source: "config",
     },
@@ -36,7 +36,7 @@ describe("scope publication on the owned MCP connection", () => {
       scenario: "contexts-success",
       configured: ["*"],
       cli: "beta",
-      status: "bound",
+      status: "resolved",
       context: "beta",
       source: "cli",
     },
@@ -91,11 +91,11 @@ describe("scope publication on the owned MCP connection", () => {
       expect(observed).toEqual([test.status]);
       expect(controller.clusterContext.state.status).toBe(test.status);
       if (test.context)
-        expect(controller.clusterContext.captureScope()).toMatchObject({
-          context: test.context,
-          source: test.source,
+        expect(controller.clusterContext.state).toMatchObject({
+          status: "resolved",
+          selection: { rule: { kind: "exact", contexts: [test.context] }, source: test.source },
+          resolution: { status: "resolved", available: [{ name: test.context }] },
         });
-      else expect(controller.clusterContext.captureScope()).toBeUndefined();
       expect(controller.clusterContext.state.selection).toMatchObject({
         source: test.cli ? "cli" : test.configured ? "config" : "default-all",
         rule: test.cli
@@ -120,7 +120,7 @@ describe("scope publication on the owned MCP connection", () => {
     } finally {
       unsubscribe();
       await controller.close();
-      expect(controller.clusterContext.captureScope()).toBeUndefined();
+      expect(controller.clusterContext.state.resolution.status).toBe("blocked");
       const child = Number(await readFile(pid, "utf8"));
       expect(() => process.kill(child, 0)).toThrow();
       await rm(home, { recursive: true, force: true });
