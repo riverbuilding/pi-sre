@@ -1,4 +1,9 @@
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import {
+  ExecutionQueue,
+  type ExecutionAdmission,
+  type ExecutionAdmissionFailure,
+} from "../cluster/execution-queue.js";
 import { DEFAULT_RESULT_POLICY, type ResultPolicy } from "../config/schema.js";
 import type {
   ClusterExecutionAuthority,
@@ -25,6 +30,7 @@ import { redactDiagnosticText } from "./redaction.js";
 export interface ToolScopeBinding {
   readonly manager: ClusterExecutionAuthority;
   readonly connectionGeneration: number;
+  readonly signal?: AbortSignal;
 }
 
 export interface McpToolScope {
@@ -105,7 +111,9 @@ export function createMcpToolBridge(
   }
 
   const authority = binding?.manager;
+  const unboundQueue = authority ? undefined : new ExecutionQueue();
   const generation = binding?.connectionGeneration;
+  const connectionSignal = binding?.signal;
   const mapping: ToolNameMapping = { piName: tool.name, mcpName: tool.name };
   function prepareArguments(value: unknown): Record<string, unknown> | undefined {
     const args = prepareMcpToolArguments(toolPolicy, value);
@@ -117,7 +125,7 @@ export function createMcpToolBridge(
     label: mapping.piName,
     description: `${descriptor.description ?? descriptor.name}${tool.name === "pods_log" ? " Pi SRE limits: tail defaults to 100 lines; allowed range 1–1000; streaming is disabled." : ""}`,
     parameters: structuredClone(schema.parameters),
-    executionMode: "sequential",
+    executionMode: "parallel",
     prepareArguments(args: unknown) {
       const prepared = prepareArguments(args);
       if (!prepared) throw new Error("Invalid arguments for the Kubernetes MCP tool.");
@@ -136,10 +144,65 @@ export function createMcpToolBridge(
       if (!args || !schema.validateArguments(args)) return fail("invalid-arguments");
       const execution = validateMcpToolExecution(toolPolicy, args, authority?.state);
       if (!execution.ok) return fail(execution.category);
+      const selectionRevision = authority?.state.selection.selectionRevision;
+      const inventoryRevision = authority?.state.inventoryRevision;
+      const checkAdmission = (): ExecutionAdmissionFailure | undefined => {
+        if (!connectionCurrent()) return "stale-scope";
+        if (connectionSignal?.aborted) return "transport-unavailable";
+        if (connection.state && connection.state !== "ready") return "transport-unavailable";
+        if (
+          authority &&
+          (authority.state.selection.selectionRevision !== selectionRevision ||
+            authority.state.inventoryRevision !== inventoryRevision)
+        )
+          return "stale-scope";
+        if (
+          authority &&
+          (authority.state.status === "unavailable" ||
+            authority.state.status === "connecting" ||
+            authority.state.status === "enumeration-failed")
+        )
+          return clusterDependent ? "scope-unavailable" : "transport-unavailable";
+        const validation = validateMcpToolExecution(toolPolicy, args, authority?.state);
+        return validation.ok ? undefined : validation.category;
+      };
+      let releaseSlot: (() => void) | undefined;
       let snapshot: ClusterExecutionSnapshot | undefined;
       let scope: McpToolScope | undefined;
       let release: (() => void) | undefined;
       try {
+        release = authority?.beginAgentWork();
+        const admissionSignal = connectionSignal
+          ? signal
+            ? AbortSignal.any([signal, connectionSignal])
+            : connectionSignal
+          : signal;
+        let admission: ExecutionAdmission;
+        try {
+          const pending = authority
+            ? authority.admitExecution(checkAdmission, admissionSignal)
+            : unboundQueue!.acquire(checkAdmission, admissionSignal);
+          admission = pending instanceof Promise ? await pending : pending;
+        } catch (error) {
+          signal?.throwIfAborted();
+          if (connectionSignal?.aborted) return fail(checkAdmission() ?? "transport-unavailable");
+          throw error;
+        }
+        if (admission.ok) releaseSlot = admission.release;
+        signal?.throwIfAborted();
+        if (!admission.ok) {
+          const failure = normalizeToolFailure(admission.category, policy);
+          return bridgeResult(
+            admission.category === "timeout"
+              ? { ...failure, text: "Kubernetes MCP admission wait timed out before dispatch." }
+              : failure,
+            mapping,
+            undefined,
+            policy,
+          );
+        }
+        const invalid = checkAdmission();
+        if (invalid) return fail(invalid);
         if (execution.context !== undefined && authority && generation !== undefined) {
           snapshot = authority.captureExecution(generation, execution.context);
           if (!snapshot) return fail("scope-unavailable");
@@ -155,14 +218,15 @@ export function createMcpToolBridge(
             selectionRevision: snapshot.selectionRevision,
           };
         }
-        release = authority?.beginAgentWork();
         const current = () =>
-          connectionCurrent() && (!snapshot || authority?.isExecutionCurrent(snapshot));
+          !connectionSignal?.aborted &&
+          connectionCurrent() &&
+          (!snapshot || authority?.isExecutionCurrent(snapshot));
         signal?.throwIfAborted();
         if (!current()) return fail("stale-scope", scope);
         let raw: unknown;
         try {
-          raw = await connection.callTool(mapping.mcpName, args, signal);
+          raw = await connection.callTool(mapping.mcpName, args, admissionSignal);
         } catch (error) {
           signal?.throwIfAborted();
           if (!current()) return fail("stale-scope", scope);
@@ -183,6 +247,7 @@ export function createMcpToolBridge(
         return result;
       } finally {
         if (snapshot) authority?.releaseExecution(snapshot);
+        releaseSlot?.();
         release?.();
       }
     },

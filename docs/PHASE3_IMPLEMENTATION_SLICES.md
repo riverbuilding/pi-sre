@@ -1,8 +1,8 @@
 # Phase 3 Implementation Slices — Context Selection and Multi-Cluster Routing
 
-**Status:** Accepted plan, October 18, 2026. Slice 0 contracts frozen on October 19, 2026 in [PHASE3_CONTRACTS.md](./PHASE3_CONTRACTS.md). Slice 1 implements rule state, startup, and CLI; Slice 2 implements explicit model routing; Slice 3 implements transactional recovery and inventory notices; Slice 4 implements full scope presentation and status inspection; Slices 4a and 5 remain pending.
+**Status:** Accepted plan, October 18, 2026. Slice 0 contracts frozen on October 19, 2026 in [PHASE3_CONTRACTS.md](./PHASE3_CONTRACTS.md). Slice 1 implements rule state, startup, and CLI; Slice 2 implements explicit model routing; Slice 3 implements transactional recovery and inventory notices; Slice 4 implements full scope presentation and status inspection; Slices 4a/4b implement bounded parallel execution and cancellable FIFO admission; Slice 5 remains pending.
 
-**Scheduling amendment (2026-10-20):** Slice 2 uses Pi sequential tool execution. Parallel scheduling, shared capacity admission, and overlapping-call tests move to a separate pending Slice 4a.
+**Scheduling amendment (2026-10-20):** Slice 2 uses Pi sequential tool execution. Parallel scheduling, shared capacity admission, and overlapping-call tests move to Slice 4a; the subsequently accepted Slice 4b queue revision is implemented with it below.
 
 **Starting point:** The existing [Phase 2 acceptance](./PHASE2_ACCEPTANCE.md) is complete. Its implementation, tests, contract snapshots, and acceptance records remain the historical baseline. This phase is an explicit forward migration from that working runtime, not a rewrite of what Phase 2 delivered.
 
@@ -144,17 +144,29 @@ Replace singular registration with `/clusters` and picker/direct/all/status vari
 
 **Slice boundary:** Pi tool execution remains sequential. Parallel scheduling/capacity admission remains Slice 4a. Installed-terminal and disposable-cluster acceptance remains Slice 5; no incident UI, evidence store, or mutation workflow is introduced.
 
-### Slice 4a — Bounded parallel tool execution (pending)
+### Slice 4a — Bounded parallel tool execution
 
-After routing, recovery, and scope UI are accepted, enable parallel execution for independent diagnostic targets. Add one application-wide limit of four in-flight MCP calls across tools and contexts, including model-driven enumeration. Define synchronous admission, no waiting queue, capacity refusal, and explicit release on every exit. Keep per-call snapshots, exact context validation, cancellation, and stale-result withholding.
+Enable parallel execution for independent diagnostic targets with one application-wide limit of four active MCP calls across tools and contexts, including model-driven enumeration. Keep exact context validation, per-call snapshots, cancellation, and stale-result withholding. Slice 4b supersedes the original immediate fifth-call refusal policy with bounded waiting.
 
-**Acceptance:** Real Pi scheduling proves overlapping A/B calls retain separate resource origins; a fifth call is refused before dispatch; capacity/work/snapshots release on success, failure, cancellation, and schema refusal. Cover reconnect during overlapping calls and per-context failure isolation. Slice 2 has no dependency on this work.
+**Implemented (2026-10-20):** Registered tools declare Pi parallel execution; the session-owned authority shares admission across tools and replacement handlers. Slots remain held through normalization and release on every exit. Real Pi tests dispatch four independent calls while a fifth waits and later completes with its exact resource origin. Per-context failures remain isolated.
+
+### Slice 4b — Bounded, cancellable admission queue
+
+**Implemented (2026-10-20):** The accepted queue revision replaces capacity refusal for ordinary saturation. One session-owned scheduler admits four active calls and up to 32 FIFO waiters across diagnostics, model-driven enumeration, direct callers, and replacement handlers. Only a full queue returns `capacity-exceeded`. Queue residence has a monotonic 30-second deadline and returns `timeout` with an admission-wait message; the MCP timeout starts separately at dispatch. Bounds are application constants without new configuration.
+
+Validate schema/scope before admission. Waiters retain private arguments and original authority revisions/generation, and hold work guards; they hold no execution snapshot or active slot. Cancellation promptly removes waiters. Handoff and pre-dispatch checks revalidate cancellation, connection/generation, publication gate, revisions, current scope and target compatibility. Changed authority invalidates rather than rebinds queued work. Fresh snapshots are captured only immediately before dispatch. Slots/snapshots/guards release on every exit; cancellation/expiry/handoff cleanup settles once.
+
+Publication blocking, transport loss, generation invalidation, and shutdown settle affected waiters without waiting for active transport settlement. Recovery publishes matching tools/inventory/notices before new calls dispatch. Old queued calls never run on the replacement connection. Phase 4 dispatch budget/storage reservations remain future work after queue admission.
+
+**Acceptance:** Deterministic tests cover FIFO A/B origins, four-active/32-waiting shared bounds including enumeration, invalid preflight without capacity use, separate application isolation, head/middle/tail cancellation, wait expiry, handoff cancellation/generation/revision/availability races, duplicate release, application cancellation before controller teardown, and slot recovery after transport/normalization failures. Real Pi/stdio tests cover a five-call model batch and four active calls plus queued diagnostics/enumeration across forced replacement, process loss, and shutdown, including no replay and per-context authorization isolation after recovery. Installed/disposable-cluster acceptance remains Slice 5.
+
+**Validation (2026-10-20):** Focused queue/bridge/Pi/reconnect tests passed, followed by `npm run format:check`, `npm run lint`, `npm run check`, `npm test` (506 passed; 7 optional executable-dependent tests skipped), `npm run build`, and `git diff --check`. No installed-terminal or live-cluster acceptance was performed.
 
 ### Slice 5 — Full-path and installed acceptance
 
-Add `tests/integration/phase3-acceptance.test.ts` using production composition, real Pi, deterministic model streams, and recording MCP fixtures. Extend package CLI acceptance for new flags and migrated defaults. Record results in `docs/PHASE3_ACCEPTANCE.md`.
+After Slices 4a/4b, add `tests/integration/phase3-acceptance.test.ts` using production composition, real Pi, deterministic model streams, and recording MCP fixtures. Extend package CLI acceptance for new flags and migrated defaults. Record results in `docs/PHASE3_ACCEPTANCE.md`.
 
-Cover singleton/set/all routing, missing-context refusal, invalid overrides, model choices outside selection, identical resource names with different cluster markers, independent overlapping calls, selection races, reconnect `{A, B}` to `{A, C}`, failed/empty enumeration, changed defaults, stale handlers/results, cancellation, per-target failures, compaction/reload, and shutdown.
+Cover singleton/set/all routing, missing-context refusal, invalid overrides, model choices outside selection, identical resource names with different cluster markers, independent overlapping calls, FIFO wait/overflow/expiry/cancellation, queued reconnect cleanup, selection races, reconnect `{A, B}` to `{A, C}`, failed/empty enumeration, changed defaults, stale handlers/results, cancellation, per-target failures, compaction/reload, and shutdown.
 
 Run affected tests first, then `npm run format:check`, `npm run lint`, `npm run check`, `npm test`, and `npm run build`. An explicit disposable-cluster/installed-package smoke test verifies `/clusters`, default all, exact routing, changed availability, unchanged kubeconfig, terminal display, and cleanup; deterministic fixtures cover added-context cases without requiring a third live cluster. Offline checks do not claim live access.
 

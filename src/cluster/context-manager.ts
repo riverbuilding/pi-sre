@@ -1,3 +1,8 @@
+import {
+  ExecutionQueue,
+  type ExecutionAdmission,
+  type ExecutionAdmissionFailure,
+} from "./execution-queue.js";
 import type { ClusterContextRegistry } from "./context-registry.js";
 import {
   createExactClusterRule,
@@ -27,6 +32,10 @@ export interface ClusterExecutionAuthority {
   isExecutionCurrent(snapshot: ClusterExecutionSnapshot): boolean;
   releaseExecution(snapshot: ClusterExecutionSnapshot): void;
   beginAgentWork(): () => void;
+  admitExecution(
+    check: () => ExecutionAdmissionFailure | undefined,
+    signal?: AbortSignal,
+  ): ExecutionAdmission | Promise<ExecutionAdmission>;
 }
 
 export interface ClusterInventoryTransition {
@@ -67,6 +76,7 @@ const inventoryUnavailable: ClusterResolution = Object.freeze({
 
 /** Session-owned rule and resolution, independent of transcript and MCP default metadata. */
 export class ClusterContextManager implements ClusterExecutionAuthority {
+  private readonly executionQueue = new ExecutionQueue();
   private disposed = false;
   private publicationBlocks = 0;
   private readonly snapshots = new Set<ClusterExecutionSnapshot>();
@@ -110,6 +120,7 @@ export class ClusterContextManager implements ClusterExecutionAuthority {
 
   private publishCurrentContextState(state: ClusterContextState): void {
     this.currentContextState = Object.freeze(state);
+    this.executionQueue.refresh();
     for (const listener of this.listeners) listener(this.currentContextState);
   }
 
@@ -276,12 +287,20 @@ export class ClusterContextManager implements ClusterExecutionAuthority {
   /** Keep all handlers closed until matching tools and scope notices have been published. */
   blockDispatch(): () => void {
     this.publicationBlocks++;
+    this.executionQueue.refresh();
     let released = false;
     return () => {
       if (released) return;
       released = true;
       this.publicationBlocks--;
     };
+  }
+
+  admitExecution(
+    check: () => ExecutionAdmissionFailure | undefined,
+    signal?: AbortSignal,
+  ): ExecutionAdmission | Promise<ExecutionAdmission> {
+    return this.executionQueue.acquire(check, signal);
   }
 
   isConnectionCurrent(generation: number): boolean {

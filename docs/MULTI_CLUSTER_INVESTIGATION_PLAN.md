@@ -51,11 +51,15 @@ Derive model choices from current rule resolution and discovered tool compatibil
 Validate arguments
     → Resolve one context under the effective session/incident rule and current inventory
     → Check connection, tool compatibility, cancellation, and limits
+    → Await bounded, cancellable FIFO admission
+    → Recheck scope, authority revisions, connection generation, and cancellation
     → Capture a Phase 3 session execution snapshot; Phase 4 adds incident/capacity reservation
     → Preserve supplied context and validate final MCP arguments
     → Execute with cancellation
     → Revalidate snapshot before success publication; Phase 4 also commits evidence
 ```
+
+**Queue revision (2026-10-20):** Phase 3 Slices 4a/4b use four active calls and up to 32 FIFO waiters across tools/contexts, including model-driven enumeration. Waiting is cancellable with a 30-second deadline; only a full queue returns `capacity-exceeded`. Recheck scope, availability, compatibility, revisions, publication gate, and connection generation before dispatch. Waiters hold work guards but acquire snapshots/active slots only at dispatch. Reconnect/transport loss/shutdown settle invalidated waiters promptly without replay. See [the execution contract](./PHASE3_CONTRACTS.md#call-order-and-scheduling).
 
 Do not route by changing a global active context or implicitly fan out one Kubernetes call. Independent A/B calls have independent leases. The model can explore other permitted targets when relevant; wildcard permission does not require an exhaustive fleet scan.
 

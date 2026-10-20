@@ -106,6 +106,7 @@ export class McpController {
             createMcpToolBridge(descriptor, this.bridgeConnection, this.resultPolicy, {
               manager: this.clusterContext,
               connectionGeneration: this.clusterContext.state.connectionGeneration,
+              signal: AbortSignal.any([this.shutdown, this.connectionCancellation.signal]),
             }),
           ]
         : [];
@@ -235,6 +236,7 @@ export class McpController {
             createMcpToolBridge(tool, scoped, config.results, {
               manager: this.clusterContext,
               connectionGeneration: generation,
+              signal,
             }),
           );
       signal.throwIfAborted();

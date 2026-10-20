@@ -21,6 +21,7 @@ export type ToolFailureCategory =
   | "scope-unavailable"
   | "stale-scope"
   | "incompatible-schema"
+  | "capacity-exceeded"
   | "timeout";
 
 export interface NormalizedMcpResult {
@@ -76,6 +77,7 @@ const FAILURE_MESSAGES: Record<ToolFailureCategory, string> = {
   "authorization-failed": "Kubernetes authorization failed. Check read-only RBAC permissions.",
   "invalid-arguments": "Invalid arguments for the Kubernetes MCP tool.",
   "tool-execution-failed": "Kubernetes MCP tool reported an execution error.",
+  "capacity-exceeded": "Kubernetes MCP waiting queue is full. Wait for pending calls to finish.",
   timeout: "Kubernetes MCP operation timed out. Check connectivity and the configured timeout.",
 };
 

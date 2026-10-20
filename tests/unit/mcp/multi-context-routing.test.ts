@@ -32,7 +32,7 @@ describe("Phase 3 exact target execution", () => {
     "routes sequential same-named resources under %j",
     async (rule) => {
       const { tool, manager, callTool, generation, capture } = setup(rule);
-      expect(tool.executionMode).toBe("sequential");
+      expect(tool.executionMode).toBe("parallel");
       for (const context of ["alpha", "beta"]) {
         callTool.mockResolvedValue({ content: [{ type: "text", text: `${context}/api` }] });
         const result = await execute(tool, { context, labelSelector: "app=api" });

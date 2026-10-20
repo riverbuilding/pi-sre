@@ -1092,6 +1092,60 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
     expect(await invoke()).toMatchObject({ isError: false });
   });
 
+  it.each(["restart", "drop", "close"])(
+    "settles active and queued work on %s without replaying waiters",
+    async (transition) => {
+      await configure("scoped-timeout");
+      await start();
+      const old = runtime.session.getToolDefinition("pods_list");
+      const active = Array.from({ length: 4 }, (_, index) =>
+        inspect(index % 2 ? "beta" : "alpha", old),
+      );
+      const queued = [inspect("beta", old), inspect("alpha", old), invoke()];
+      await expect
+        .poll(async () => (await readFile(`${pids[0]}.calls`, "utf8")).trim().split("\n").length)
+        .toBe(5);
+      if (transition === "restart") {
+        await configure("diagnostic-beta-authorization");
+        const replacing = controller.restart(true);
+        for (const result of await Promise.all(queued))
+          expect(result).toMatchObject({ details: { failureCategory: "stale-scope" } });
+        await replacing;
+      } else if (transition === "drop") {
+        process.kill(Number(await readFile(pids[0]!, "utf8")), "SIGTERM");
+        await expect.poll(() => controller.snapshot.status).toBe("unavailable");
+        for (const result of await Promise.all(queued))
+          expect(result).toMatchObject({ isError: true });
+        await configure("diagnostic-beta-authorization");
+        await command();
+      } else {
+        const closing = controller.close();
+        for (const result of await Promise.all(queued))
+          expect(result).toMatchObject({ isError: true });
+        await closing;
+      }
+      for (const result of await Promise.all(active))
+        expect(result).toMatchObject({ isError: true });
+      expect(controller.clusterContext.isAgentActive).toBe(false);
+      expect((await readFile(`${pids[0]}.calls`, "utf8")).trim().split("\n")).toHaveLength(5);
+      if (transition !== "close") {
+        // Only authoritative discovery ran on the replacement; no queued call was replayed.
+        expect((await readFile(`${pids.at(-1)}.calls`, "utf8")).trim().split("\n")).toHaveLength(1);
+        expect(await inspect("alpha", old)).toMatchObject({
+          details: { failureCategory: "stale-scope" },
+        });
+        expect(await inspect("alpha")).toMatchObject({
+          isError: false,
+          details: { scope: { context: "alpha", connectionGeneration: 2 } },
+        });
+        expect(await inspect("beta")).toMatchObject({
+          isError: true,
+          details: { failureCategory: "authorization-failed", scope: { context: "beta" } },
+        });
+      }
+    },
+  );
+
   it("coalesces concurrent restarts and hides removed tools", async () => {
     await configure();
     await start();

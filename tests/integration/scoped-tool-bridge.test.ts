@@ -187,7 +187,7 @@ describe("Slice 4 scoped bridge over Pi and stdio MCP", () => {
       },
     );
 
-    it("executes model-requested targets sequentially through Pi", async () => {
+    it("queues a five-call Pi batch while four independent targets overlap", async () => {
       const activeSession = session!;
       manager.selectRule({ kind: "all" });
       const firstResponse = Promise.withResolvers<void>();
@@ -198,28 +198,37 @@ describe("Slice 4 scoped bridge over Pi and stdio MCP", () => {
       const callTool = managedConnection.callTool.bind(managedConnection);
       vi.spyOn(managedConnection, "callTool").mockImplementation(async (name, args, signal) => {
         calls.push(String(args.context));
-        if (calls.length === 1) await firstResponse.promise;
-        else overlapped = !firstFinished;
+        if (calls.length > 1) overlapped ||= !firstFinished;
+        if (calls.length <= 4) await firstResponse.promise;
         const result = await callTool(name, args, signal);
         firstFinished = true;
         return result;
       });
-      simulatePodInvestigation(activeSession, {}, undefined, ["beta", "alpha"]);
+      simulatePodInvestigation(activeSession, {}, undefined, [
+        "beta",
+        "alpha",
+        "beta",
+        "alpha",
+        "beta",
+      ]);
       const pending = activeSession.prompt("Inspect beta and alpha pods");
       try {
-        await expect.poll(() => calls.length).toBe(1);
+        await expect.poll(() => calls.length).toBe(4);
         expect(manager.isAgentActive).toBe(true);
       } finally {
         firstResponse.resolve();
         await pending;
       }
-      expect(calls).toEqual(["beta", "alpha"]);
-      expect(overlapped).toBe(false);
+      expect(calls).toEqual(["beta", "alpha", "beta", "alpha", "beta"]);
+      expect(overlapped).toBe(true);
       expect(
         activeSession.messages.filter((message) => message.role === "toolResult"),
       ).toMatchObject([
         { isError: false, details: { scope: { context: "beta" } } },
         { isError: false, details: { scope: { context: "alpha" } } },
+        { isError: false, details: { scope: { context: "beta" } } },
+        { isError: false, details: { scope: { context: "alpha" } } },
+        { isError: false, details: { scope: { context: "beta" } } },
       ]);
       expect(manager.isAgentActive).toBe(false);
     });
