@@ -111,6 +111,17 @@ function listToolsResult(scenario: string, params?: FixtureParams): Record<strin
 function callToolResult(scenario: string, params?: FixtureParams): Record<string, unknown> {
   if (scenario.startsWith("diagnostic-")) {
     if (params?.name === "configuration_contexts_list") {
+      if (scenario === "diagnostic-many-contexts")
+        return {
+          content: [],
+          structuredContent: {
+            contexts: Array.from({ length: 45 }, (_, index) => ({
+              name: `context-${String(index + 1).padStart(3, "0")}`,
+              server: "https://fixture.example.invalid",
+              default: false,
+            })),
+          },
+        };
       if (scenario === "diagnostic-empty")
         return { content: [], structuredContent: { contexts: [] } };
       if (scenario === "diagnostic-inventory-error")

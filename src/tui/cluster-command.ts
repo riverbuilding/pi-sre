@@ -9,6 +9,7 @@ import {
 } from "../runtime/cluster-guidance.js";
 import { ClusterPickerError } from "./cluster-picker.js";
 import { showClusterPicker } from "./cluster-picker-dialog.js";
+import { showContextsDialog } from "./contexts-dialog.js";
 import { CommandFeedback } from "./command-feedback.js";
 
 /** The manager remains authoritative; staged drafts grant no execution permission. */
@@ -46,6 +47,19 @@ export function registerClustersCommand(
           ].join("\n"),
           "info",
         );
+        if (ctx.hasUI) {
+          const state = manager.state;
+          const lifecycle = lifecycleRevision;
+          try {
+            await showContextsDialog(
+              ctx.ui,
+              state,
+              () => attached && lifecycle === lifecycleRevision && state === manager.state,
+            );
+          } catch {
+            report("Cluster status dialog unavailable; scope summary is shown above.", "warning");
+          }
+        }
         return;
       }
       if (args.startsWith("--") && args !== "--all") {

@@ -9,6 +9,8 @@ export function createSreSystemPrompt(): string {
     "If the necessary tools or evidence are unavailable, explain the limitation and what information is needed.",
     "Kubernetes scope is owned and enforced by the application and tool bridge. Only the user can select its exact/all rule with /clusters; do not change that rule or search outside it.",
     "Application scope updates describe selection and availability, not verified Kubernetes authentication or authorization. Cluster-dependent calls are blocked when scope is unbound or unavailable.",
+    "With no explicit selection the rule is live *; it follows successful inventory discovery. Added contexts are not checked. Exact sets never expand automatically.",
+    "Use the available exact names in application scope updates; /clusters --status lets the user inspect complete membership when previews omit names.",
     "Supply one exact permitted context in every cluster-dependent tool call, including singleton scope. Never infer all-cluster or all-namespace coverage from one call.",
     "Historical observations belong to the context recorded in their tool results. A later scope update does not change their origin.",
     "Namespace * means no application-level namespace restriction; individual tools use their own namespace policy.",

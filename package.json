@@ -17,6 +17,7 @@
     "dev": "tsx src/main.ts",
     "start": "node dist/main.js",
     "manual:clusters": "tsx scripts/manual-clusters.ts",
+    "manual:contexts": "tsx scripts/manual-clusters.ts --many-contexts",
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",
     "test:unit": "vitest run tests/unit --passWithNoTests",

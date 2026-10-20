@@ -26,9 +26,13 @@ async function run(
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
-  const prepareOnly = args[0] === "--prepare-only";
-  if (args.length > (prepareOnly ? 1 : 0)) {
-    throw new Error("Usage: npm run manual:clusters -- [--prepare-only]");
+  const prepareOnly = args.includes("--prepare-only");
+  const manyContexts = args.includes("--many-contexts");
+  if (
+    args.some((arg) => !["--prepare-only", "--many-contexts"].includes(arg)) ||
+    new Set(args).size !== args.length
+  ) {
+    throw new Error("Usage: npm run manual:clusters -- [--many-contexts] [--prepare-only]");
   }
   await access(join(root, "node_modules", "tsx"));
   const workspace = await mkdtemp(join(tmpdir(), "pi-sre-manual-clusters-"));
@@ -65,7 +69,7 @@ async function main(): Promise<void> {
             "--import",
             import.meta.resolve("tsx"),
             fixture,
-            "diagnostic-success",
+            manyContexts ? "diagnostic-many-contexts" : "diagnostic-success",
             join(appHome, "fixture.pid"),
           ],
           configFile: "kubernetes-mcp.toml",
@@ -101,10 +105,16 @@ async function main(): Promise<void> {
   console.log(`Config: ${configPath}`);
   console.log(`Fixture MCP call log: ${join(appHome, "fixture.pid.calls")}`);
   console.log(
-    "Try /clusters --status, /clusters (toggle alpha/beta, Apply or Cancel),\n" +
-      "/clusters alpha, /clusters beta, /clusters --all, and /mcp_restart --force.\n" +
-      "Both selected: diagnostics hidden until Phase 3 Slice 2. One selected: diagnostics available.\n" +
-      "No model login is needed for these commands. Use /login for model-driven fixture queries.\n",
+    manyContexts
+      ? "Fixture: 45 contexts (context-001 through context-045).\n" +
+          "Run /clusters --status: expect three pages with 20, 20, and 5 names.\n" +
+          "Try Next page, Previous page, select a name to inspect it, then Escape or Close status.\n" +
+          "Run /clusters context-001, then /clusters --status to inspect outside-selection labels.\n" +
+          "Run /clusters --all to restore live all. No model login or Kubernetes access is needed.\n"
+      : "Try /clusters --status, /clusters (toggle alpha/beta, Apply or Cancel),\n" +
+          "/clusters alpha, /clusters beta, /clusters --all, and /mcp_restart --force.\n" +
+          "Every diagnostic call must supply one exact selected context.\n" +
+          "No model login is needed for these commands. Use /login for model-driven fixture queries.\n",
   );
   if (!prepareOnly) await run(process.execPath, [executable], workspace, env);
 }

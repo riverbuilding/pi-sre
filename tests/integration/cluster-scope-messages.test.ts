@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ClusterContextManager } from "../../src/cluster/context-manager.js";
 import { ClusterContextRegistry } from "../../src/cluster/context-registry.js";
-import { createInventoryTransitionLines } from "../../src/runtime/cluster-guidance.js";
+import { createClusterStatusLines } from "../../src/runtime/cluster-guidance.js";
 import { createSreResourceLoaderOptions } from "../../src/runtime/resource-loader.js";
 import { registerClusterScope } from "../../src/tui/cluster-extension.js";
 
@@ -22,10 +22,12 @@ describe("persistent scope updates", () => {
   let manager: ClusterContextManager;
   const setWidget = vi.fn();
   const notify = vi.fn();
+  const select = vi.fn();
 
   beforeEach(async () => {
     setWidget.mockClear();
     notify.mockClear();
+    select.mockReset().mockResolvedValue(undefined);
     home = await mkdtemp(join(tmpdir(), "pi-sre-scope-messages-"));
     manager = new ClusterContextManager({ rule: { kind: "exact", contexts: ["alpha"] } });
     manager.acceptRegistry(
@@ -54,7 +56,7 @@ describe("persistent scope updates", () => {
     // Model streaming is simulated below; bypass only the credential preflight.
     vi.spyOn(session.modelRuntime, "hasConfiguredAuth").mockReturnValue(true);
     await session.bindExtensions({
-      uiContext: { ...session.extensionRunner.getUIContext(), setWidget, notify },
+      uiContext: { ...session.extensionRunner.getUIContext(), setWidget, notify, select },
     });
   });
 
@@ -71,17 +73,9 @@ describe("persistent scope updates", () => {
       }
       expect(manager.state).toBe(state);
       expect(session.messages).toEqual(messages);
-      expect(setWidget).toHaveBeenLastCalledWith(
-        "pi-sre-scope",
-        [
-          "READ ONLY",
-          `Cluster: ${cluster}`,
-          "Namespace: *",
-          `MCP: ${mcp} | Registry: ${registry}`,
-          ...createInventoryTransitionLines(state),
-        ],
-        { placement: "belowEditor" },
-      );
+      expect(setWidget).toHaveBeenLastCalledWith("pi-sre-scope", createClusterStatusLines(state), {
+        placement: "belowEditor",
+      });
       const status: unknown = notify.mock.lastCall?.[0];
       expect(status).toEqual(expect.stringContaining(`Cluster: ${cluster}`));
       expect(status).toEqual(expect.stringContaining(`MCP: ${mcp} | Registry: ${registry}`));
@@ -120,6 +114,32 @@ describe("persistent scope updates", () => {
     await session?.dispose();
     vi.restoreAllMocks();
     await rm(home, { recursive: true, force: true });
+  });
+
+  it("opens status inspection during direct work and reports UI failures without exposing their contents", async () => {
+    const state = manager.state;
+    const messages = [...session.messages];
+    const release = manager.beginAgentWork();
+    try {
+      await session.prompt("/clusters --status");
+      expect(select).toHaveBeenLastCalledWith(
+        expect.stringContaining("2 names"),
+        [
+          '1. "alpha" — permitted, available; health not checked',
+          '2. "beta" — outside exact selection',
+          "Close status",
+        ],
+        undefined,
+      );
+      select.mockRejectedValueOnce(new Error("PRIVATE_UI_FAILURE"));
+      await session.prompt("/clusters --status");
+      expect(notify.mock.lastCall?.[0]).toContain("status dialog unavailable");
+      expect(notify.mock.calls.flat().join(" ")).not.toContain("PRIVATE_UI_FAILURE");
+    } finally {
+      release();
+    }
+    expect(manager.state).toBe(state);
+    expect(session.messages).toEqual(messages);
   });
 
   it("deduplicates unchanged state and reloads, and disposes the subscription", async () => {
