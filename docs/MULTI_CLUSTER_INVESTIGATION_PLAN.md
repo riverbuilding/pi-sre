@@ -65,6 +65,8 @@ Do not route by changing a global active context or implicitly fan out one Kuber
 
 ## 4. Reconnect and reconciliation
 
+See [MCP Reconnect During an Investigation](./MCP_RECONNECT_AND_INVESTIGATION.md) for current session/agent behavior, interrupted-call handling, and the proposed Phase 4 query-attempt representation.
+
 Recovery is an application transaction independent of model cooperation:
 
 1. Block new Kubernetes dispatches, invalidate the old generation, and cancel/settle old calls. Withhold invalidated late success; preserve committed evidence.

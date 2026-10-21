@@ -1,10 +1,10 @@
 # Phase 4 Implementation Slices — Investigation Domain
 
-**Status:** Planned, renumbered on 2026-10-18 after insertion of Phase 3 Context Selection and Multi-Cluster Routing. No implementation is claimed.
+**Status:** Slice 0 contracts and offline lifecycle fixtures completed on 2026-10-20; see [PHASE4_CONTRACTS.md](./PHASE4_CONTRACTS.md). Slices 1–7 remain planned. No production incident, evidence, or incident-budget behavior is enabled. Renumbered on 2026-10-18 after insertion of Phase 3 Context Selection and Multi-Cluster Routing.
 
 **Applies to:** Pi SRE V0.1, Phase 4 — Investigation Domain.
 
-**Prerequisite:** Complete [Phase 3 Context Selection and Multi-Cluster Routing](./PHASE3_IMPLEMENTATION_SLICES.md), including its future `docs/PHASE3_ACCEPTANCE.md` gate. Phase 2 is already complete and remains the unchanged historical baseline; Phase 4 is not the next step from Phase 2.
+**Prerequisite (met):** [Phase 3 Context Selection and Multi-Cluster Routing](./PHASE3_IMPLEMENTATION_SLICES.md) and its [acceptance gate](./PHASE3_ACCEPTANCE.md) completed on 2026-10-20. Phase 2 remains the unchanged historical baseline.
 
 **Source of truth:** [DESIGN.md](./DESIGN.md), especially Sections 13–16, 28–30, 40–45,
 50, 66, and 74. The decisions below make those architectural examples implementable;
@@ -46,7 +46,7 @@ repaired infrastructure.
 
 ## 2. Starting Point
 
-This is the expected baseline **after Phase 3 acceptance**, not a claim about today's Phase 2 runtime:
+This is the accepted Phase 3 baseline used by Slice 0:
 
 | Component                                       | Phase 4 use                                                                                                                 |
 | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
@@ -338,6 +338,10 @@ they do not implement state transitions or Kubernetes diagnosis.
   behavior under queued input, compaction retry, reload, and switch/fork.
 - No new Kubernetes operation, exact diagnostic output schema, or second connection is needed.
 - Every proposed domain field and limit has an owner; persistence remains explicitly in memory.
+
+**Completed (2026-10-20):** [PHASE4_CONTRACTS.md](./PHASE4_CONTRACTS.md) freezes creation and conclusion semantics, session binding, immutable incident scope versus next selection, effective-scope/lease and synchronous recording interfaces, capacity reservations, dispatch accounting, pagination, summary limits and the migration of existing routing/recovery assertions. Installed Pi 0.99.0 was inspected directly. Eight real-Pi offline fixture cases verify prompt sources and preflight, queued delivery, actual overflow compaction/retry, reload/tree navigation, new/fork/resume and fresh-owner isolation, vetoed replacement, and executing-tool cancellation before shutdown. The fixture's creation witness is test-only; no production domain behavior is implemented in this slice.
+
+**Validation (2026-10-20):** Focused lifecycle, existing public Pi contracts, scoped stdio bridge and persistent scope-message suites passed (25 tests). `npm run format:check`, `npm run lint`, `npm run check`, `npm test` (527 passed; 7 optional executable-dependent contract tests skipped), `npm run build`, and `git diff --check` passed. No live provider, installed-terminal or real-cluster validation was performed; full Phase 4 acceptance remains Slice 7.
 
 ## 7. Slice 1 — Domain Models and Pure Invariants
 
