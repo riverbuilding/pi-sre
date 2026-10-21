@@ -178,6 +178,9 @@ function callToolResult(scenario: string, params?: FixtureParams): Record<string
       content: [],
       structuredContent: {
         marker: `${String(params?.arguments?.context)}-${String(params?.name)}`,
+        ...(scenario.startsWith("diagnostic-phase3")
+          ? { name: params?.arguments?.name, namespace: params?.arguments?.namespace }
+          : {}),
         token: "PRIVATE_FIXTURE",
       },
     };
@@ -313,15 +316,18 @@ input.on("line", (line) => {
     return;
   if (
     method === "tools/call" &&
-    scenario === "diagnostic-delayed" &&
-    params?.name === "pods_list"
+    ((scenario === "diagnostic-delayed" && params?.name === "pods_list") ||
+      (scenario === "diagnostic-phase3-delayed" && params?.name === "pods_get"))
   ) {
     if (process.argv[3]) writeFileSync(`${process.argv[3]}.call`, "started");
-    setTimeout(() => {
-      process.stdout.write(
-        `${JSON.stringify({ jsonrpc: "2.0", id, result: callToolResult(scenario, params) })}\n`,
-      );
-    }, 200);
+    setTimeout(
+      () => {
+        process.stdout.write(
+          `${JSON.stringify({ jsonrpc: "2.0", id, result: callToolResult(scenario, params) })}\n`,
+        );
+      },
+      scenario === "diagnostic-phase3-delayed" ? 500 : 200,
+    );
     return;
   }
   if (method === "tools/call" && (scenario === "call-timeout" || scenario === "contexts-timeout")) {

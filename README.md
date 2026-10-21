@@ -10,24 +10,26 @@ The [Phase 2 implementation slices](docs/PHASE2_IMPLEMENTATION_SLICES.md) cover 
 
 Slice 9 adds full-path routing acceptance and expanded packaged CLI checks. The [Phase 2 acceptance record and live runbook](docs/PHASE2_ACCEPTANCE.md) track the gate and operator-confirmed Slice 9 live acceptance. Slice 10 adds distinct operational command feedback. The operator confirmed the live tests, including the updated installed-package and terminal regression, passed on 2026-10-17. Phase 2 is complete. Phase 3 Slices 1–4b now implement rule state, startup resolution, CLI selection, explicit model routing, transactional MCP recovery, unified scope presentation, and bounded parallel execution with cancellable FIFO admission.
 
-The current milestone is [Phase 3 — Context Selection and Multi-Cluster Routing](docs/PHASE3_IMPLEMENTATION_SLICES.md), an explicit migration from the completed Phase 2 runtime. It delivers unified `/clusters`, default live `*`, exact sets, required model-supplied context on every diagnostic call, and deterministic reconnect reconciliation. It works with the current tools and one MCP server **without** an incident model or evidence store.
+Slice 5 adds full-path acceptance and installed-package checks against two disposable read-only kind clusters. Automated and live routing checks passed, and the operator confirmed all manual terminal checks passed on 2026-10-20. Phase 3 is complete; see the [Phase 3 acceptance record](docs/PHASE3_ACCEPTANCE.md).
+
+The completed milestone is [Phase 3 — Context Selection and Multi-Cluster Routing](docs/PHASE3_IMPLEMENTATION_SLICES.md), an explicit migration from the completed Phase 2 runtime. It delivers unified `/clusters`, default live `*`, exact sets, required model-supplied context on every diagnostic call, and deterministic reconnect reconciliation. It works with the current tools and one MCP server **without** an incident model or evidence store.
 
 [Phase 4 — Investigation Domain](docs/PHASE4_IMPLEMENTATION_SLICES.md) then adds incidents, evidence storage, hypotheses, and per-incident budgets on the accepted Phase 3 execution seam. Before incidents exist, idle `/clusters` changes session selection immediately. In Phase 4, an active incident keeps its own rule and selection applies to the next incident.
 
-| Phase | Delivery                                                                              | Status                  |
-| ----- | ------------------------------------------------------------------------------------- | ----------------------- |
-| 1     | Runtime and MCP integration                                                           | Complete                |
-| 2     | Original singleton context management                                                 | Complete                |
-| 3     | New context selection and multi-cluster routing                                       | Slices 1–4b implemented |
-| 4     | Investigation Domain                                                                  | Planned                 |
-| 5     | All 22 Kubernetes MCP config/core definitions, including opt-in controlled operations | Planned                 |
-| 6     | Kubernetes Diagnostic Skills                                                          | Planned                 |
-| 7     | Eval Framework                                                                        | Planned                 |
-| 8     | TUI Refinement                                                                        | Planned                 |
+| Phase | Delivery                                                                              | Status   |
+| ----- | ------------------------------------------------------------------------------------- | -------- |
+| 1     | Runtime and MCP integration                                                           | Complete |
+| 2     | Original singleton context management                                                 | Complete |
+| 3     | New context selection and multi-cluster routing                                       | Complete |
+| 4     | Investigation Domain                                                                  | Planned  |
+| 5     | All 22 Kubernetes MCP config/core definitions, including opt-in controlled operations | Planned  |
+| 6     | Kubernetes Diagnostic Skills                                                          | Planned  |
+| 7     | Eval Framework                                                                        | Planned  |
+| 8     | TUI Refinement                                                                        | Planned  |
 
 The [multi-cluster plan](docs/MULTI_CLUSTER_INVESTIGATION_PLAN.md) records accepted semantics and the staged handoff. Exact names stay fixed; live `*` follows validated inventory, with new members marked not checked. The model supplies a context even for singleton rules; the application validates it without injection/overwrite. [Phase 5](docs/PHASE5_IMPLEMENTATION_SLICES.md) and the [HolmesGPT capability comparison](docs/HOLMESGPT_KUBERNETES_MCP_PARITY.md) cover the separate tool-parity milestone.
 
-The command/setup documentation below reflects **Phase 3 Slice 4b**. Startup supports exact sets and default live `*`; diagnostic calls require one model-supplied exact context, including singleton rules. Pi executes independent MCP calls in parallel with one application-wide limit of four active calls and 32 FIFO waiters, shared across tools and contexts including model-driven enumeration. A fifth call waits; only a full queue returns `capacity-exceeded`. Queued calls expire after 30 seconds with `timeout`; the existing MCP timeout starts separately at dispatch. The unified `/clusters` command and staged multi-selection picker are implemented. Recovery keeps dispatch blocked until matching tools, inventory, rule resolution, and bounded added/removed/changed notices reach the UI and model. The widget and model snapshots show rule/source, bounded membership, availability, namespace policy, and revisions; `/clusters --status` provides full membership inspection. Historical Phase 1/2 acceptance records remain unchanged.
+The command/setup documentation below reflects **Phase 3 Slice 5**. Startup supports exact sets and default live `*`; diagnostic calls require one model-supplied exact context, including singleton rules. Pi executes independent MCP calls in parallel with one application-wide limit of four active calls and 32 FIFO waiters, shared across tools and contexts including model-driven enumeration. A fifth call waits; only a full queue returns `capacity-exceeded`. Queued calls expire after 30 seconds with `timeout`; the existing MCP timeout starts separately at dispatch. The unified `/clusters` command and staged multi-selection picker are implemented. Recovery keeps dispatch blocked until matching tools, inventory, rule resolution, and bounded added/removed/changed notices reach the UI and model. The widget and model snapshots show rule/source, bounded membership, availability, namespace policy, and revisions; `/clusters --status` provides full membership inspection. Historical Phase 1/2 acceptance records remain unchanged.
 
 ## Prerequisites
 

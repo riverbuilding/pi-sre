@@ -1,6 +1,6 @@
 # Phase 3 Implementation Slices — Context Selection and Multi-Cluster Routing
 
-**Status:** Accepted plan, October 18, 2026. Slice 0 contracts frozen on October 19, 2026 in [PHASE3_CONTRACTS.md](./PHASE3_CONTRACTS.md). Slice 1 implements rule state, startup, and CLI; Slice 2 implements explicit model routing; Slice 3 implements transactional recovery and inventory notices; Slice 4 implements full scope presentation and status inspection; Slices 4a/4b implement bounded parallel execution and cancellable FIFO admission; Slice 5 remains pending.
+**Status:** Complete, October 20, 2026. Plan accepted October 18, 2026. Slice 0 contracts frozen on October 19, 2026 in [PHASE3_CONTRACTS.md](./PHASE3_CONTRACTS.md). Slice 1 implements rule state, startup, and CLI; Slice 2 implements explicit model routing; Slice 3 implements transactional recovery and inventory notices; Slice 4 implements full scope presentation and status inspection; Slices 4a/4b implement bounded parallel execution and cancellable FIFO admission; Slice 5 automated, installed-package/live-cluster, and operator-confirmed visual terminal acceptance passed (see [PHASE3_ACCEPTANCE.md](./PHASE3_ACCEPTANCE.md)).
 
 **Scheduling amendment (2026-10-20):** Slice 2 uses Pi sequential tool execution. Parallel scheduling, shared capacity admission, and overlapping-call tests move to Slice 4a; the subsequently accepted Slice 4b queue revision is implemented with it below.
 
@@ -169,6 +169,10 @@ After Slices 4a/4b, add `tests/integration/phase3-acceptance.test.ts` using prod
 Cover singleton/set/all routing, missing-context refusal, invalid overrides, model choices outside selection, identical resource names with different cluster markers, independent overlapping calls, FIFO wait/overflow/expiry/cancellation, queued reconnect cleanup, selection races, reconnect `{A, B}` to `{A, C}`, failed/empty enumeration, changed defaults, stale handlers/results, cancellation, per-target failures, compaction/reload, and shutdown.
 
 Run affected tests first, then `npm run format:check`, `npm run lint`, `npm run check`, `npm test`, and `npm run build`. An explicit disposable-cluster/installed-package smoke test verifies `/clusters`, default all, exact routing, changed availability, unchanged kubeconfig, terminal display, and cleanup; deterministic fixtures cover added-context cases without requiring a third live cluster. Offline checks do not claim live access.
+
+**Implemented and verified (2026-10-20):** Added 13 production-composition/real-Pi/recording-stdio acceptance cases and extended packaged CLI coverage. The focused gate passed 104 tests; canonical formatting, lint, type checking, all tests (519 passed; 7 optional server-contract tests skipped), build, and diff checks passed. An independently installed npm archive exercised default-all and exact-set routing against two disposable kind clusters with read-only identities and same-named Pods carrying distinct markers. Removal/recovery, target refusals, old handlers, unchanged kubeconfig, and owned-cluster cleanup passed. The MCP 0.0.67 singleton enumeration omission correctly blocked diagnostics; an explicit alpha alias preserved a two-context recovery inventory without claiming a third cluster.
+
+**Completed (2026-10-20):** The operator confirmed all manual terminal checks passed and requested Phase 3 completion, closing the final visual terminal gate. [The acceptance record](./PHASE3_ACCEPTANCE.md) records the confirmation, automated and installed/live results, and evidence limitations. Slice 5 and Phase 3 are complete. Historical Phase 2 records are unchanged.
 
 ## 5. Exit criteria and handoff
 

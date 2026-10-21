@@ -45,6 +45,8 @@ it("packs a built executable that launches outside the source checkout", async (
       ["--clusters", "alpha", "beta", "--help"],
       ["-h", "--clusters=alpha"],
       ["--clusters", "*", "--help"],
+      ["--clusters=*", "--help"],
+      ["--clusters", "context with spaces", "beta", "--help"],
     ]) {
       const { stdout, stderr } = await run(process.execPath, [executable, ...args], options);
       expect(stdout).toContain("Pi SRE — read-only Kubernetes incident diagnosis");
@@ -52,6 +54,7 @@ it("packs a built executable that launches outside the source checkout", async (
       expect(stdout).toContain("--clusters=<name>");
       expect(stdout).toContain("--clusters > kubernetes.contexts > live all (*)");
       expect(stdout).toContain("/clusters --status");
+      expect(stdout).not.toMatch(/--cluster(?:[ =]|$)/m);
       expect(stdout).toContain("Unknown selections never fall back");
       expect(stderr).toBe("");
     }
@@ -65,6 +68,7 @@ it("packs a built executable that launches outside the source checkout", async (
       [["--help", "--unknown"], "Unknown argument"],
       [["--cluster", "alpha"], "Unknown argument"],
       [["--all-clusters"], "Unknown argument"],
+      [["--clusters=alpha", "beta"], "Unknown argument"],
       [["--clusters", "alpha", "alpha"], "--clusters requires"],
       [["--clusters", "alpha", "*"], "must be the sole"],
     ] as const) {
