@@ -1,6 +1,6 @@
 # MCP Reconnect During an Investigation
 
-**Status (2026-10-21):** This note explains implemented Phase 3 connection/session behavior and the planned Phase 4 investigation semantics. Incident, Evidence, Hypothesis, and durable query-attempt records are not implemented. The proposed query-attempt representation below is a design recommendation, not an existing domain contract.
+**Status (2026-10-21):** This note explains implemented Phase 3 connection/session behavior and the planned Phase 4 investigation semantics. Phase 4 Slice 1 provides pure Incident, Evidence, and Hypothesis models; runtime investigation services, evidence capture, and durable query-attempt records are not implemented. The proposed query-attempt representation below is a design recommendation, not an existing domain contract.
 
 Reconnect preserves the investigation's intent and accepted observations while replacing execution authority. It restores permission to issue fresh calls; interrupted calls do not resume or replay.
 

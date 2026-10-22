@@ -14,18 +14,18 @@ Slice 5 adds full-path acceptance and installed-package checks against two dispo
 
 The completed milestone is [Phase 3 — Context Selection and Multi-Cluster Routing](docs/PHASE3_IMPLEMENTATION_SLICES.md), an explicit migration from the completed Phase 2 runtime. It delivers unified `/clusters`, default live `*`, exact sets, required model-supplied context on every diagnostic call, and deterministic reconnect reconciliation. It works with the current tools and one MCP server **without** an incident model or evidence store.
 
-[Phase 4 — Investigation Domain](docs/PHASE4_IMPLEMENTATION_SLICES.md) then adds incidents, evidence storage, hypotheses, and per-incident budgets on the accepted Phase 3 execution seam. Before incidents exist, idle `/clusters` changes session selection immediately. In Phase 4, an active incident keeps its own rule and selection applies to the next incident.
+[Phase 4 — Investigation Domain](docs/PHASE4_IMPLEMENTATION_SLICES.md) has completed Slice 0 contracts and Slice 1 pure domain models; runtime investigation behavior remains planned. The remaining slices add incidents, evidence storage, hypotheses, and per-incident budgets on the accepted Phase 3 execution seam. Before incidents exist, idle `/clusters` changes session selection immediately. In Phase 4, an active incident keeps its own rule and selection applies to the next incident.
 
-| Phase | Delivery                                                                              | Status   |
-| ----- | ------------------------------------------------------------------------------------- | -------- |
-| 1     | Runtime and MCP integration                                                           | Complete |
-| 2     | Original singleton context management                                                 | Complete |
-| 3     | New context selection and multi-cluster routing                                       | Complete |
-| 4     | Investigation Domain                                                                  | Planned  |
-| 5     | All 22 Kubernetes MCP config/core definitions, including opt-in controlled operations | Planned  |
-| 6     | Kubernetes Diagnostic Skills                                                          | Planned  |
-| 7     | Eval Framework                                                                        | Planned  |
-| 8     | TUI Refinement                                                                        | Planned  |
+| Phase | Delivery                                                                              | Status      |
+| ----- | ------------------------------------------------------------------------------------- | ----------- |
+| 1     | Runtime and MCP integration                                                           | Complete    |
+| 2     | Original singleton context management                                                 | Complete    |
+| 3     | New context selection and multi-cluster routing                                       | Complete    |
+| 4     | Investigation Domain                                                                  | In progress |
+| 5     | All 22 Kubernetes MCP config/core definitions, including opt-in controlled operations | Planned     |
+| 6     | Kubernetes Diagnostic Skills                                                          | Planned     |
+| 7     | Eval Framework                                                                        | Planned     |
+| 8     | TUI Refinement                                                                        | Planned     |
 
 The [multi-cluster plan](docs/MULTI_CLUSTER_INVESTIGATION_PLAN.md) records accepted semantics and the staged handoff. Exact names stay fixed; live `*` follows validated inventory, with new members marked not checked. The model supplies a context even for singleton rules; the application validates it without injection/overwrite. [Phase 5](docs/PHASE5_IMPLEMENTATION_SLICES.md) and the [HolmesGPT capability comparison](docs/HOLMESGPT_KUBERNETES_MCP_PARITY.md) cover the separate tool-parity milestone.
 

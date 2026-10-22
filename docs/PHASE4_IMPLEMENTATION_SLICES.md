@@ -1,6 +1,6 @@
 # Phase 4 Implementation Slices — Investigation Domain
 
-**Status:** Slice 0 contracts and offline lifecycle fixtures completed on 2026-10-20; see [PHASE4_CONTRACTS.md](./PHASE4_CONTRACTS.md). Slices 1–7 remain planned. No production incident, evidence, or incident-budget behavior is enabled. Renumbered on 2026-10-18 after insertion of Phase 3 Context Selection and Multi-Cluster Routing.
+**Status:** Slice 0 contracts and offline lifecycle fixtures completed on 2026-10-20; see [PHASE4_CONTRACTS.md](./PHASE4_CONTRACTS.md). Slice 1 domain models and pure invariants completed on 2026-10-21; Slices 2–7 remain planned. No production incident, evidence, or incident-budget behavior is enabled. Renumbered on 2026-10-18 after insertion of Phase 3 Context Selection and Multi-Cluster Routing.
 
 **Applies to:** Pi SRE V0.1, Phase 4 — Investigation Domain.
 
@@ -361,6 +361,10 @@ they do not implement state transitions or Kubernetes diagnosis.
   namespace, exact membership versus live-all resolution changes, invalid time ranges, terminal transitions, and nested mutation attempts.
 - Changing a caller-owned selection, target array, or timestamp cannot mutate an incident.
 - Domain files have no Pi or MCP imports and no Kubernetes API implementation.
+
+**Completed (2026-10-21):** `src/domain/` defines all six models, privately frozen snapshots, exact target identity, captured exact/live-all scope and separate inventory resolution, canonical UTC windows with injected-clock duration resolution, bounded/redacted text, typed failures, evidence-reference validation, and explicit diagnostic lifecycle transitions. Snapshot collection limits are named and injectable. The shared redactor now lives in `src/shared/`, with the existing MCP import path preserved. No runtime incident creation, evidence storage, dispatch accounting, or incident authority is enabled; these remain later slices.
+
+**Validation (2026-10-21):** Domain unit tests cover caller-owned/nested mutation, exact identity and unknown namespace, live versus exact inventory changes, invalid creation/time windows, evidence/hypothesis links, terminal transitions, aggregate consistency and injected collection limits. `npm run check`, `npm run lint`, `npm run format:check`, `npm test` (536 passed; 7 optional executable-dependent contract tests skipped), `npm run build`, and `git diff --check` passed. No provider or live-cluster validation was needed for this pure-domain slice.
 
 ## 8. Slice 2 — Bounded EvidenceStore
 
