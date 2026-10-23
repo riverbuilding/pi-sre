@@ -14,7 +14,7 @@ Slice 5 adds full-path acceptance and installed-package checks against two dispo
 
 The completed milestone is [Phase 3 — Context Selection and Multi-Cluster Routing](docs/PHASE3_IMPLEMENTATION_SLICES.md), an explicit migration from the completed Phase 2 runtime. It delivers unified `/clusters`, default live `*`, exact sets, required model-supplied context on every diagnostic call, and deterministic reconnect reconciliation. It works with the current tools and one MCP server **without** an incident model or evidence store.
 
-[Phase 4 — Investigation Domain](docs/PHASE4_IMPLEMENTATION_SLICES.md) has completed Slice 0 contracts and Slice 1 pure domain models; runtime investigation behavior remains planned. The remaining slices add incidents, evidence storage, hypotheses, and per-incident budgets on the accepted Phase 3 execution seam. Before incidents exist, idle `/clusters` changes session selection immediately. In Phase 4, an active incident keeps its own rule and selection applies to the next incident.
+[Phase 4 — Investigation Domain](docs/PHASE4_IMPLEMENTATION_SLICES.md) has completed Slice 0 contracts, Slice 1 pure domain models, and Slice 2 bounded in-memory evidence storage; runtime investigation behavior remains planned. The remaining slices add incident lifecycle, automatic evidence capture, hypotheses, and per-incident budgets on the accepted Phase 3 execution seam. Before incidents exist, idle `/clusters` changes session selection immediately. In Phase 4, an active incident keeps its own rule and selection applies to the next incident.
 
 | Phase | Delivery                                                                              | Status      |
 | ----- | ------------------------------------------------------------------------------------- | ----------- |
@@ -147,7 +147,7 @@ Configure `results.maxTextChars` (default 8,000, range 256–64,000) and `result
 
 Known credential patterns and structured credential fields are redacted before results enter the model context or Pi transcript. Error payloads are replaced with safe category messages. Process diagnostics use the same redactor; truncated stderr tails are withheld to avoid exposing credential fragments. Pattern redaction does not identify arbitrary sensitive application data.
 
-`results.rawRetention` is fixed to `disabled`: raw MCP results have no retained artifact, retention budget, or lifetime after normalization (zero bytes retained for zero time). Pi receives only bounded text and safe status details. This slice does not create an evidence store.
+`results.rawRetention` is fixed to `disabled`: raw MCP results have no retained artifact, retention budget, or lifetime after normalization (zero bytes retained for zero time). Pi receives only bounded text and safe status details. Runtime observation capture into the Phase 4 EvidenceStore remains planned.
 
 ## Layout
 

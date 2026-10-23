@@ -1,6 +1,6 @@
 # Phase 4 Implementation Slices — Investigation Domain
 
-**Status:** Slice 0 contracts and offline lifecycle fixtures completed on 2026-10-20; see [PHASE4_CONTRACTS.md](./PHASE4_CONTRACTS.md). Slice 1 domain models and pure invariants completed on 2026-10-21; Slices 2–7 remain planned. No production incident, evidence, or incident-budget behavior is enabled. Renumbered on 2026-10-18 after insertion of Phase 3 Context Selection and Multi-Cluster Routing.
+**Status:** Slice 0 contracts and offline lifecycle fixtures completed on 2026-10-20; see [PHASE4_CONTRACTS.md](./PHASE4_CONTRACTS.md). Slice 1 domain models and pure invariants completed on 2026-10-21; Slice 2 bounded EvidenceStore completed on 2026-10-22; Slices 3–7 remain planned. No production incident, evidence, or incident-budget behavior is enabled. Renumbered on 2026-10-18 after insertion of Phase 3 Context Selection and Multi-Cluster Routing.
 
 **Applies to:** Pi SRE V0.1, Phase 4 — Investigation Domain.
 
@@ -384,6 +384,10 @@ they do not implement state transitions or Kubernetes diagnosis.
 - Concurrent writes cannot overshoot limits or expose half-written records. Failed/cancelled
   reservations release capacity. Separate application instances share no state.
 - No file is written, no artifact reference is invented, and no raw payload is retained.
+
+**Completed (2026-10-22):** `src/investigation/evidence-store.ts` provides incident-registered append/get/list, stable evidence IDs, execution-idempotent delivery, immutable safe excerpts, application-wide count limits and synchronous capacity reservations/commits. Authenticated, store/incident-bound high-water cursors preserve insertion order without retaining cursor histories. Pages include only whole records within their serialized UTF-8 response budget; a record that cannot fit produces an explicit refusal. `ContentCapacity` supplies the shared 8 MiB UTF-8 string-content ledger for evidence and later service-owned canonical records; incident registration is a bounded identity index, with incident content accounting owned by Slice 3. Default pages contain 20 records (maximum 50) within 64 KiB; callers can supply a smaller presentation budget. No runtime composition, incident lifecycle, transport capture, raw retention, file artifacts or persistence is enabled.
+
+**Validation (2026-10-22):** Storage and domain tests cover identical-text observations, duplicate/conflicting delivery, incident/ID isolation, high-water pages, cursor tampering/isolation, whole-record presentation budgets, immutable reads, exact UTF-8 boundaries, shared accounting, out-of-order completions, reservation cleanup, forged tokens and independent application instances. `npm run check`, `npm run lint`, `npm run format:check`, `npm test` (552 passed; 7 optional executable-dependent contract tests skipped), `npm run build`, and `git diff --check` passed. No provider, installed-terminal or live-cluster validation was needed for this storage-only slice.
 
 ## 9. Slice 3 — Investigation Service and Hypothesis Consistency
 
