@@ -14,22 +14,15 @@ export interface OperationOutcome {
   readonly executionId: string;
   readonly context: string;
   readonly operation: string;
+  readonly scopeRevision: number;
+  readonly inventoryRevision: number;
+  readonly connectionGeneration: number;
   readonly namespace?: string;
   readonly target?: Target;
   readonly completedAt: string;
   readonly status: "successful" | "partial" | "failed" | "interrupted";
   readonly explanation?: string;
 }
-
-export interface InvestigationSnapshotLimits {
-  readonly targets: number;
-  readonly hypotheses: number;
-}
-
-export const DEFAULT_SNAPSHOT_LIMITS: InvestigationSnapshotLimits = Object.freeze({
-  targets: 100,
-  hypotheses: 50,
-});
 
 export interface InvestigationState {
   readonly incident: Incident;
@@ -49,23 +42,12 @@ export interface InvestigationState {
 export function createInvestigationState(
   input: InvestigationState,
   maxExcerptChars: number,
-  limits: InvestigationSnapshotLimits = DEFAULT_SNAPSHOT_LIMITS,
 ): InvestigationState {
-  positiveInteger(limits.targets);
-  positiveInteger(limits.hypotheses);
-  for (const resource of ["targets", "hypotheses"] as const) {
-    if (input[resource].length > limits[resource]) {
-      throw new DomainError(
-        { kind: "capacity-refused", resource },
-        "Incident collection capacity exceeded.",
-      );
-    }
-  }
   const initial = createIncident(input.incident);
   const targets = input.targets.map(createTarget);
   requireDomain(
     new Set(targets.map(targetIdentity)).size === targets.length,
-    "Targets must be unique and within the incident limit.",
+    "Targets must be unique.",
   );
   const evidence = input.evidence.map((item) => createEvidence(item, maxExcerptChars));
   requireDomain(
@@ -80,7 +62,7 @@ export function createInvestigationState(
   const hypotheses = input.hypotheses.map((item) => createHypothesis(item, evidence));
   requireDomain(
     new Set(hypotheses.map((item) => item.id)).size === hypotheses.length,
-    "Hypotheses must be unique and within the incident limit.",
+    "Hypotheses must be unique.",
   );
   for (const item of [...evidence, ...hypotheses])
     requireDomain(item.incidentId === initial.id, "Records must belong to the same incident.");
@@ -102,6 +84,9 @@ export function createInvestigationState(
       executionId: identity(item.executionId, 128),
       context: identity(item.context),
       operation: identity(item.operation),
+      scopeRevision: positiveInteger(item.scopeRevision),
+      inventoryRevision: positiveInteger(item.inventoryRevision),
+      connectionGeneration: positiveInteger(item.connectionGeneration),
       completedAt: timestamp(item.completedAt),
       status: item.status,
       ...(item.namespace !== undefined ? { namespace: identity(item.namespace) } : {}),
@@ -123,8 +108,8 @@ export function createInvestigationState(
       );
   }
   requireDomain(
-    evidence.every((item) => item.scopeRevision === initial.scope.revision),
-    "Evidence scope revision must match its incident.",
+    [...evidence, ...outcomes].every((item) => item.scopeRevision === initial.scope.revision),
+    "Observation scope revision must match its incident.",
   );
   const startedAt = timestamp(input.startedAt);
   const updatedAt = timestamp(input.updatedAt);

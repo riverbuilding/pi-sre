@@ -260,11 +260,14 @@ describe("investigation domain", () => {
     ).toBe("inconclusive");
   });
 
-  it("bounds outcomes and supports injectable snapshot collection limits", () => {
+  it("bounds outcomes by dispatched attempts", () => {
     const outcome = {
       executionId: "X1",
       context: "alpha",
       operation: "pods_get",
+      scopeRevision: 1,
+      inventoryRevision: 2,
+      connectionGeneration: 3,
       completedAt: now,
       status: "successful" as const,
     };
@@ -273,15 +276,6 @@ describe("investigation domain", () => {
     expect(() =>
       createInvestigationState({ ...state, outcomes: [outcome, outcome] }, 8000),
     ).toThrow(DomainError);
-    expect(() =>
-      createInvestigationState(
-        { ...state, targets: [target, { ...target, name: "other" }] },
-        8000,
-        { targets: 1, hypotheses: 1 },
-      ),
-    ).toThrowError(
-      expect.objectContaining({ failure: { kind: "capacity-refused", resource: "targets" } }),
-    );
   });
 
   it("rejects mismatched aggregate scope, chronology and duplicate records", () => {

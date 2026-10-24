@@ -1,6 +1,6 @@
 # Phase 4 Implementation Slices — Investigation Domain
 
-**Status:** Slice 0 contracts and offline lifecycle fixtures completed on 2026-10-20; see [PHASE4_CONTRACTS.md](./PHASE4_CONTRACTS.md). Slice 1 domain models and pure invariants completed on 2026-10-21; Slice 2 bounded EvidenceStore completed on 2026-10-22; Slices 3–7 remain planned. No production incident, evidence, or incident-budget behavior is enabled. Renumbered on 2026-10-18 after insertion of Phase 3 Context Selection and Multi-Cluster Routing.
+**Status:** Slice 0 contracts and offline lifecycle fixtures completed on 2026-10-20; see [PHASE4_CONTRACTS.md](./PHASE4_CONTRACTS.md). Slice 1 domain models and pure invariants completed on 2026-10-21; Slice 2 bounded EvidenceStore completed on 2026-10-22; Slice 3 investigation service, hypothesis consistency, and dispatch accounting completed on 2026-10-23; Slices 4–7 remain planned. No production incident, evidence, or incident-budget behavior is enabled. Renumbered on 2026-10-18 after insertion of Phase 3 Context Selection and Multi-Cluster Routing.
 
 **Applies to:** Pi SRE V0.1, Phase 4 — Investigation Domain.
 
@@ -9,6 +9,17 @@
 **Source of truth:** [DESIGN.md](./DESIGN.md), especially Sections 13–16, 28–30, 40–45,
 50, 66, and 74. The decisions below make those architectural examples implementable;
 they are Phase 4 target contracts, not existing behavior. The accepted [multi-cluster plan](./MULTI_CLUSTER_INVESTIGATION_PLAN.md) defines first-delivery scope and later extensions.
+
+**Capacity amendment (2026-10-23):** Reservations are removed from the store and service.
+Dispatch spends one attempt immediately; completion checks actual evidence/aggregate count
+and bytes before synchronous commit. Earlier dated validation records below describe the
+implementation at that time; this amendment supersedes their reservation behavior.
+
+**Storage amendment (2026-10-23):** Each incident owns one EvidenceStore and independent
+evidence count/byte limits. Service-level explicit JSONL flush archives a concluded
+investigation before releasing its metadata, store and resident-incident slot. This replaces
+the original application-wide evidence limits and memory-only/no-export choice.
+See [the exact archive contract](./PHASE4_CONTRACTS.md#51-incident-owned-storage-and-explicit-jsonl-flush).
 
 ## 1. Goal
 
@@ -66,7 +77,8 @@ Phase 3 allows idle `/clusters` selection to change the session rule immediately
 - Pi-independent domain models, validation, and lifecycle rules;
 - immutable exact-set/live-`*` incident rules, current resolution, and explicit per-call targets;
 - integration of inherited one-agent/one-MCP exploratory routing and reconnect reconciliation with incident authority, evidence, and shared budgets;
-- bounded, in-memory evidence storage with stable IDs and provenance;
+- bounded per-incident in-memory evidence storage with stable IDs and provenance;
+- explicit service-level JSONL archival and memory release for concluded investigations;
 - hypothesis creation, revision, and evidence links;
 - a session-owned investigation controller and immutable state snapshots;
 - automatic capture of successful diagnostic results before publication to Pi;
@@ -77,7 +89,8 @@ Phase 3 allows idle `/clusters` selection to change the session rule immediately
 
 ### Deferred
 
-- disk persistence, an incident database, export/import, or restoration from transcripts;
+- an incident database, archive import/resume, automatic archival, production archive UI,
+  or restoration from transcripts;
 - raw MCP artifacts, artifact browsing, or enabling `results.rawRetention`;
 - active-rule amendment, pattern selectors, rich fleet workflows/comparison views;
 - multiple MCP servers, per-user authentication, and remote workers;
@@ -97,7 +110,8 @@ interaction to use and verify the domain without depending on those phases.
 ### 4.1 Incident creation and lifecycle
 
 - Maintain at most one active incident per Pi session. Retain concluded incidents for
-  inspection within the bounded application lifetime.
+  inspection within the bounded application lifetime until explicitly flushed to JSONL.
+  Other sessions may retain their own open incidents; there is no global active incident.
 - The first top-level user prompt without an active incident creates one when the selected
   rule resolves against validated inventory to at least one available target. Subsequent
   prompts continue it until explicitly concluded or replaced. Do not use an LLM classifier
@@ -213,34 +227,44 @@ new execution identity. Hypothesis statements cannot edit an evidence record.
 
 ### 4.6 Storage, limits, and sensitive data
 
-**Proposed Phase 4 choice:** in-memory domain state only. Keep `results.rawRetention: disabled`.
-EvidenceStore retains safe observation excerpts, not raw MCP responses. No `artifactRef`
-is populated and no temporary artifact is created. Process exit loses structured state;
-Pi's already-persisted bounded messages are not an incident database.
+**Phase 4 choice:** One in-memory EvidenceStore per incident, plus explicit service-level
+JSONL archival of concluded investigations. Keep `results.rawRetention: disabled`.
+EvidenceStore retains safe observation excerpts, not raw MCP responses; no `artifactRef`
+is populated. Process exit loses unarchived state. Archives preserve offline history but
+cannot restore active investigations or execution authority. Pi messages are not a database.
 
-Start with named, injectable application limits, frozen in Slice 0: 20 incidents, 1,000
-evidence records, and 8 MiB of retained UTF-8 domain content across the application; at most
-100 targets and 50 hypotheses per incident. Count questions, conclusions, hypotheses,
-evidence excerpts, and retained operation outcomes toward the content budget. Existing
-per-result text/item limits still apply. Tests use smaller injected limits.
+Named, injectable limits are 20 resident investigations across the application, and **per
+incident** 1,000 evidence records and 8 MiB of retained evidence UTF-8 string content;
+at most 100 targets and 50 hypotheses per incident. Each EvidenceStore owns its byte ledger.
+Other investigation state is excluded from evidence byte accounting; its count and
+field-length limits remain. Existing per-result text/item limits still apply.
 
 Reject capacity-exceeding mutations atomically and visibly. Never silently evict cited
-evidence or truncate IDs into collisions. Reserve result capacity before external dispatch,
-including concurrent calls, so a tool result cannot be reported as captured when storage
-is exhausted. Release reservations on all failure/cancellation paths. Capacity refusal
-provides guidance to start a fresh application; creating another incident does not reset
-the application budget.
+evidence or truncate IDs into collisions. Check actual evidence capacity and collection
+limits at completion before synchronous commit. Storage refusal creates no evidence or
+successful publication; the dispatched attempt stays spent. Pending work can still settle
+and record safe failure outcomes. A full incident can conclude; its history never consumes
+the next incident's evidence quota.
+
+`flush(incidentId, absoluteFilePath)` requires a concluded, idle incident. Write the complete
+investigation metadata and ordered evidence as versioned JSONL, publish the complete file
+without overwriting an existing destination, then release the service-owned state and its
+resident slot. Failures preserve memory and allow retry; overlapping same-incident flushes
+are refused. Reads remain available until release. After release, in-memory inspection
+refuses the missing incident; automatic archive loading/import is not provided. A session
+switch never flushes an open incident. See the detailed format, publication, permissions
+and failure rules in [Section 5.1 of the contracts](./PHASE4_CONTRACTS.md#51-incident-owned-storage-and-explicit-jsonl-flush).
 
 All retained free text receives shared redaction and bounded presentation, including
 questions and hypothesis rationales. Terminal display must escape control sequences.
 Pattern redaction retains its documented limits for arbitrary sensitive application data;
-do not claim that retained excerpts are universally anonymized. No disk/log persistence
-of new domain content is introduced beyond explicit bounded Pi-facing messages.
+do not claim universal anonymization. Only explicit flush persists these domain records;
+no raw payload or serialized transport exception is written.
 
 Activate `investigation.maxToolCalls` as the per-incident diagnostic dispatch budget.
 Successful and failed dispatched attempts count; rejected preflight calls, local domain
-tools, and startup/context discovery do not. Reserve atomically before transport so parallel
-calls cannot exceed it. Exhaustion blocks further diagnostics and allows explanation or
+tools, and startup/context discovery do not. Check and increment synchronously immediately
+before transport so parallel calls cannot exceed it. Exhaustion blocks further diagnostics and allows explanation or
 an inconclusive conclusion; it does not fabricate evidence or automatically resolve the incident.
 
 ### 4.7 Pi session lifecycle and model context
@@ -279,7 +303,7 @@ domain helpers. Inject clocks and ID factories into services for deterministic t
 | `Evidence`           | ID, incident ID, source `kubernetes`, collected-at time, context, optional target reference, safe summary, context/scope/inventory/generation provenance, truncation flag.                       |
 | `Hypothesis`         | ID, incident ID, statement, status, supporting/contradicting evidence IDs, rationale, revision and update time.                                                                                  |
 | `InvestigationState` | Incident, targets, evidence, hypotheses, optional current focus, operation counts/outcomes, started/updated time, monotonic revision. Immutable aggregate snapshot.                              |
-| `EvidenceStore`      | Append a validated observation idempotently; get by incident/ID; list stable ordered pages; report capacity. Never expose mutable backing collections or raw MCP objects.                        |
+| `EvidenceStore`      | Bind one incident at construction; append idempotently; get by ID; list stable ordered pages; report independent capacity. Never expose mutable backing collections or raw MCP objects.          |
 
 EvidenceStore is the single evidence authority. `InvestigationState.evidence` is its readonly
 snapshot, not another writable collection. The investigation service coordinates evidence,
@@ -297,7 +321,8 @@ src/
 │   └── investigation-state.ts
 ├── investigation/
 │   ├── evidence-store.ts              # contract and bounded in-memory implementation
-│   └── investigation-service.ts       # consistency and state transitions
+│   ├── investigation-archive.ts       # explicit JSONL publication
+│   └── investigation-service.ts       # consistency, lifecycle and flush
 ├── app/
 │   └── investigation-controller.ts    # session binding, scope leases, composition
 ├── mcp/
@@ -337,7 +362,7 @@ they do not implement state transitions or Kubernetes diagnosis.
 - Fixture tests prove one incident per intended creation, correct session binding, and hook
   behavior under queued input, compaction retry, reload, and switch/fork.
 - No new Kubernetes operation, exact diagnostic output schema, or second connection is needed.
-- Every proposed domain field and limit has an owner; persistence remains explicitly in memory.
+- Every proposed domain field and limit has an owner; live state remains in memory; explicit terminal JSONL archival follows the storage amendment.
 
 **Completed (2026-10-20):** [PHASE4_CONTRACTS.md](./PHASE4_CONTRACTS.md) freezes creation and conclusion semantics, session binding, immutable incident scope versus next selection, effective-scope/lease and synchronous recording interfaces, capacity reservations, dispatch accounting, pagination, summary limits and the migration of existing routing/recovery assertions. Installed Pi 0.99.0 was inspected directly. Eight real-Pi offline fixture cases verify prompt sources and preflight, queued delivery, actual overflow compaction/retry, reload/tree navigation, new/fork/resume and fresh-owner isolation, vetoed replacement, and executing-tool cancellation before shutdown. The fixture's creation witness is test-only; no production domain behavior is implemented in this slice.
 
@@ -372,30 +397,33 @@ they do not implement state transitions or Kubernetes diagnosis.
 
 ### Work
 
-- Implement append/get/list with incident isolation, stable collection order, bounded page
+- Bind each store to one incident; implement append/get/list, stable collection order, bounded page
   sizes, execution idempotency, and byte/count accounting.
-- Implement capacity reservations and atomic commits for concurrent completions.
+- Check actual count/bytes synchronously at append and commit atomically.
 - Retain only safe domain content; expose immutable snapshots and capacity state.
 
 ### Acceptance
 
 - Unit tests cover independent observations with identical text, duplicate execution delivery,
-  unknown incident/ID, stable pages, immutable reads, count/UTF-8 byte limits, and reservations.
-- Concurrent writes cannot overshoot limits or expose half-written records. Failed/cancelled
-  reservations release capacity. Separate application instances share no state.
+  unknown incident/ID, stable pages, immutable reads, count/UTF-8 byte limits, and failed-write atomicity.
+- Concurrent writes cannot overshoot limits or expose half-written records. Failed writes
+  consume no storage. Different incidents and application instances have independent capacity.
 - No file is written, no artifact reference is invented, and no raw payload is retained.
 
-**Completed (2026-10-22):** `src/investigation/evidence-store.ts` provides incident-registered append/get/list, stable evidence IDs, execution-idempotent delivery, immutable safe excerpts, application-wide count limits and synchronous capacity reservations/commits. Authenticated, store/incident-bound high-water cursors preserve insertion order without retaining cursor histories. Pages include only whole records within their serialized UTF-8 response budget; a record that cannot fit produces an explicit refusal. `ContentCapacity` supplies the shared 8 MiB UTF-8 string-content ledger for evidence and later service-owned canonical records; incident registration is a bounded identity index, with incident content accounting owned by Slice 3. Default pages contain 20 records (maximum 50) within 64 KiB; callers can supply a smaller presentation budget. No runtime composition, incident lifecycle, transport capture, raw retention, file artifacts or persistence is enabled.
+**Completed (2026-10-22):** `src/investigation/evidence-store.ts` provides incident-registered append/get/list, stable evidence IDs, execution-idempotent delivery, immutable safe excerpts, application-wide count limits and synchronous capacity reservations/commits. Authenticated, store/incident-bound high-water cursors preserve insertion order without retaining cursor histories. Pages include only whole records within their serialized UTF-8 response budget; a record that cannot fit produces an explicit refusal. `ContentCapacity` originally supplied a shared 8 MiB UTF-8 string-content ledger. The 2026-10-23 simplification makes that ledger EvidenceStore-owned and counts only evidence content; incident registration remains a bounded identity index. Default pages contain 20 records (maximum 50) within 64 KiB; callers can supply a smaller presentation budget. No runtime composition, incident lifecycle, transport capture, raw retention, file artifacts or persistence is enabled.
 
 **Validation (2026-10-22):** Storage and domain tests cover identical-text observations, duplicate/conflicting delivery, incident/ID isolation, high-water pages, cursor tampering/isolation, whole-record presentation budgets, immutable reads, exact UTF-8 boundaries, shared accounting, out-of-order completions, reservation cleanup, forged tokens and independent application instances. `npm run check`, `npm run lint`, `npm run format:check`, `npm test` (552 passed; 7 optional executable-dependent contract tests skipped), `npm run build`, and `git diff --check` passed. No provider, installed-terminal or live-cluster validation was needed for this storage-only slice.
 
 ## 9. Slice 3 — Investigation Service and Hypothesis Consistency
 
+**Status:** Completed on 2026-10-23. The service remains independent of production composition; incident-aware controller/bridge wiring remains in Slices 4–5.
+
 **Outcome:** One service owns coherent investigation snapshots and explicit interpretation.
 
 ### Work
 
-- Implement start, replace, inspect, focus/target updates, hypothesis upsert, and conclude.
+- Implement start, replace, inspect, focus/target updates, hypothesis upsert, conclude, and
+  explicit asynchronous flush of concluded investigations to JSONL.
 - Coordinate EvidenceStore with aggregate revision/timestamps and target references.
 - Enforce evidence-link rules, conclusion requirements, terminal immutability, limits, and
   per-incident diagnostic dispatch accounting.
@@ -406,8 +434,42 @@ they do not implement state transitions or Kubernetes diagnosis.
 - Unit tests cover supported/rejected hypotheses, contradictory links, cross-incident IDs,
   stale revisions, atomic replacement, terminal updates, and clock/ID determinism.
 - Concluding `resolved` without supporting evidence fails; `inconclusive` needs an explanation.
-- A failed mutation changes no state or budget; parallel reservations respect maxToolCalls.
+- A failed mutation changes no state or budget; parallel dispatches respect maxToolCalls.
 - Agent-loop completion has no domain transition by itself.
+
+### Implementation and handoff
+
+- `src/investigation/investigation-service.ts` owns bounded process-lifetime investigations, explicit start/replace/conclude, immutable inspection, focus/targets, hypothesis revisions, and diagnostic accounting. Callers supply incident identity; the service has no global current incident or Pi session map. The future controller owns one-active-incident-per-session binding, usable inventory/tool compatibility, active-agent guards, cancellation and authority checks.
+- Start captures the selection and resolves the absolute time window once through injected clock/ID factories. Replacement validates the new question, scope, time, IDs and incident count before atomically retaining a new incident and concluding the previous open one as inconclusive. Concluded incidents remain inspectable and consume a resident incident slot until explicitly flushed.
+- Each incident owns its EvidenceStore and independent evidence count/byte limits. Store registration is removed; `capacity(incidentId)` reports only that incident. EvidenceStore remains the only observation owner. Internal aggregate snapshots read its immutable records; public evidence inspection delegates to its bounded get/list APIs. EvidenceStore exclusively owns the byte ledger and charges evidence content once. Other aggregate state and read snapshots do not consume the evidence byte budget.
+- Hypothesis upserts validate same-incident evidence links, support/contradiction requirements, bounded redacted prose and per-hypothesis expected revisions. Aggregate revisions advance for mutations; ordinary updates do not invalidate independent diagnostic executions. Resolved conclusions require a cited supported hypothesis with supporting evidence.
+- `dispatchDiagnostic` checks and spends one attempt immediately before transport, including synchronous transport throws. It returns an execution identity and holds no storage capacity. Successful recording checks actual evidence capacity and target validity, then synchronously commits matching evidence/outcome/state. Failure or interruption retains a safe category explanation independently of the evidence byte budget; capacity refusal remains explicit and pending work still settles. Settled/copy/foreign execution tokens cannot mutate state. Identical successful delivery with the original token is idempotent; conflicting delivery fails.
+- Outcomes retain exact context, operation, known namespace/target, execution ID, completion time, scope/inventory revisions and connection generation. Empty success is evidence; truncated success is partial. No raw arguments, responses, exceptions, raw artifacts or transcript restoration are introduced. Explicit JSONL archives contain safe canonical domain state only.
+- Slices 4–5 must dispatch only after shared-queue admission, enforce session/lifecycle/inventory/connection authority before dispatch and immediately before recording, and settle invalidated work through `releaseDiagnostic` before conclusion/replacement. Service execution tokens alone grant no Kubernetes execution authority. The bridge must budget the complete result envelope and publish exactly the committed excerpt/provenance.
+
+**Validation (2026-10-23):** Domain/storage/service tests cover supported/rejected hypotheses, conflicting/duplicate/cross-incident evidence links, stale revisions, terminal guards, atomic replacement/refusal, deterministic clock/IDs, out-of-order observations, exact provenance, empty/partial observations, safe failure categories, cancellation, forged tokens, concurrent attempts and target reservations, shared application limits, partial-reservation cleanup, full-capacity prepaid commits and exact UTF-8 accounting. `npm run check`, `npm run lint`, `npm run format:check`, `npm test` (578 passed; 7 optional executable-dependent contract tests skipped), `npm run build`, and `git diff --check` passed. No provider, installed-terminal or live-cluster validation was needed for this service-only slice.
+
+### Incident storage/archive amendment (2026-10-23)
+
+The storage and service implementation now follows incident-owned stores rather than the
+application-wide storage described in the historical Slice 2/3 records above. One retained
+entry holds metadata and its own EvidenceStore. Explicit service `flush` archives terminal
+state and ordered evidence through `investigation-archive.ts`, then releases the entry.
+It is not wired into production commands/controller; Slices 4–7 remain planned.
+Targets and hypotheses have no separate count limits; the earlier injectable snapshot
+collection limits have been removed because their storage overhead is negligible.
+
+Validation covers independent incident count/UTF-8 byte limits, immutable reads, stable
+pagination, atomic refusal, complete/redacted JSONL with evidence links, empty archives,
+private file permissions, open/pending/unknown refusals, existing-file/symlink protection,
+I/O failure/retry, temporary-file cleanup, same-incident concurrent flush refusal, unrelated
+active investigation progress and released incident slots. Historical test counts above
+remain records of their respective implementation dates.
+
+**Amendment validation:** Focused domain/storage/service tests passed (54 tests).
+`npm run format:check`, `npm run lint`, `npm run check`, `npm test` (581 passed;
+7 optional tests skipped), `npm run build`, and `git diff --check` passed. Filesystem
+archive tests use disposable local directories; no provider or Kubernetes cluster is used.
 
 ## 10. Slice 4 — Application Controller and Incident Execution Scope
 
@@ -417,7 +479,7 @@ they do not implement state transitions or Kubernetes diagnosis.
 
 - Compose the service/controller and bind it to Pi session identity; implement incident creation triggers and per-call leases.
 - Reuse Phase 3 CLI, `/clusters`, default selection, and schema routing. Add next-selection semantics while an incident is active: idle selection does not retarget that incident; a new incident captures the next rule.
-- Reuse required model-target validation and transport checks from Phase 3. Extend the authority seam to resolve the active incident rule and add lifecycle/session identity and budget/storage reservations; preserve context without injection/overwrite.
+- Reuse required model-target validation and transport checks from Phase 3. Extend the authority seam to resolve the active incident rule and add lifecycle/session identity and dispatch accounting; preserve context without injection/overwrite.
 - Adapt inherited effective-scope resolution, capability publication, reconnect reconciliation, and messages to incident authority together. Preserve Phase 3 concurrency and single-connection behavior.
 - Publish rule, resolution, inventory changes, and next selection honestly. Mark added wildcard contexts not checked; preserve unavailable exact targets and historical provenance.
 
@@ -438,7 +500,7 @@ Land the Phase 4 incident wiring and Slice 5 evidence capture together, or keep 
 ### Work
 
 - Add the narrow observation adapter and injected recorder to the existing bridge.
-- Capture dispatch identity, reserve budgets, call MCP, normalize/redact/bound, recheck the
+- Capture dispatch identity, spend one attempt, call MCP, normalize/redact/bound, recheck the
   lease and cancellation, commit evidence, and return compact content plus its ID.
 - Keep errors distinct from observations. Retain only bounded safe operation outcomes;
   never serialize raw errors, arguments, or responses into domain state or tool details.
@@ -454,7 +516,8 @@ Land the Phase 4 incident wiring and Slice 5 evidence capture together, or keep 
 - Store and tool result agree on evidence ID, excerpt, context, namespace, scope/inventory revisions, generation, and
   truncation. Failure results carry no successful evidence ID.
 - Restart, replacement, shutdown, and out-of-order completion cannot misattribute evidence.
-  Storage/budget refusal makes no MCP call; all reservations settle exactly once.
+  Budget refusal makes no MCP call. Storage refusal at completion creates no evidence or
+  successful publication; the attempt remains spent and pending work settles.
 - Existing read-only allowlist, discovered-schema validation, redaction, and no-shell tests pass.
 
 ## 12. Slice 6 — Minimal Investigation Tools and Inspection
@@ -473,7 +536,7 @@ Land the Phase 4 incident wiring and Slice 5 evidence capture together, or keep 
 - Reuse timestamped command feedback; refuse lifecycle mutations during active work through
   both the application boundary and UI. Read-only inspection remains available.
 - Publish bounded, deduplicated state summaries and restore them after compaction/navigation.
-  Update stable prompt guidance to explain evidence IDs, conclusions, and the memory-only limit.
+  Update stable prompt guidance to explain evidence IDs, conclusions, and in-memory lifetime, per-incident quotas and explicit archive limitations.
 
 ### Acceptance
 
@@ -544,7 +607,7 @@ offline tests alone do not establish terminal behavior or real-cluster access.
 | --- | ------ | -------------------------------------------------------------------------------------------- |
 | 1   | 0      | Runtime evidence and fixed Phase 4 contracts.                                                |
 | 2   | 1      | Domain names, immutability, identities, and lifecycle.                                       |
-| 3   | 2      | Evidence isolation, limits, reservations, and stable reads.                                  |
+| 3   | 2      | Evidence isolation, commit-time limits, and stable reads.                                    |
 | 4   | 3      | Aggregate consistency, hypothesis links, and conclusions.                                    |
 | 5   | 4–5    | Rule-bound dispatch, live resolution, recovery, and evidence capture as one usable boundary. |
 | 6   | 6      | Model tools, minimal commands, and Pi lifecycle/context integration.                         |

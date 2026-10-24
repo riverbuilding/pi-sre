@@ -5,22 +5,13 @@ import { createEvidence } from "../domain/evidence.js";
 import type { Evidence } from "../domain/evidence.js";
 import { identity, positiveInteger } from "../domain/validation.js";
 import { ContentCapacity, retainedContentBytes } from "./content-capacity.js";
-import type { ContentReservation } from "./content-capacity.js";
 
 export const DEFAULT_EVIDENCE_LIMIT = 1_000;
-export const DEFAULT_INCIDENT_LIMIT = 20;
 export const DEFAULT_PAGE_SIZE = 20;
 export const MAX_PAGE_SIZE = 50;
 export const DEFAULT_EVIDENCE_PAGE_BYTES = 64 * 1024;
 
-export type Observation = Omit<Evidence, "id">;
-
-export interface EvidenceReservation {
-  readonly evidenceId: string;
-  readonly incidentId: string;
-  readonly executionId: string;
-  readonly bytes: number;
-}
+export type Observation = Omit<Evidence, "id"> & { readonly id?: string };
 
 export interface EvidencePage {
   readonly items: readonly Evidence[];
@@ -28,10 +19,10 @@ export interface EvidencePage {
 }
 
 export interface EvidenceStoreOptions {
+  readonly incidentId: string;
   readonly maxExcerptChars: number;
   readonly maxEvidence?: number;
-  readonly maxIncidents?: number;
-  readonly capacity?: ContentCapacity;
+  readonly maxBytes?: number;
   readonly createId?: () => string;
 }
 
@@ -45,168 +36,76 @@ interface StoredEvidence {
   readonly sequence: number;
 }
 
-/** In-memory safe excerpts only. Authority and incident lifecycle belong to the service. */
+/** One incident owns this in-memory collection and its independent capacity. Authority and incident lifecycle belong to the service. */
 export class EvidenceStore {
   readonly #capacity: ContentCapacity;
   readonly #maxEvidence: number;
-  readonly #maxIncidents: number;
+  readonly #incidentId: string;
   readonly #maxExcerptChars: number;
   readonly #createId: () => string;
-  readonly #incidents = new Set<string>();
   readonly #records = new Map<string, StoredEvidence>();
+  readonly #evidence: Evidence[] = [];
   readonly #executions = new Map<string, Evidence>();
-  readonly #reservations = new Map<EvidenceReservation, ContentReservation>();
-  readonly #committedReservations = new WeakSet<EvidenceReservation>();
   readonly #cursorKey = randomBytes(32);
   #sequence = 0;
 
   constructor(options: EvidenceStoreOptions) {
-    this.#capacity = options.capacity ?? new ContentCapacity();
+    this.#capacity = new ContentCapacity(options.maxBytes);
     this.#maxEvidence = positiveInteger(options.maxEvidence ?? DEFAULT_EVIDENCE_LIMIT);
-    this.#maxIncidents = positiveInteger(options.maxIncidents ?? DEFAULT_INCIDENT_LIMIT);
+    this.#incidentId = identity(options.incidentId, 128);
     this.#maxExcerptChars = positiveInteger(options.maxExcerptChars);
     this.#createId = options.createId ?? randomUUID;
   }
 
-  /** The owning service registers retained incidents; reads never create them. */
-  registerIncident(incidentId: string): void {
-    identity(incidentId, 128);
-    if (this.#incidents.has(incidentId)) return;
-    if (this.#incidents.size >= this.#maxIncidents)
-      throw new DomainError(
-        { kind: "capacity-refused", resource: "incidents" },
-        "Incident storage is full; start a fresh application.",
-      );
-    // The incident ID is retained by the service's canonical incident, not this index.
-    this.#incidents.add(incidentId);
-  }
-
   capacity(): Readonly<{
     evidence: number;
-    reservedEvidence: number;
     maxEvidence: number;
     bytes: ReturnType<ContentCapacity["snapshot"]>;
   }> {
     return Object.freeze({
       evidence: this.#records.size,
-      reservedEvidence: this.#reservations.size,
       maxEvidence: this.#maxEvidence,
       bytes: this.#capacity.snapshot(),
     });
   }
 
-  reserve(incidentId: string, executionId: string, bytes: number): EvidenceReservation {
-    return this.#reserve(incidentId, executionId, bytes, this.#createId());
-  }
-
-  #reserve(
-    incidentId: string,
-    executionId: string,
-    bytes: number,
-    proposedId: string,
-  ): EvidenceReservation {
-    this.#requireIncident(incidentId);
-    identity(executionId, 128);
-    positiveInteger(bytes);
+  /** Validate and commit immediately; failed writes leave records and capacity unchanged. */
+  append(input: Observation): AppendResult {
     requireDomain(
-      !this.#executions.has(executionId) &&
-        ![...this.#reservations.keys()].some((item) => item.executionId === executionId),
-      "Execution already has evidence or a reservation.",
+      input.incidentId === this.#incidentId,
+      "Observation belongs to another incident.",
     );
-    if (this.#records.size + this.#reservations.size >= this.#maxEvidence)
+    const previous = this.#executions.get(input.executionId);
+    const evidence = createEvidence(
+      { ...input, id: previous?.id ?? input.id ?? this.#createId() },
+      this.#maxExcerptChars,
+    );
+    if (previous) {
+      requireDomain(
+        previous.incidentId === input.incidentId &&
+          (input.id === undefined || input.id === previous.id) &&
+          JSON.stringify(previous) === JSON.stringify(evidence),
+        "Execution was already committed with a different observation.",
+      );
+      return Object.freeze({ status: "already-committed", evidence: previous });
+    }
+    if (this.#records.size >= this.#maxEvidence)
       throw new DomainError(
         { kind: "capacity-refused", resource: "evidence" },
-        "Evidence storage is full; start a fresh application.",
+        "Incident evidence storage is full; conclude this investigation before starting another.",
       );
-    const evidenceId = identity(proposedId, 128);
-    requireDomain(
-      !this.#records.has(evidenceId) &&
-        ![...this.#reservations.keys()].some((item) => item.evidenceId === evidenceId),
-      "Evidence ID must be unique.",
-    );
-    const content = this.#capacity.reserve(bytes);
-    const reservation = Object.freeze({ evidenceId, incidentId, executionId, bytes });
-    this.#reservations.set(reservation, content);
-    return reservation;
+    requireDomain(!this.#records.has(evidence.id), "Evidence ID must be unique.");
+    this.#capacity.replace(0, retainedContentBytes(evidence));
+    this.#records.set(evidence.id, { evidence, sequence: ++this.#sequence });
+    this.#evidence.push(evidence);
+    this.#executions.set(evidence.executionId, evidence);
+    return Object.freeze({ status: "committed", evidence });
   }
 
-  /** Idempotent cleanup on failure, cancellation or invalidation; copied tokens own nothing. */
-  release(reservation: EvidenceReservation): void {
-    const content = this.#reservations.get(reservation);
-    if (content) {
-      this.#capacity.release(content);
-      this.#reservations.delete(reservation);
-    }
-  }
-
-  /** Synchronous atomic commit. A failed append releases its supplied reservation. */
-  append(input: Observation, reservation?: EvidenceReservation): AppendResult {
-    try {
-      this.#requireIncident(input.incidentId);
-      const previous = this.#executions.get(input.executionId);
-      const evidence = createEvidence(
-        { ...input, id: previous?.id ?? reservation?.evidenceId ?? this.#createId() },
-        this.#maxExcerptChars,
-      );
-      if (previous) {
-        requireDomain(
-          previous.incidentId === input.incidentId &&
-            JSON.stringify(previous) === JSON.stringify(evidence),
-          "Execution was already committed with a different observation.",
-        );
-        // Only the exact original delivery is idempotent; it spends no capacity.
-        requireDomain(
-          reservation === undefined ||
-            (this.#committedReservations.has(reservation) &&
-              reservation.evidenceId === previous.id &&
-              reservation.incidentId === previous.incidentId &&
-              reservation.executionId === previous.executionId),
-          "Reservation does not match the committed observation.",
-        );
-        return Object.freeze({ status: "already-committed", evidence: previous });
-      }
-      const owned =
-        reservation ??
-        this.#reserve(
-          input.incidentId,
-          input.executionId,
-          retainedContentBytes(evidence),
-          evidence.id,
-        );
-      try {
-        const content = this.#reservations.get(owned);
-        requireDomain(
-          content !== undefined &&
-            owned.incidentId === evidence.incidentId &&
-            owned.executionId === evidence.executionId,
-          "Unknown, settled or mismatched evidence reservation.",
-        );
-        const committed = createEvidence(
-          { ...evidence, id: owned.evidenceId },
-          this.#maxExcerptChars,
-        );
-        const bytes = retainedContentBytes(committed);
-        this.#capacity.commit(content, bytes);
-        this.#reservations.delete(owned);
-        this.#committedReservations.add(owned);
-        this.#records.set(committed.id, { evidence: committed, sequence: ++this.#sequence });
-        this.#executions.set(committed.executionId, committed);
-        return Object.freeze({ status: "committed", evidence: committed });
-      } catch (error) {
-        this.release(owned);
-        throw error;
-      }
-    } catch (error) {
-      if (reservation) this.release(reservation);
-      throw error;
-    }
-  }
-
-  get(incidentId: string, evidenceId: string): Evidence {
-    this.#requireIncident(incidentId);
+  get(evidenceId: string): Evidence {
     identity(evidenceId, 128);
     const record = this.#records.get(evidenceId);
-    if (!record || record.evidence.incidentId !== incidentId)
+    if (!record)
       throw new DomainError(
         { kind: "missing-reference" },
         "Evidence must exist in the requested incident.",
@@ -214,12 +113,20 @@ export class EvidenceStore {
     return record.evidence;
   }
 
+  /** Live read-only aggregate for internal validation; model-facing reads must use get/list. */
+  get evidence(): readonly Evidence[] {
+    return this.#evidence;
+  }
+
+  /** Detached collection; evidence records themselves are immutable. */
+  snapshot(): readonly Evidence[] {
+    return Object.freeze([...this.#evidence]);
+  }
+
   /** Cursors are authenticated, collection/incident/store-bound high-water snapshots. */
   list(
-    incidentId: string,
     options: { readonly size?: number; readonly cursor?: string; readonly maxBytes?: number } = {},
   ): EvidencePage {
-    this.#requireIncident(incidentId);
     const size = positiveInteger(options.size ?? DEFAULT_PAGE_SIZE);
     requireDomain(size <= MAX_PAGE_SIZE, "Evidence page size exceeds its limit.");
     const maxBytes = positiveInteger(options.maxBytes ?? DEFAULT_EVIDENCE_PAGE_BYTES);
@@ -244,7 +151,7 @@ export class EvidenceStore {
       requireDomain(
         Array.isArray(parsed) &&
           parsed.length === 3 &&
-          parsed[0] === incidentId &&
+          parsed[0] === this.#incidentId &&
           Number.isSafeInteger(parsed[1]) &&
           Number.isSafeInteger(parsed[2]) &&
           parsed[1] >= 0 &&
@@ -256,19 +163,14 @@ export class EvidenceStore {
       highWater = parsed[2];
     }
     const records = [...this.#records.values()].filter(
-      (item) =>
-        item.evidence.incidentId === incidentId &&
-        item.sequence > after &&
-        item.sequence <= highWater,
+      (item) => item.sequence > after && item.sequence <= highWater,
     );
     const items: Evidence[] = [];
     let page: EvidencePage = Object.freeze({ items: Object.freeze([]) });
     for (const record of records.slice(0, size)) {
       const next = [...items, record.evidence];
       const cursor =
-        next.length < records.length
-          ? this.#cursor(incidentId, record.sequence, highWater)
-          : undefined;
+        next.length < records.length ? this.#cursor(record.sequence, highWater) : undefined;
       const candidate = Object.freeze({
         items: Object.freeze(next),
         ...(cursor !== undefined ? { cursor } : {}),
@@ -288,21 +190,12 @@ export class EvidenceStore {
     return page;
   }
 
-  #requireIncident(incidentId: string): void {
-    identity(incidentId, 128);
-    if (!this.#incidents.has(incidentId))
-      throw new DomainError(
-        { kind: "missing-reference" },
-        "Unknown incident; no evidence collection exists.",
-      );
-  }
-
   #sign(payload: string): string {
     return createHmac("sha256", this.#cursorKey).update(payload).digest("base64url");
   }
 
-  #cursor(incidentId: string, after: number, highWater: number): string {
-    const payload = Buffer.from(JSON.stringify([incidentId, after, highWater])).toString(
+  #cursor(after: number, highWater: number): string {
+    const payload = Buffer.from(JSON.stringify([this.#incidentId, after, highWater])).toString(
       "base64url",
     );
     return `${payload}.${this.#sign(payload)}`;

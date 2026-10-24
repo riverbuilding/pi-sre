@@ -2,11 +2,7 @@ import { Buffer } from "node:buffer";
 import { DomainError, requireDomain } from "../domain/errors.js";
 import { positiveInteger } from "../domain/validation.js";
 
-export const DEFAULT_DOMAIN_BYTES = 8 * 1024 * 1024;
-
-export interface ContentReservation {
-  readonly bytes: number;
-}
+export const DEFAULT_EVIDENCE_BYTES = 8 * 1024 * 1024;
 
 /** Counts string values once per canonical record, including nested typed provenance. */
 export function retainedContentBytes(value: unknown): number {
@@ -21,49 +17,40 @@ export function retainedContentBytes(value: unknown): number {
   return 0;
 }
 
-/** Application-owned ledger shared by evidence and the later investigation service. */
+/** Incident EvidenceStore-owned ledger for retained evidence string content. */
 export class ContentCapacity {
   readonly #limit: number;
-  readonly #reservations = new Set<ContentReservation>();
   #retained = 0;
-  #reserved = 0;
 
-  constructor(limit = DEFAULT_DOMAIN_BYTES) {
+  constructor(limit = DEFAULT_EVIDENCE_BYTES) {
     this.#limit = positiveInteger(limit);
   }
 
-  snapshot(): Readonly<{ limit: number; retained: number; reserved: number }> {
-    return Object.freeze({
-      limit: this.#limit,
-      retained: this.#retained,
-      reserved: this.#reserved,
-    });
+  snapshot(): Readonly<{ limit: number; retained: number }> {
+    return Object.freeze({ limit: this.#limit, retained: this.#retained });
   }
 
-  reserve(bytes: number): ContentReservation {
-    positiveInteger(bytes);
-    if (bytes > this.#limit - this.#retained - this.#reserved)
+  /** Check an immediate synchronous write; this does not hold capacity for later work. */
+  assertFits(bytes: number): void {
+    requireDomain(Number.isSafeInteger(bytes) && bytes >= 0, "Invalid content byte count.");
+    if (bytes > this.#limit - this.#retained)
       throw new DomainError(
         { kind: "capacity-refused", resource: "bytes" },
-        "Domain storage is full; start a fresh application.",
+        "Incident evidence storage is full; conclude this investigation before starting another.",
       );
-    const reservation = Object.freeze({ bytes });
-    this.#reservations.add(reservation);
-    this.#reserved += bytes;
-    return reservation;
   }
 
-  commit(reservation: ContentReservation, bytes: number): void {
-    requireDomain(this.#reservations.has(reservation), "Unknown or settled content reservation.");
+  /** Atomically replace an owner's canonical content using its actual size. */
+  replace(previous: number, next: number): void {
     requireDomain(
-      Number.isSafeInteger(bytes) && bytes >= 0 && bytes <= reservation.bytes,
-      "Content exceeds its reserved capacity.",
+      Number.isSafeInteger(previous) &&
+        previous >= 0 &&
+        previous <= this.#retained &&
+        Number.isSafeInteger(next) &&
+        next >= 0,
+      "Invalid retained content accounting.",
     );
-    this.release(reservation);
-    this.#retained += bytes;
-  }
-
-  release(reservation: ContentReservation): void {
-    if (this.#reservations.delete(reservation)) this.#reserved -= reservation.bytes;
+    this.assertFits(Math.max(0, next - previous));
+    this.#retained += next - previous;
   }
 }

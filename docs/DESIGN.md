@@ -14,6 +14,15 @@ This document describes the V0.1 target. The current implementation uses Pi runt
 
 **Accepted context target:** one Pi agent/one MCP server, exact sets or default live `*`, only `/clusters`, and one required model-supplied context per diagnostic call, including singleton. Reconnect re-enumerates tools/contexts and publishes a consistent resolution with change notices before dispatch resumes. Phase 3 changes session selection while idle. Phase 4 later captures incident-owned rules, adds evidence/hypotheses/budgets, and separates active incident scope from next selection. Patterns and active-incident rule amendment remain later extensions.
 
+**Incident storage decision (2026-10-23):** Phase 4 maintains at most one active Incident
+per Pi session, not a process-global singleton. Each Incident owns one EvidenceStore with
+independent evidence count/byte capacity. The service can explicitly flush a concluded,
+idle investigation's complete safe domain state and evidence to JSONL, then release its
+in-memory entry. Historical incidents never consume a new Incident's evidence quota.
+Archive failure preserves memory; active incidents cannot be flushed. Archives do not
+restore sessions or execution authority. The [Phase 4 storage/archive contract](./PHASE4_CONTRACTS.md#51-incident-owned-storage-and-explicit-jsonl-flush)
+defines the API, format and publication rules; production incident wiring remains planned.
+
 The remaining architectural sections describe the staged target; they are not claims that the current Phase 2 runtime already implements it. Use the [new Phase 3 migration plan](./PHASE3_IMPLEMENTATION_SLICES.md), [Phase 4 domain plan](./PHASE4_IMPLEMENTATION_SLICES.md), [Phase 5 parity plan](./PHASE5_IMPLEMENTATION_SLICES.md), and [cross-phase scope design](./MULTI_CLUSTER_INVESTIGATION_PLAN.md). Documentation changes enable no runtime capabilities.
 
 ---
@@ -632,7 +641,9 @@ interface Incident {
 }
 ```
 
-An Incident represents an operational investigation.
+An Incident represents an operational investigation. The application controller binds at
+most one open Incident to each Pi session; other sessions may retain their own open
+Incidents. Each Incident owns a separate EvidenceStore and independent evidence quota.
 
 ---
 
@@ -832,10 +843,10 @@ Do not hide the selector, infer a missing value, inject the sole member, or over
 ```text
 Validate arguments and operation allowlist
     → Resolve one permitted context and capture a current incident lease
-    → In Phase 4, reserve incident call/storage capacity
+    → In Phase 4, spend one incident diagnostic attempt immediately before transport
     → Preserve the model target and validate final MCP arguments
     → Invoke MCP with cancellation
-    → Revalidate snapshot before success publication; Phase 4 also commits evidence
+    → Revalidate snapshot before success publication; Phase 4 checks actual per-incident capacity and commits evidence
 ```
 
 Preserve server schema constraints. A tool is visible if compatible with at least one permitted target, but execution always checks the actual target again. Direct callers and stale model schemas cannot bypass scope. If policy moves into Pi hooks, validate final mutated arguments explicitly rather than assuming Pi revalidates them.
@@ -1241,6 +1252,17 @@ interface Evidence {
 ```
 
 Every evidence item records its exact originating context, incident/execution identity, scope and inventory revisions, connection generation, known namespace, completion time, and truncation. Same-named resources in different contexts remain distinct. Cross-cluster hypotheses can link evidence within one incident without merging observation identities.
+
+Each incident-bound EvidenceStore independently limits committed evidence to 1,000 records
+and 8 MiB of retained UTF-8 string content (injectable for tests). Historical and other-session
+incidents do not consume that quota. The service separately bounds resident investigations
+to 20. Explicit `flush(incidentId, absoluteFilePath)` is available only after conclusion and
+settlement: archive complete metadata, hypotheses, targets, outcomes, conclusion and ordered
+evidence to private, versioned JSONL before releasing its in-memory entry and resident slot.
+Writes refuse existing destinations; failures preserve state. In-memory reads remain
+available during flush and report missing state after successful release. No archive import,
+active-budget reset, automatic eviction, or cross-process incident restoration is provided.
+The store itself performs no file I/O, and raw MCP retention remains disabled.
 
 ---
 
@@ -2164,7 +2186,10 @@ Should `/namespace` become a first-class V0.1 command, or should namespace disco
 
 ## Evidence persistence
 
-Should raw MCP responses be stored only in memory or persisted as artifacts?
+Phase 4 resolves safe-domain archival: one store and quota per incident, with explicit
+concluded-investigation JSONL flush through the service. Raw MCP retention stays disabled.
+Archive import/resume, production UI and archive file retention policy remain deferred;
+JSONL never grants execution authority. See the [Phase 4 contracts](./PHASE4_CONTRACTS.md#51-incident-owned-storage-and-explicit-jsonl-flush).
 
 ---
 
