@@ -303,6 +303,11 @@ export class ClusterContextManager implements ClusterExecutionAuthority {
     return this.executionQueue.acquire(check, signal);
   }
 
+  /** Additional application authority changed (for example, a Pi session binding). */
+  refreshExecutionAdmission(): void {
+    this.executionQueue.refresh();
+  }
+
   isConnectionCurrent(generation: number): boolean {
     return (
       !this.disposed &&

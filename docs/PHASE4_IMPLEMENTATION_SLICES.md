@@ -1,6 +1,6 @@
 # Phase 4 Implementation Slices — Investigation Domain
 
-**Status:** Slice 0 contracts and offline lifecycle fixtures completed on 2026-10-20; see [PHASE4_CONTRACTS.md](./PHASE4_CONTRACTS.md). Slice 1 domain models and pure invariants completed on 2026-10-21; Slice 2 bounded EvidenceStore completed on 2026-10-22; Slice 3 investigation service, hypothesis consistency, and dispatch accounting completed on 2026-10-23; Slices 4–7 remain planned. No production incident, evidence, or incident-budget behavior is enabled. Renumbered on 2026-10-18 after insertion of Phase 3 Context Selection and Multi-Cluster Routing.
+**Status:** Slice 0 contracts and offline lifecycle fixtures completed on 2026-10-20; see [PHASE4_CONTRACTS.md](./PHASE4_CONTRACTS.md). Slice 1 domain models and pure invariants completed on 2026-10-21; Slice 2 bounded EvidenceStore completed on 2026-10-22; Slice 3 investigation service, hypothesis consistency, and dispatch accounting completed on 2026-10-23; Slice 4 application controller, lifecycle hooks, and incident authority completed on 2026-10-23, with runtime/bridge activation deferred until Slice 5 evidence capture; Slices 5–7 remain planned. No production incident, evidence, or incident-budget behavior is enabled. Renumbered on 2026-10-18 after insertion of Phase 3 Context Selection and Multi-Cluster Routing.
 
 **Applies to:** Pi SRE V0.1, Phase 4 — Investigation Domain.
 
@@ -416,7 +416,7 @@ they do not implement state transitions or Kubernetes diagnosis.
 
 ## 9. Slice 3 — Investigation Service and Hypothesis Consistency
 
-**Status:** Completed on 2026-10-23. The service remains independent of production composition; incident-aware controller/bridge wiring remains in Slices 4–5.
+**Status:** Completed on 2026-10-23. Slice 4 now composes the service under the application-owned MCP controller; runtime/bridge activation remains deferred until Slice 5.
 
 **Outcome:** One service owns coherent investigation snapshots and explicit interpretation.
 
@@ -455,7 +455,7 @@ The storage and service implementation now follows incident-owned stores rather 
 application-wide storage described in the historical Slice 2/3 records above. One retained
 entry holds metadata and its own EvidenceStore. Explicit service `flush` archives terminal
 state and ordered evidence through `investigation-archive.ts`, then releases the entry.
-It is not wired into production commands/controller; Slices 4–7 remain planned.
+No production command invokes archival. Slice 4 adds controller delegation and session-reference cleanup; runtime activation remains deferred until Slice 5.
 Targets and hypotheses have no separate count limits; the earlier injectable snapshot
 collection limits have been removed because their storage overhead is negligible.
 
@@ -472,6 +472,8 @@ remain records of their respective implementation dates.
 archive tests use disposable local directories; no provider or Kubernetes cluster is used.
 
 ## 10. Slice 4 — Application Controller and Incident Execution Scope
+
+**Status:** Completed on 2026-10-23 as inactive application infrastructure. The production runtime and diagnostic bridge continue to use accepted Phase 3 behavior until Slice 5 observation capture is implemented and verified.
 
 **Outcome:** Incident rule/resolution is authoritative and distinct from next selection.
 
@@ -492,6 +494,18 @@ archive tests use disposable local directories; no provider or Kubernetes cluste
 - Connection/tools/resolution publication is consistent. No old-generation success commits evidence; no reconnect resets budgets or mutates kubeconfig.
 
 Land the Phase 4 incident wiring and Slice 5 evidence capture together, or keep that new wiring inactive until both pass. The already-accepted Phase 3 context-selection application remains usable independently; no extra Kubernetes tool or Phase 5 parity is required.
+
+### Implementation and Slice 5 handoff
+
+- `src/app/investigation-controller.ts` owns exact Pi session bindings, monotonic binding/lifecycle epochs, one current incident reference per retained session, immutable effective-scope views, explicit start/replacement/conclusion, cancellation and terminal archive delegation. Empty sessions are not retained. Reload/resume rebinds existing process-owned state; new/fork identities start empty. Archive success releases matching session references.
+- The application-owned `McpController` constructs one service/controller outside runtime/extension factories, supplies generation-bound diagnostic descriptors inside the existing reconnect publication gate, and disposes the controller during shutdown. There is no extra manager, queue, connection, Kubernetes operation, or storage configuration.
+- `currentScope()`, `clusterState()`, and `availableTools()` resolve the captured incident rule independently of next selection. A blocked resolution remains visible for outage presentation and grants no dispatch permission. Exact missing members stay unavailable; live `*` follows validated inventory. Tool compatibility is checked for both visibility and each exact call target. Ordinary aggregate updates and idle next selection preserve good incident authority.
+- Admission uses the existing shared FIFO queue and owns idempotent queue/work/signal cleanup. Admission alone spends nothing. After awaiting admission, call synchronous `dispatchExecution(lease)` immediately before transport: it checks registered lease identity, current binding/lifecycle/inventory/generation, publication gate and tool compatibility, then spends one attempt. Copied/released/stale leases cannot dispatch. Reconnect, cancellation and outgoing session binding invalidation settle dispatched work with safe interruption outcomes; queued work is refused without spending. Budget refusal remains the service's typed `budget-refused` error.
+- `src/runtime/investigation-lifecycle.ts` implements eligible idle interactive/RPC intent consumption at `before_agent_start`, using the expanded question after credential preflight. It excludes commands, handled/extension/custom input and queued delivery; agent end does not conclude an incident. It owns per-extension work guards and stale-safe shutdown. Register after SRE-owned input handlers; later handled-input hooks must clear pending intent through its returned callback.
+- `src/runtime/investigation-guidance.ts` reuses bounded Phase 3 rule/membership/reconciliation presentation and adds incident identity and distinct next selection/availability. Added wildcard members are explicitly not checked. Full investigation summaries, deduplication/restoration, public commands and local tools remain Slice 6.
+- **Activation remains deferred:** production factories do not register the new lifecycle hooks, and `McpController.publishReady()` / `createMcpToolBridge()` still share Phase 3 authority. Slice 5 must switch both consumers to the controller's same effective view together, use the admitted incident lease for dispatch, recheck it immediately before synchronous observation commit, and publish exactly the stored bounded excerpt/ID/provenance. Release the lease in `finally` on every path. The controller's execution token alone does not authorize recording without that final check. No successful incident diagnostic path may be enabled without capture.
+
+**Validation (2026-10-23):** 21 focused tests cover exact-A/next-B continuation and replacement, independent parallel targets, usable incident scope with unavailable next selection, live additions/removals, tool compatibility, absent/empty/failed inventory, publication gating, dispatch-only accounting, cancellation before/after admission, shared-queue invalidation, stale/copied leases, old-token refusal, archive session-reference cleanup, and real-Pi prompt/preflight/queue/reload/navigation/new/fork/resume/veto behavior. The affected controller, lifecycle, investigation service/storage and MCP recovery suites passed. `npm run format:check`, `npm run lint`, `npm run check`, `npm test` (606 passed; 7 optional executable-dependent contract tests skipped), `npm run build`, and `git diff --check` passed. No live provider, installed-terminal or real-cluster behavior is claimed; full-path activation and acceptance remain later slices.
 
 ## 11. Slice 5 — Capture MCP Observations Before Pi Publication
 

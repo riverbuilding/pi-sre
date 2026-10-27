@@ -12,7 +12,7 @@ import {
   createIncident,
   requireOpenIncident,
 } from "../domain/incident.js";
-import type { Conclusion } from "../domain/incident.js";
+import type { Conclusion, Incident } from "../domain/incident.js";
 import {
   createInvestigationScope,
   permitsContext,
@@ -162,6 +162,11 @@ export class InvestigationService {
 
   capacity(incidentId: string): ReturnType<EvidenceStore["capacity"]> {
     return this.#get(incidentId).store.capacity();
+  }
+
+  /** Small authority read; never copies the evidence collection on the dispatch path. */
+  incident(incidentId: string): Incident {
+    return structuredClone(this.#get(incidentId).state.incident);
   }
 
   /** Detached deep copy: caller edits and later service updates cannot affect one another. */

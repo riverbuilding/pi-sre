@@ -15,6 +15,8 @@ import { loadSreConfig, SreConfigError } from "../config/loader.js";
 import { ManagedMcpConnection, McpStartupError, type McpConnection } from "../mcp/connection.js";
 import { discoverMcpTools, type ToolDiscoveryReport } from "../mcp/tool-discovery.js";
 import { createMcpToolBridge } from "../mcp/tool-bridge.js";
+import { InvestigationService } from "../investigation/investigation-service.js";
+import { InvestigationController } from "./investigation-controller.js";
 
 export interface McpControllerSnapshot {
   readonly status: "connecting" | "ready" | "unavailable";
@@ -25,6 +27,8 @@ export interface McpControllerSnapshot {
 /** Owns connection generations; a captured tool can never cross to a replacement process. */
 export class McpController {
   readonly clusterContext: ClusterContextManager;
+  /** Process-owned Slice 4 state; runtime/bridge activation waits for Slice 5 capture. */
+  readonly investigation: InvestigationController;
   private readonly initialConfig: SreConfig;
   private readonly shutdown: AbortSignal;
   private readonly reloadConfig: () => Promise<SreConfig>;
@@ -69,6 +73,13 @@ export class McpController {
       )
         this.publishReady();
     });
+    this.investigation = new InvestigationController(
+      this.clusterContext,
+      new InvestigationService({
+        ...initialConfig.investigation,
+        maxExcerptChars: initialConfig.results.maxTextChars,
+      }),
+    );
   }
 
   get snapshot(): McpControllerSnapshot {
@@ -257,6 +268,7 @@ export class McpController {
       this.bridgeConnection = scoped;
       this.resultPolicy = config.results;
       this.availableTools = tools;
+      this.investigation.installTools(generation, enumerationError ? [] : report.exposed);
       // Scope publication synchronously installs tools, then delivers scope/model notices.
       // The dispatch gate stays closed through every subscriber, including direct callers.
       if (enumerationError) {
@@ -305,6 +317,7 @@ export class McpController {
       await this.pending;
       await this.retire();
       this.publish({ status: "unavailable", message: "Kubernetes MCP closed.", tools: [] });
+      this.investigation.dispose();
       this.clusterContext.dispose();
       this.listeners.clear();
     })();
