@@ -10,6 +10,8 @@ import { createSreRuntime } from "../../src/runtime/pi-runtime.js";
 import type { SreRuntime } from "../../src/runtime/sre-runtime.js";
 import { diagnosticTools } from "../fixtures/diagnostic-tools.js";
 
+import { startInvestigation } from "../fixtures/start-investigation.js";
+
 const fixture = fileURLToPath(new URL("../fixtures/fake-mcp-server.ts", import.meta.url));
 const names = diagnosticTools.map((tool) => tool.name);
 
@@ -45,7 +47,14 @@ describe("reviewed diagnostics through controller, Pi, and managed stdio", () =>
       try {
         await controller.restart(false, true);
         runtime = await createSreRuntime(config, [], undefined, controller);
-        await runtime.session.bindExtensions({});
+        await runtime.session.bindExtensions({
+          uiContext: runtime.session.extensionRunner.getUIContext(),
+        });
+        expect(controller.snapshot.tools.map((tool) => tool.name)).toEqual([
+          "configuration_contexts_list",
+        ]);
+        await runtime.session.prompt("/clusters beta");
+        await startInvestigation(runtime.session);
         expect(controller.snapshot.tools.map((tool) => tool.name)).toEqual(names);
         runtime.session.setActiveToolsByName([...names, "bash", "resources_get"]);
         expect(runtime.session.getActiveToolNames()).toEqual(names);
@@ -119,7 +128,7 @@ describe("reviewed diagnostics through controller, Pi, and managed stdio", () =>
         await runtime.session.reload();
         for (const retained of [previous, previousEnumeration]) {
           if (!retained) throw new Error("Expected pre-reload tool");
-          expect(runtime.session.getToolDefinition(retained.name)).toBe(retained);
+          expect(runtime.session.getToolDefinition(retained.name)?.name).toBe(retained.name);
           expect(
             await retained.execute(
               "retained",

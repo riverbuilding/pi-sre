@@ -5,7 +5,7 @@ import type {
 } from "../app/investigation-controller.js";
 import { DomainError } from "../domain/errors.js";
 
-/** Slice 4 hooks, deliberately absent from production factories until Slice 5 capture lands.
+/** Eligible prompt hooks for process-owned investigations.
  * Register after SRE-owned input handlers; any later handler which handles input must clear
  * intent via the returned callback. Intent alone never authorizes creation or execution.
  */

@@ -1,8 +1,4 @@
-import {
-  getMcpToolPolicy,
-  acceptsToolContext,
-  McpToolSchemaError,
-} from "../runtime/tool-policy.js";
+import { getMcpToolPolicy, McpToolSchemaError } from "../runtime/tool-policy.js";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 
 import type { ClusterContextRegistry } from "../cluster/context-registry.js";
@@ -10,6 +6,7 @@ import { ClusterContextManager } from "../cluster/context-manager.js";
 import type { StartupClusterIntent } from "../cluster/context-resolver.js";
 import { discoverClusterContexts, ContextDiscoveryError } from "../mcp/context-discovery.js";
 
+import { MAX_RESULT_TEXT_CHARS } from "../config/schema.js";
 import type { SreConfig } from "../config/config.js";
 import { loadSreConfig, SreConfigError } from "../config/loader.js";
 import { ManagedMcpConnection, McpStartupError, type McpConnection } from "../mcp/connection.js";
@@ -27,7 +24,7 @@ export interface McpControllerSnapshot {
 /** Owns connection generations; a captured tool can never cross to a replacement process. */
 export class McpController {
   readonly clusterContext: ClusterContextManager;
-  /** Process-owned Slice 4 state; runtime/bridge activation waits for Slice 5 capture. */
+  /** Process-owned incident authority and evidence capture. */
   readonly investigation: InvestigationController;
   private readonly initialConfig: SreConfig;
   private readonly shutdown: AbortSignal;
@@ -42,7 +39,6 @@ export class McpController {
   private availableTools: readonly ToolDefinition[] = [];
   private report: ToolDiscoveryReport | undefined;
   private bridgeConnection: McpConnection | undefined;
-  private resultPolicy: SreConfig["results"];
   private current: McpControllerSnapshot = {
     status: "unavailable",
     message: "Kubernetes MCP is unavailable. Use /mcp_restart to retry.",
@@ -60,7 +56,6 @@ export class McpController {
   ) {
     this.clusterContext = new ClusterContextManager(intent, initialConfig.kubernetes.contexts);
     this.initialConfig = initialConfig;
-    this.resultPolicy = initialConfig.results;
     this.shutdown = shutdown;
     this.reloadConfig = reloadConfig;
     this.clusterContext.subscribe((state) => {
@@ -77,9 +72,13 @@ export class McpController {
       this.clusterContext,
       new InvestigationService({
         ...initialConfig.investigation,
-        maxExcerptChars: initialConfig.results.maxTextChars,
+        // The bridge applies current configured limits, including after recovery reload.
+        maxExcerptChars: MAX_RESULT_TEXT_CHARS,
       }),
     );
+    this.investigation.subscribe(() => {
+      if (this.current.status === "ready") this.publishReady();
+    });
   }
 
   get snapshot(): McpControllerSnapshot {
@@ -104,24 +103,10 @@ export class McpController {
   }
 
   private publishReady(): McpControllerSnapshot {
-    const resolution = this.clusterContext.state.resolution;
-    const tools = this.availableTools.flatMap((tool) => {
-      if (!getMcpToolPolicy(tool.name)?.clusterDependent) return [tool];
-      const descriptor = this.report?.exposed.find((entry) => entry.name === tool.name);
-      if (!descriptor || !this.bridgeConnection || resolution.status !== "resolved") return [];
-      const contexts = resolution.available
-        .filter((entry) => acceptsToolContext(descriptor, entry.name))
-        .map((entry) => entry.name);
-      return contexts.length
-        ? [
-            createMcpToolBridge(descriptor, this.bridgeConnection, this.resultPolicy, {
-              manager: this.clusterContext,
-              connectionGeneration: this.clusterContext.state.connectionGeneration,
-              signal: AbortSignal.any([this.shutdown, this.connectionCancellation.signal]),
-            }),
-          ]
-        : [];
-    });
+    const allowed = new Set(this.investigation.availableTools().map((tool) => tool.name));
+    const tools = this.availableTools.filter(
+      (tool) => !getMcpToolPolicy(tool.name)?.clusterDependent || allowed.has(tool.name),
+    );
     const message =
       this.clusterContext.state.status === "enumeration-failed"
         ? this.clusterContext.state.message
@@ -246,6 +231,7 @@ export class McpController {
         : report.exposed.map((tool) =>
             createMcpToolBridge(tool, scoped, config.results, {
               manager: this.clusterContext,
+              investigation: this.investigation,
               connectionGeneration: generation,
               signal,
             }),
@@ -266,7 +252,6 @@ export class McpController {
       });
       this.report = report;
       this.bridgeConnection = scoped;
-      this.resultPolicy = config.results;
       this.availableTools = tools;
       this.investigation.installTools(generation, enumerationError ? [] : report.exposed);
       // Scope publication synchronously installs tools, then delivers scope/model notices.

@@ -1,5 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
+import type { InvestigationController } from "../app/investigation-controller.js";
+import { createInvestigationScopeDescription } from "../runtime/investigation-guidance.js";
 import type { ClusterContextManager } from "../cluster/context-manager.js";
 import { createExactClusterRule, type ClusterScopeRule } from "../cluster/context-resolver.js";
 import {
@@ -17,6 +19,7 @@ export function registerClustersCommand(
   pi: ExtensionAPI,
   manager: ClusterContextManager,
   feedback = new CommandFeedback(),
+  investigation?: InvestigationController,
 ): void {
   let lifecycleRevision = 0;
   let attached = true;
@@ -38,10 +41,15 @@ export function registerClustersCommand(
         ctx.ui,
       );
       if (args === "--status") {
+        const effective = investigation?.currentScope();
+        const scopeState =
+          effective?.ok && investigation ? investigation.clusterState() : manager.state;
         report(
           [
-            ...createClusterStatusLines(manager.state),
-            createClusterScopeDescription(manager.state),
+            ...createClusterStatusLines(scopeState),
+            effective?.ok && investigation
+              ? createInvestigationScopeDescription(investigation)
+              : createClusterScopeDescription(manager.state),
             "Namespace * means no application restriction; each tool uses its own namespace policy.",
             "Selection does not verify Kubernetes authentication or authorization.",
           ].join("\n"),
@@ -51,11 +59,17 @@ export function registerClustersCommand(
           const state = manager.state;
           const lifecycle = lifecycleRevision;
           try {
-            await showContextsDialog(
-              ctx.ui,
-              state,
-              () => attached && lifecycle === lifecycleRevision && state === manager.state,
-            );
+            await showContextsDialog(ctx.ui, scopeState, () => {
+              const current = investigation?.currentScope();
+              return (
+                attached &&
+                lifecycle === lifecycleRevision &&
+                state === manager.state &&
+                (effective?.ok
+                  ? current?.ok === true && current.scope === effective.scope
+                  : !current?.ok)
+              );
+            });
           } catch {
             report("Cluster status dialog unavailable; scope summary is shown above.", "warning");
           }
@@ -122,7 +136,7 @@ export function registerClustersCommand(
       }
       const selected = manager.state.selection;
       report(
-        `${state.selection.selectionRevision === selected.selectionRevision ? "Already selected" : "Selection changed"}. Clusters: ${formatClusterRule(selected.rule)} (${selected.source}) | Namespace: * | READ ONLY. Selection does not verify Kubernetes authentication or authorization.`,
+        `${state.selection.selectionRevision === selected.selectionRevision ? "Already selected" : "Selection changed"}. Clusters: ${formatClusterRule(selected.rule)} (${selected.source}) | Namespace: * | READ ONLY. Selection does not verify Kubernetes authentication or authorization.${investigation?.currentScope().ok ? " This is the next investigation selection; the current incident keeps its rule." : ""}`,
         "info",
       );
     },

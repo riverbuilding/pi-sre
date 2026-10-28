@@ -152,6 +152,12 @@ function callToolResult(scenario: string, params?: FixtureParams): Record<string
         },
       };
     }
+    if (scenario === "diagnostic-observation-empty") return { content: [] };
+    if (scenario === "diagnostic-observation-large")
+      return {
+        content: [{ type: "text", text: "observation ".repeat(2000) }],
+        extraServerField: true,
+      };
     if (scenario === "diagnostic-beta-authorization" && params?.arguments?.context === "beta")
       return { content: [{ type: "text", text: "403 Forbidden" }], isError: true };
     if (

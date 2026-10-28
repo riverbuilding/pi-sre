@@ -13,6 +13,7 @@ import { registerMcpRecovery } from "../tui/mcp-restart-command.js";
 import { registerClusterScope } from "../tui/cluster-extension.js";
 import type { SreConfig } from "../config/config.js";
 import { createSreResourceLoaderOptions } from "./resource-loader.js";
+import { registerInvestigationLifecycle } from "./investigation-lifecycle.js";
 import { SreRuntime } from "./sre-runtime.js";
 
 /** Pi uses this for TUI assets and managed helpers outside its session factory. */
@@ -44,7 +45,13 @@ export async function createSreRuntime(
                   hidden: true,
                   factory: (pi: ExtensionAPI) => {
                     registerMcpRecovery(pi, mcpController, feedback);
-                    registerClusterScope(pi, mcpController.clusterContext, feedback);
+                    registerInvestigationLifecycle(pi, mcpController.investigation);
+                    registerClusterScope(
+                      pi,
+                      mcpController.clusterContext,
+                      feedback,
+                      mcpController.investigation,
+                    );
                   },
                 },
               ]

@@ -1,5 +1,8 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
+import type { InvestigationController } from "../app/investigation-controller.js";
+import { createInvestigationScopeDescription } from "../runtime/investigation-guidance.js";
+import { formatClusterRule } from "../runtime/cluster-guidance.js";
 import type { ClusterContextManager } from "../cluster/context-manager.js";
 import {
   createClusterScopeDescription,
@@ -13,11 +16,16 @@ export function registerClusterScope(
   pi: ExtensionAPI,
   manager: ClusterContextManager,
   feedback = new CommandFeedback(),
+  investigation?: InvestigationController,
 ): void {
   let releaseWork: (() => void) | undefined;
   let unsubscribe: (() => void) | undefined;
   let lastDescription: string | undefined;
   let clearDisplay: (() => void) | undefined;
+  const description = () =>
+    investigation?.currentScope().ok
+      ? createInvestigationScopeDescription(investigation)
+      : createClusterScopeDescription(manager.state);
   const customType = "pi-sre-cluster-scope";
 
   pi.on("session_start", (_event, ctx) => {
@@ -33,24 +41,44 @@ export function registerClusterScope(
       previous?.role === "custom" && typeof previous.content === "string"
         ? previous.content
         : undefined;
-    unsubscribe = manager.subscribe((state) => {
+    const update = () => {
+      const effective = investigation?.currentScope();
+      const state = effective?.ok && investigation ? investigation.clusterState() : manager.state;
       // Pi's footer truncates a single status line. A wrapping public widget
       // keeps READ ONLY on its own line while preserving Pi's model/session UI.
-      ctx.ui.setWidget("pi-sre-scope", createClusterStatusLines(state), {
-        placement: "belowEditor",
-      });
-      const content = createClusterScopeDescription(state);
+      ctx.ui.setWidget(
+        "pi-sre-scope",
+        [
+          ...createClusterStatusLines(state),
+          ...(effective?.ok
+            ? [
+                `Investigation: ${JSON.stringify(effective.scope.incidentId)} | scope ${effective.scope.scopeRevision}`,
+                ...(JSON.stringify(effective.scope.rule) !==
+                JSON.stringify(manager.state.selection.rule)
+                  ? [
+                      `Next investigation: ${formatClusterRule(manager.state.selection.rule)} (${manager.state.resolution.status === "resolved" ? `${manager.state.resolution.available.length} available, ${manager.state.resolution.unavailable.length} unavailable` : "blocked"})`,
+                    ]
+                  : []),
+              ]
+            : []),
+        ],
+        {
+          placement: "belowEditor",
+        },
+      );
+      const content = description();
       if (content === lastDescription) return;
       lastDescription = content;
       // Persist idle updates without starting a turn. During active work Pi queues
       // this as steering, after tool results, preserving request/history ordering.
       pi.sendMessage({ customType, content, display: false }, { deliverAs: "steer" });
-    });
+    };
+    unsubscribe = investigation ? investigation.subscribe(update) : manager.subscribe(update);
   });
   // Restore the current snapshot only if compaction/navigation removed it or a
   // resumed branch carries a different scope. Pi persists the returned message.
   pi.on("before_agent_start", (_event, ctx) => {
-    const content = createClusterScopeDescription(manager.state);
+    const content = description();
     const previous = ctx.sessionManager
       .buildSessionProjection()
       .messages.findLast(
@@ -75,5 +103,5 @@ export function registerClusterScope(
     releaseWork?.();
     releaseWork = undefined;
   });
-  registerClustersCommand(pi, manager, feedback);
+  registerClustersCommand(pi, manager, feedback, investigation);
 }

@@ -1,6 +1,6 @@
 # Phase 4 Implementation Slices — Investigation Domain
 
-**Status:** Slice 0 contracts and offline lifecycle fixtures completed on 2026-10-20; see [PHASE4_CONTRACTS.md](./PHASE4_CONTRACTS.md). Slice 1 domain models and pure invariants completed on 2026-10-21; Slice 2 bounded EvidenceStore completed on 2026-10-22; Slice 3 investigation service, hypothesis consistency, and dispatch accounting completed on 2026-10-23; Slice 4 application controller, lifecycle hooks, and incident authority completed on 2026-10-23, with runtime/bridge activation deferred until Slice 5 evidence capture; Slices 5–7 remain planned. No production incident, evidence, or incident-budget behavior is enabled. Renumbered on 2026-10-18 after insertion of Phase 3 Context Selection and Multi-Cluster Routing.
+**Status:** Slice 0 contracts and offline lifecycle fixtures completed on 2026-10-20; see [PHASE4_CONTRACTS.md](./PHASE4_CONTRACTS.md). Slice 1 domain models and pure invariants completed on 2026-10-21; Slice 2 bounded EvidenceStore completed on 2026-10-22; Slice 3 investigation service, hypothesis consistency, and dispatch accounting completed on 2026-10-23; Slice 4 application controller, lifecycle hooks, and incident authority completed on 2026-10-23, initially inactive; Slice 5 observation capture and runtime/bridge activation completed on 2026-10-27. Production incidents, evidence capture and per-incident diagnostic budgets are enabled. Slices 6–7 remain planned. Renumbered on 2026-10-18 after insertion of Phase 3 Context Selection and Multi-Cluster Routing.
 
 **Applies to:** Pi SRE V0.1, Phase 4 — Investigation Domain.
 
@@ -509,6 +509,8 @@ Land the Phase 4 incident wiring and Slice 5 evidence capture together, or keep 
 
 ## 11. Slice 5 — Capture MCP Observations Before Pi Publication
 
+**Status:** Completed on 2026-10-27. Slice 4 incident authority and lifecycle hooks are now active in production alongside capture.
+
 **Outcome:** Every successful incident diagnostic result is traceable to stored evidence.
 
 ### Work
@@ -533,6 +535,19 @@ Land the Phase 4 incident wiring and Slice 5 evidence capture together, or keep 
   Budget refusal makes no MCP call. Storage refusal at completion creates no evidence or
   successful publication; the attempt remains spent and pending work settles.
 - Existing read-only allowlist, discovered-schema validation, redaction, and no-shell tests pass.
+
+### Implementation
+
+- `src/mcp/incident-diagnostic.ts` admits the controller's incident lease through the existing shared queue, spends one attempt immediately before MCP transport, normalizes safely, and checks cancellation and lease authority immediately before synchronous recording. Every exit releases the lease; failed, interrupted and storage-refused work settles with bounded safe outcomes.
+- `src/mcp/observation-adapter.ts` budgets the complete serialized successful envelope, preserves typed identity/provenance, and reduces only the observation excerpt. The retained excerpt and returned excerpt/truncation agree. A required envelope that cannot fit is refused before dispatch. No raw response, raw arguments, serialized errors or artifact is retained.
+- The bridge receives the application controller as its recorder/authority. `recordObservation(lease, observation)` validates the registered, dispatched current lease; an execution token alone is insufficient. Empty successes commit evidence; enumeration remains operational discovery outside evidence and incident budgets.
+- `McpController` publishes tools from the same incident resolution used by admission. Production Pi factories register eligible-input lifecycle hooks, and the widget, `/clusters --status`, selection feedback and recovery feedback distinguish current incident scope from next selection. Reload/same-process resume rebinds retained state; a new session grants no diagnostic authority until an eligible prompt creates an incident.
+- Existing low-level Phase 3 scope/queue fixtures remain. Production integration fixtures now create incidents through eligible lifecycle hooks before directly invoking diagnostic tools. The inherited Phase 2 switching assertion now verifies that next selection cannot retarget an active incident. Historical acceptance documents are unchanged.
+- Public investigation/evidence/hypothesis tools and incident replacement/conclusion commands remain Slice 6. Full Phase 4 acceptance and installed-terminal/live-cluster smoke remain Slice 7; no live run is claimed here.
+
+**Validation (2026-10-27):** 35 new tests cover retained/returned excerpt and provenance agreement, empty/extended/truncated results, safe authentication/authorization/tool/transport/malformed/timeout failures, cancellation after normalization, stale session/connection/shutdown results, out-of-order completions, atomic concurrent storage refusal, budget/presentation refusals before transport, usable incident scope with unavailable next selection, and changed presentation limits after reconnect. Managed stdio fixtures and real-Pi production composition verify stored observation IDs before successful results reach the transcript. Inherited authority, lifecycle, queue and read-only policy coverage remains green.
+
+`npm run format:check`, `npm run lint`, `npm run check`, `npm test` (641 passed; 7 optional executable-dependent contract tests skipped), `npm run build`, and `git diff --check` passed. No provider, installed-terminal or live Kubernetes test was run. Slice 6 public inspection/interpretation and Slice 7 full Phase 4 acceptance remain pending.
 
 ## 12. Slice 6 — Minimal Investigation Tools and Inspection
 

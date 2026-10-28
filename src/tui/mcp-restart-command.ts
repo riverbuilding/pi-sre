@@ -1,5 +1,6 @@
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { CommandFeedback } from "./command-feedback.js";
+import { createInvestigationScopeDescription } from "../runtime/investigation-guidance.js";
 import { createClusterScopeDescription } from "../runtime/cluster-guidance.js";
 import type { McpController } from "../app/mcp-controller.js";
 
@@ -51,7 +52,10 @@ export function registerMcpRecovery(
       }
       try {
         const state = await controller.restart(argument === "--force");
-        const scope = controller.clusterContext.state;
+        const effective = controller.investigation.currentScope();
+        const scope = effective.ok
+          ? controller.investigation.clusterState()
+          : controller.clusterContext.state;
         const prefix =
           state.status !== "ready"
             ? "Restart failed or interrupted; MCP unavailable."
@@ -59,7 +63,7 @@ export function registerMcpRecovery(
               ? "MCP already healthy; existing connection retained."
               : "Restart completed; MCP transport ready.";
         report(
-          `${prefix} ${state.message}\n${createClusterScopeDescription(scope)}`,
+          `${prefix} ${state.message}\n${effective.ok ? createInvestigationScopeDescription(controller.investigation) : createClusterScopeDescription(scope)}`,
           state.status === "ready" &&
             scope.status === "resolved" &&
             scope.resolution.status === "resolved" &&

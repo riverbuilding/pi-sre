@@ -6,6 +6,7 @@ import type {
 } from "../cluster/context-resolver.js";
 import type { ExecutionAdmissionFailure } from "../cluster/execution-queue.js";
 import { requireDomain } from "../domain/errors.js";
+import type { Evidence } from "../domain/evidence.js";
 import type { Conclusion } from "../domain/incident.js";
 import {
   copyInvestigationScope,
@@ -19,6 +20,7 @@ import type {
   FailureCategory,
   InvestigationService,
   InvestigationArchive,
+  SuccessfulObservation,
 } from "../investigation/investigation-service.js";
 import type { McpToolDescriptor } from "../mcp/tool-discovery.js";
 import { acceptsToolContext, getMcpToolPolicy } from "../runtime/tool-policy.js";
@@ -74,8 +76,7 @@ interface PendingLease {
 }
 
 /**
- * Process-owned Phase 4 authority. Runtime/bridge activation waits until Slice 5
- * records every successful bridge result. Reuses the existing manager/queue/connection.
+ * Process-owned incident authority. Reuses the existing manager/queue/connection.
  */
 export class InvestigationController {
   readonly #manager: ClusterContextManager;
@@ -364,6 +365,14 @@ export class InvestigationController {
     });
     pending.execution = execution;
     return execution;
+  }
+
+  /** Synchronous publication boundary: tokens alone never authorize observation commits. */
+  recordObservation(lease: IncidentExecutionLease, observation: SuccessfulObservation): Evidence {
+    requireDomain(this.isCurrent(lease), "Diagnostic execution authority is stale.");
+    const execution = this.#leases.get(lease)?.execution;
+    requireDomain(execution !== undefined, "Diagnostic lease has not dispatched.");
+    return this.#service.recordObservation(execution, observation);
   }
 
   isCurrent(lease: IncidentExecutionLease): boolean {

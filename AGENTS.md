@@ -2,7 +2,7 @@
 
 Pi SRE is an independent, read-only TypeScript application for Kubernetes incident diagnosis. It reuses Pi as its agent runtime and Kubernetes MCP Server as its Kubernetes access boundary.
 
-Phases 1–2 are implemented and accepted with read-only, single-context diagnosis. New Phase 3 upgrades context selection/routing directly from that baseline: exact sets, default live `*`, unified `/clusters`, and required model-supplied context through one agent/one MCP server. Phase 4 then adds Investigation Domain and evidence; Phase 5 separately plans opt-in, human-approved controlled operations. These future phases are not implemented. Read-only remains the default; autonomous remediation is outside scope.
+Phases 1–3 are implemented and accepted with read-only diagnosis, exact sets, default live `*`, unified `/clusters`, and required model-supplied context through one agent/one MCP server. Phase 4 Slices 0–5 implement Investigation Domain, session-bound incident authority, automatic evidence capture and per-incident dispatch budgets. Slice 6 public inspection/interpretation tools and commands and Slice 7 acceptance remain planned. Phase 5 separately plans opt-in, human-approved controlled operations. Read-only remains the default; autonomous remediation is outside scope.
 
 ## Core Architecture
 

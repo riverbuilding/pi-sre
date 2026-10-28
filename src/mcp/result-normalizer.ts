@@ -22,7 +22,11 @@ export type ToolFailureCategory =
   | "stale-scope"
   | "incompatible-schema"
   | "capacity-exceeded"
-  | "timeout";
+  | "timeout"
+  | "invalid-result"
+  | "budget-refused"
+  | "storage-refused"
+  | "presentation-refused";
 
 export interface NormalizedMcpResult {
   readonly text: string;
@@ -78,6 +82,11 @@ const FAILURE_MESSAGES: Record<ToolFailureCategory, string> = {
   "invalid-arguments": "Invalid arguments for the Kubernetes MCP tool.",
   "tool-execution-failed": "Kubernetes MCP tool reported an execution error.",
   "capacity-exceeded": "Kubernetes MCP waiting queue is full. Wait for pending calls to finish.",
+  "invalid-result": "Kubernetes MCP returned an unsupported or invalid tool result.",
+  "budget-refused":
+    "Incident diagnostic budget exhausted; explain findings or conclude inconclusive.",
+  "storage-refused": "Incident evidence capacity is full; observation was not stored or published.",
+  "presentation-refused": "The diagnostic identity envelope exceeds the configured result budget.",
   timeout: "Kubernetes MCP operation timed out. Check connectivity and the configured timeout.",
 };
 

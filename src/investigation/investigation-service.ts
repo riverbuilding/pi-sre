@@ -88,6 +88,7 @@ export type FailureCategory =
   | "timeout"
   | "transport"
   | "tool"
+  | "storage"
   | "malformed"
   | "cancelled"
   | "stale";
@@ -99,6 +100,7 @@ const FAILURE_EXPLANATIONS: Readonly<Record<FailureCategory, string>> = Object.f
   transport: "The MCP transport failed.",
   tool: "The diagnostic tool failed.",
   malformed: "The diagnostic response could not be presented.",
+  storage: "The observation exceeded incident evidence storage capacity and was not retained.",
   cancelled: "The diagnostic operation was cancelled.",
   stale: "The diagnostic operation was invalidated.",
 });

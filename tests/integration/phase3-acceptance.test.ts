@@ -126,7 +126,9 @@ describe("Phase 3 acceptance through CLI, configuration, production Pi runtime, 
     await controller.restart(false, true);
     runtime = await createSreRuntime(config, [], undefined, controller);
     vi.spyOn(runtime.session.modelRuntime, "hasConfiguredAuth").mockReturnValue(true);
-    await runtime.session.bindExtensions({});
+    await runtime.session.bindExtensions({
+      uiContext: runtime.session.extensionRunner.getUIContext(),
+    });
     return runtime.session;
   }
 
@@ -187,10 +189,25 @@ describe("Phase 3 acceptance through CLI, configuration, production Pi runtime, 
       rule: test.rule,
       source: test.source,
     });
+    const commit = vi.spyOn(controller!.investigation, "recordObservation");
     requestPods(session, test.targets);
     await session.prompt("Inspect Pod default/api in each permitted context");
     const results = session.messages.filter((message) => message.role === "toolResult");
     expect(results).toHaveLength(test.targets.length);
+    expect(commit).toHaveBeenCalledTimes(test.targets.length);
+    for (const result of commit.mock.results) {
+      if (result.type !== "return") throw new Error("Observation did not commit");
+      const evidence = result.value;
+      expect(results).toContainEqual(
+        expect.objectContaining({
+          details: expect.objectContaining({
+            evidenceId: evidence.id,
+            executionId: evidence.executionId,
+          }),
+          content: [{ type: "text", text: expect.stringContaining(evidence.excerpt) }],
+        }),
+      );
+    }
     for (const [index, context] of test.targets.entries()) {
       expect(results[index]).toMatchObject({
         isError: false,

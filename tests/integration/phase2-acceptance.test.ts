@@ -224,7 +224,7 @@ describe("Phase 2 acceptance through CLI input, configuration, controller, Pi, a
     expect(await calls(pid)).toEqual([{ name: "configuration_contexts_list", arguments: {} }]);
   });
 
-  it("retains observations across idle switching and recovery without rebinding a removed selection", async () => {
+  it("keeps incident authority across next selection and recovery", async () => {
     const initial = await configure("diagnostic-success");
     const session = await start(["--clusters=alpha"]);
     const activeController = controller!;
@@ -234,11 +234,13 @@ describe("Phase 2 acceptance through CLI input, configuration, controller, Pi, a
     await session.prompt("/clusters beta");
     requestPods(session, "beta");
     await session.prompt("Inspect beta");
+    expect(
+      session.messages.filter((message) => message.role === "toolResult").at(-1),
+    ).toMatchObject({ isError: true });
     expect(session.messages.slice(0, history.length)).toEqual(history);
     expect(await calls(initial)).toEqual([
       { name: "configuration_contexts_list", arguments: {} },
       { name: "pods_list", arguments: { context: "alpha" } },
-      { name: "pods_list", arguments: { context: "beta" } },
     ]);
     const stale = session.getToolDefinition("pods_list");
     if (!stale) throw new Error("Expected diagnostic tool before restart");
@@ -252,11 +254,12 @@ describe("Phase 2 acceptance through CLI input, configuration, controller, Pi, a
     expect(await stale.execute("stale", {}, undefined, undefined, {} as never)).toMatchObject({
       isError: true,
     });
-    requestPods(session, "beta");
-    await session.prompt("Inspect beta after replacement");
+    requestPods(session, "alpha");
+    await session.prompt("Continue alpha after replacement");
     const observations = session.messages.filter((message) => message.role === "toolResult");
     expect(observations).toHaveLength(3);
-    for (const [index, context] of ["alpha", "beta", "beta"].entries()) {
+    for (const index of [0, 2]) {
+      const context = "alpha";
       expect(observations[index]).toMatchObject({
         isError: false,
         details: { scope: { context, readOnly: true } },
@@ -265,12 +268,12 @@ describe("Phase 2 acceptance through CLI input, configuration, controller, Pi, a
     }
     expect(await calls(replacement)).toEqual([
       { name: "configuration_contexts_list", arguments: {} },
-      { name: "pods_list", arguments: { context: "beta" } },
+      { name: "pods_list", arguments: { context: "alpha" } },
     ]);
     const removed = await configure("diagnostic-alpha-only", "alpha");
     await session.prompt("/mcp_restart --force");
     expect(activeController.clusterContext.state.status).toBe("resolved");
-    expect(session.getCallableToolNames()).toEqual(["configuration_contexts_list"]);
+    expect(session.getCallableToolNames()).toContain("pods_list");
     requestPods(session, "beta");
     await session.prompt("Inspect pods after selected context disappeared");
     expect(await calls(removed)).toEqual([{ name: "configuration_contexts_list", arguments: {} }]);

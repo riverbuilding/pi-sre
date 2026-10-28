@@ -3,8 +3,10 @@ import { parseClusterRule } from "../cluster/context-resolver.js";
 
 const nonBlank = z.string().trim().min(1);
 
+export const MAX_RESULT_TEXT_CHARS = 64_000;
+
 export const resultPolicySchema = z.strictObject({
-  maxTextChars: z.int().min(256).max(64_000).default(8_000),
+  maxTextChars: z.int().min(256).max(MAX_RESULT_TEXT_CHARS).default(8_000),
   maxItems: z.int().positive().max(1_000).default(50),
   // Raw MCP payloads are never persisted or attached to Pi result details.
   rawRetention: z.literal("disabled").default("disabled"),

@@ -13,6 +13,8 @@ import type { SreRuntime } from "../../src/runtime/sre-runtime.js";
 import * as clusterPickerDialog from "../../src/tui/cluster-picker-dialog.js";
 import { pickClusterRule } from "../../src/tui/cluster-picker.js";
 
+import { startInvestigation } from "../fixtures/start-investigation.js";
+
 const fixture = fileURLToPath(new URL("../fixtures/fake-mcp-server.ts", import.meta.url));
 
 describe("in-session MCP recovery with real Pi and stdio", () => {
@@ -49,7 +51,7 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
       }),
     );
   }
-  async function start(cluster?: string): Promise<void> {
+  async function start(cluster?: string, createIncident = true): Promise<void> {
     const load = () =>
       loadSreConfig({
         env: { PI_SRE_HOME: reloadHome ?? home, PI_SRE_CONFIG: join(home, "config.yaml") },
@@ -63,7 +65,14 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
     );
     await controller.restart(false, true);
     runtime = await createSreRuntime(config, [], undefined, controller);
-    await runtime.session.bindExtensions({});
+    await runtime.session.bindExtensions({
+      uiContext: runtime.session.extensionRunner.getUIContext(),
+    });
+    if (
+      createIncident &&
+      controller.discoveryReport?.exposed.some((tool) => tool.name === "pods_list")
+    )
+      await startInvestigation(runtime.session);
   }
   async function command(args = ""): Promise<void> {
     // This is the same extension command dispatch used by Pi's terminal.
@@ -308,7 +317,7 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
 
   it("numbers repeated no-ops and status across commands/reload, and isolates new sessions", async () => {
     await configure("diagnostic-success");
-    await start("alpha");
+    await start("alpha", false);
     const notify = await observeFeedback();
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date(2026, 9, 17, 12, 34, 1));
@@ -400,9 +409,10 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
 
   it("associates concurrent forced/shared completion with invocation numbers and one replacement PID", async () => {
     await configure("diagnostic-success");
-    await start();
+    await start(undefined, false);
     const notify = await observeFeedback();
     await runtime.session.prompt("/clusters beta");
+    await startInvestigation(runtime.session);
     const oldPid = await readFile(pids[0]!, "utf8");
     await configure("diagnostic-success");
     const first = command("--force");
@@ -588,6 +598,7 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
         },
         resolution: { status: "resolved", available: [{ name: cluster ?? "alpha" }] },
       });
+      await startInvestigation(runtime.session);
       expect(runtime.session.getActiveToolNames()).toContain("pods_list");
     },
   );
@@ -619,8 +630,9 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
 
   it("retains a user choice through failed enumeration, removal, and reappearance", async () => {
     await configure("diagnostic-success");
-    await start();
+    await start(undefined, false);
     await runtime.session.prompt("/clusters beta");
+    await startInvestigation(runtime.session);
     const old = runtime.session.getToolDefinition("pods_list");
     await configure("contexts-malformed", process.execPath, ["alpha"]);
     await command("--force");
@@ -766,7 +778,15 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
       if (transition === "reload") await runtime.session.reload();
       else await runtime.newSession();
       expect(controller.clusterContext.state).toBe(scope);
-      expect(controller.snapshot).toBe(connection);
+      expect(controller.snapshot.status).toBe(connection.status);
+      if (transition === "new-session") {
+        expect(controller.investigation.currentScope()).toMatchObject({ ok: false });
+        expect(runtime.session.getActiveToolNames()).toEqual(["configuration_contexts_list"]);
+        await runtime.session.bindExtensions({
+          uiContext: runtime.session.extensionRunner.getUIContext(),
+        });
+        await startInvestigation(runtime.session);
+      }
       expect(controller.clusterContext.isAgentActive).toBe(false);
       expect(await invoke(runtime.session.getToolDefinition("pods_list"))).toMatchObject({
         isError: false,
@@ -877,7 +897,7 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
 
   it("commits multiple names atomically, supports All and rejects unknown command options", async () => {
     await configure("diagnostic-success");
-    await start("alpha");
+    await start("alpha", false);
     const session = runtime.session;
     expect(session.extensionRunner.getCommand("clusters")).toBeDefined();
     expect(session.extensionRunner.getCommand("cluster")).toBeUndefined();
@@ -1180,6 +1200,62 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
       expect(await invoke()).toMatchObject({ isError: false });
     },
   );
+
+  it("applies reloaded presentation limits without resetting incident storage or budget", async () => {
+    await configure("diagnostic-observation-large");
+    const configPath = join(home, "config.yaml");
+    await writeFile(
+      configPath,
+      `${await readFile(configPath, "utf8")}\nresults:\n  maxTextChars: 1800\n`,
+    );
+    await start("alpha");
+    const before = controller.investigation.currentScope();
+    const first = await inspect("alpha");
+    expect(first.isError).toBe(false);
+    expect(JSON.stringify(first).length).toBeLessThanOrEqual(1800);
+    await configure("diagnostic-observation-large");
+    await writeFile(
+      configPath,
+      `${await readFile(configPath, "utf8")}\nresults:\n  maxTextChars: 4000\n`,
+    );
+    await command("--force");
+    const second = await inspect("alpha");
+    expect(second).toMatchObject({ isError: false, details: { evidenceId: expect.any(String) } });
+    expect(JSON.stringify(second).length).toBeGreaterThan(1800);
+    expect(JSON.stringify(second).length).toBeLessThanOrEqual(4000);
+    const after = controller.investigation.currentScope();
+    if (!before.ok || !after.ok) throw new Error("Missing incident");
+    expect(after.scope.incidentId).toBe(before.scope.incidentId);
+  });
+
+  it("publishes and reports usable incident A when next selection B is unavailable", async () => {
+    await configure("diagnostic-success");
+    await start("alpha");
+    const original = controller.investigation.currentScope();
+    const notify = await observeFeedback();
+    await runtime.session.prompt("/clusters beta");
+    expect(notify.mock.lastCall?.[0]).toContain("next investigation selection");
+    await configure("diagnostic-alpha-only");
+    await command("--force");
+    expect(notify.mock.lastCall).toEqual([
+      expect.stringContaining("Next investigation selection"),
+      "info",
+    ]);
+    expect(controller.clusterContext.state.resolution).toMatchObject({ available: [] });
+    expect(controller.investigation.currentScope()).toMatchObject({
+      ok: true,
+      scope: { rule: { kind: "exact", contexts: ["alpha"] } },
+    });
+    expect(original).toMatchObject({ ok: true });
+    expect(await inspect("alpha")).toMatchObject({
+      isError: false,
+      details: { evidenceId: expect.any(String) },
+    });
+    expect(await inspect("beta")).toMatchObject({ isError: true });
+    await runtime.session.prompt("/clusters --status");
+    expect(notify.mock.lastCall?.[0]).toContain('Available: 1 ["alpha"]');
+    expect(notify.mock.lastCall?.[0]).toContain("Next resolution: 0 available, 1 unavailable");
+  });
 
   it("removes tools as soon as the MCP child drops, then recovers", async () => {
     await configure();

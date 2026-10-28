@@ -25,10 +25,13 @@ import {
   allowsMcpToolExecution,
   validateMcpToolExecution,
 } from "../runtime/tool-execution-policy.js";
+import type { InvestigationController } from "../app/investigation-controller.js";
+import { executeIncidentDiagnostic } from "./incident-diagnostic.js";
 import { redactDiagnosticText } from "./redaction.js";
 
 export interface ToolScopeBinding {
   readonly manager: ClusterExecutionAuthority;
+  readonly investigation?: InvestigationController;
   readonly connectionGeneration: number;
   readonly signal?: AbortSignal;
 }
@@ -42,6 +45,7 @@ export interface McpToolScope {
   readonly connectionGeneration: number;
   readonly inventoryRevision: number;
   readonly selectionRevision: number;
+  readonly scopeRevision?: number;
 }
 
 export interface ToolNameMapping {
@@ -55,6 +59,10 @@ export interface McpToolDetails {
   readonly truncated: boolean;
   readonly failureCategory?: ToolFailureCategory;
   readonly scope?: McpToolScope;
+  readonly evidenceId?: string;
+  readonly executionId?: string;
+  readonly incidentId?: string;
+  readonly completedAt?: string;
 }
 
 function bridgeResult(
@@ -142,6 +150,18 @@ export function createMcpToolBridge(
       if (connection.state && connection.state !== "ready") return fail("transport-unavailable");
       const args = prepareMcpToolArguments(toolPolicy, params);
       if (!args || !schema.validateArguments(args)) return fail("invalid-arguments");
+      if (clusterDependent && binding?.investigation) {
+        return executeIncidentDiagnostic({
+          controller: binding.investigation,
+          connection,
+          generation: binding.connectionGeneration,
+          mapping,
+          args,
+          policy,
+          ...(signal ? { signal } : {}),
+          ...(connectionSignal ? { connectionSignal } : {}),
+        });
+      }
       const execution = validateMcpToolExecution(toolPolicy, args, authority?.state);
       if (!execution.ok) return fail(execution.category);
       const selectionRevision = authority?.state.selection.selectionRevision;
