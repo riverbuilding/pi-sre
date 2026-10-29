@@ -6,11 +6,11 @@
 
 当前执行入口一次只绑定一个 Incident，但 Service 可以同时保存多个 Investigation。需要区分以下三个层次：
 
-| 层次 | 当前实现 |
-| --- | --- |
-| 当前绑定 | Controller 只有一个 `#binding`，同一时刻只有当前绑定会话的开放 Incident 可以获得诊断执行权限；仍需通过 scope、连接和工具等检查 |
-| 每个会话 | `#sessions` 保存 `sessionId → incidentId`，每个会话只指向当前或最近结束的一个 Incident |
-| Service 存储 | `#investigations` 按 Incident ID 保存多个 Investigation，默认最多驻留 20 个，包括未结束和已结束的 |
+| 层次         | 当前实现                                                                                                                       |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| 当前绑定     | Controller 只有一个 `#binding`，同一时刻只有当前绑定会话的开放 Incident 可以获得诊断执行权限；仍需通过 scope、连接和工具等检查 |
+| 每个会话     | `#sessions` 保存 `sessionId → incidentId`，每个会话只指向当前或最近结束的一个 Incident                                         |
+| Service 存储 | `#investigations` 按 Incident ID 保存多个 Investigation，默认最多驻留 20 个，包括未结束和已结束的                              |
 
 因此：
 
@@ -28,15 +28,15 @@
 
 ## 2. 结束、替换与会话切换的行为
 
-| 操作 | 旧 Investigation 的去向 | 会话指针 |
-| --- | --- | --- |
-| `investigation_conclude` 成功提交 | Incident 变为 `resolved` 或 `inconclusive`，完整 Investigation 仍驻留内存 | 继续指向这个已结束的 Incident |
-| `/incident new <question>` 替换未结束的 Incident | 旧 Incident 自动以 `inconclusive` 结束，保留原有 evidence、hypotheses 等状态；创建新的 Investigation | 切到新 Incident |
-| 已结束后输入下一条符合生命周期条件的问题 | 创建新的 Investigation，旧 Investigation 继续保留 | 切到新 Incident |
-| 未结束时输入下一条符合生命周期条件的问题 | 继续原 Investigation，不会仅凭问题内容自动识别为新 Incident | 保持不变 |
-| 切换会话、reload、取消工作 | 不会结束或归档 Incident；旧执行权限失效，已派发但未完成的工作记录中断结果 | 切换会话会更换当前 binding；原会话映射保留 |
-| 显式归档成功 | 将已结束的 Investigation 写入 JSONL，然后从 Service 内存删除 | Controller 清理指向该 Incident 的会话映射 |
-| 应用进程退出 | 未归档的结构化 Investigation 状态丢失 | 内存映射丢失 |
+| 操作                                             | 旧 Investigation 的去向                                                                              | 会话指针                                   |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| `investigation_conclude` 成功提交                | Incident 变为 `resolved` 或 `inconclusive`，完整 Investigation 仍驻留内存                            | 继续指向这个已结束的 Incident              |
+| `/incident new <question>` 替换未结束的 Incident | 旧 Incident 自动以 `inconclusive` 结束，保留原有 evidence、hypotheses 等状态；创建新的 Investigation | 切到新 Incident                            |
+| 已结束后输入下一条符合生命周期条件的问题         | 创建新的 Investigation，旧 Investigation 继续保留                                                    | 切到新 Incident                            |
+| 未结束时输入下一条符合生命周期条件的问题         | 继续原 Investigation，不会仅凭问题内容自动识别为新 Incident                                          | 保持不变                                   |
+| 切换会话、reload、取消工作                       | 不会结束或归档 Incident；旧执行权限失效，已派发但未完成的工作记录中断结果                            | 切换会话会更换当前 binding；原会话映射保留 |
+| 显式归档成功                                     | 将已结束的 Investigation 写入 JSONL，然后从 Service 内存删除                                         | Controller 清理指向该 Incident 的会话映射  |
+| 应用进程退出                                     | 未归档的结构化 Investigation 状态丢失                                                                | 内存映射丢失                               |
 
 这里“替换时自动结束”发生在显式 `/incident new` 引发的 `replace` 中。普通轮次结束、取消诊断和切换会话都不等于结束 Incident。
 
@@ -52,12 +52,12 @@
 
 当前公开入口可以查询当前会话指向的 Investigation，包括最近结束但尚未被新 Incident 替换的那个：
 
-| 入口 | 查询内容 |
-| --- | --- |
-| `investigation_get` | Investigation 摘要、状态、问题、revision、focus、结论，或指定的 hypothesis / execution outcome |
-| `evidence_list` / `evidence_get` | 当前 Investigation 中保留的 evidence |
-| `/incident` | 当前 Investigation 的 scope 和状态摘要 |
-| `/evidence` | Evidence 分页或指定 ID 的记录 |
+| 入口                             | 查询内容                                                                                       |
+| -------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `investigation_get`              | Investigation 摘要、状态、问题、revision、focus、结论，或指定的 hypothesis / execution outcome |
+| `evidence_list` / `evidence_get` | 当前 Investigation 中保留的 evidence                                                           |
+| `/incident`                      | 当前 Investigation 的 scope 和状态摘要                                                         |
+| `/evidence`                      | Evidence 分页或指定 ID 的记录                                                                  |
 
 这些入口绑定当前会话，不接受任意历史 Incident ID。结束后诊断执行被阻止，但本地 inspection 仍然可用。
 

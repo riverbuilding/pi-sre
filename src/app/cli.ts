@@ -55,7 +55,7 @@ Options:
                        Other arguments are still validated when help is requested.
 
 Startup precedence: --clusters > kubernetes.contexts > live all (*).
-MCP default metadata never narrows the selection. Multi-target routing awaits Phase 3 Slice 2.
+MCP default metadata never narrows the selection. Each diagnostic call requires an exact context.
 Unknown selections never fall back to another default.
 
 Configuration:
@@ -70,5 +70,11 @@ Use /mcp_restart in the TUI to retry Kubernetes MCP access.
 Use /clusters to select one or more contexts in a staged picker, /clusters --all
 for live all, /clusters <exact-name> for one context, and /clusters --status to
 report scope, read-only mode, and MCP availability. Apply commits the picker draft.
+An open incident keeps its rule; selection changes apply to the next incident.
+Use /incident to inspect state or /incident new <question> to start another while idle.
+Use /evidence [<id> | --cursor <cursor>] to inspect stored observations without Kubernetes calls.
+Successful diagnostics return stored evidence IDs. Hypotheses and conclusions are local
+interpretation, not repairs. State survives compaction/reload and same-process resume;
+unarchived investigation state is lost on process exit and cannot be restored from prose.
 `;
 }

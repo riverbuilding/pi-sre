@@ -54,6 +54,10 @@ it("packs a built executable that launches outside the source checkout", async (
       expect(stdout).toContain("--clusters=<name>");
       expect(stdout).toContain("--clusters > kubernetes.contexts > live all (*)");
       expect(stdout).toContain("/clusters --status");
+      expect(stdout).toContain("/incident new <question>");
+      expect(stdout).toContain("/evidence [<id> | --cursor <cursor>]");
+      expect(stdout).toContain("selection changes apply to the next incident");
+      expect(stdout).toContain("lost on process exit");
       expect(stdout).not.toMatch(/--cluster(?:[ =]|$)/m);
       expect(stdout).toContain("Unknown selections never fall back");
       expect(stderr).toBe("");
@@ -82,6 +86,16 @@ it("packs a built executable that launches outside the source checkout", async (
     expect(
       await readFile(join(installed, "config", "kubernetes-mcp.example.toml"), "utf8"),
     ).toContain("read_only = true");
+    for (const module of [
+      "app/investigation-controller.js",
+      "domain/incident.js",
+      "investigation/evidence-store.js",
+      "runtime/investigation-lifecycle.js",
+      "runtime/investigation-tools.js",
+      "mcp/incident-diagnostic.js",
+    ]) {
+      await access(join(installed, "dist", module));
+    }
   } finally {
     await rm(home, { recursive: true, force: true });
   }

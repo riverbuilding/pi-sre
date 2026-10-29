@@ -1,6 +1,6 @@
 # Phase 4 Implementation Slices — Investigation Domain
 
-**Status:** Slice 0 contracts and offline lifecycle fixtures completed on 2026-10-20; see [PHASE4_CONTRACTS.md](./PHASE4_CONTRACTS.md). Slice 1 domain models and pure invariants completed on 2026-10-21; Slice 2 bounded EvidenceStore completed on 2026-10-22; Slice 3 investigation service, hypothesis consistency, and dispatch accounting completed on 2026-10-23; Slice 4 application controller, lifecycle hooks, and incident authority completed on 2026-10-23, initially inactive; Slice 5 observation capture and runtime/bridge activation completed on 2026-10-27. Production incidents, evidence capture and per-incident diagnostic budgets are enabled. Slice 6 public inspection/interpretation completed on 2026-10-28. Slice 7 remains planned. Renumbered on 2026-10-18 after insertion of Phase 3 Context Selection and Multi-Cluster Routing.
+**Status:** Slice 0 contracts and offline lifecycle fixtures completed on 2026-10-20; see [PHASE4_CONTRACTS.md](./PHASE4_CONTRACTS.md). Slice 1 domain models and pure invariants completed on 2026-10-21; Slice 2 bounded EvidenceStore completed on 2026-10-22; Slice 3 investigation service, hypothesis consistency, and dispatch accounting completed on 2026-10-23; Slice 4 application controller, lifecycle hooks, and incident authority completed on 2026-10-23, initially inactive; Slice 5 observation capture and runtime/bridge activation completed on 2026-10-27. Production incidents, evidence capture and per-incident diagnostic budgets are enabled. Slice 6 public inspection/interpretation completed on 2026-10-28. Slice 7 automated acceptance and installed-package/live-cluster smoke passed on 2026-10-29; visual terminal acceptance remains pending; see [PHASE4_ACCEPTANCE.md](./PHASE4_ACCEPTANCE.md). Renumbered on 2026-10-18 after insertion of Phase 3 Context Selection and Multi-Cluster Routing.
 
 **Applies to:** Pi SRE V0.1, Phase 4 — Investigation Domain.
 
@@ -590,6 +590,8 @@ Land the Phase 4 incident wiring and Slice 5 evidence capture together, or keep 
 **Validation (2026-10-28):** `npm run check`, `npm run lint`, `npm run format:check`, `npm test` (649 passed; 7 optional executable-dependent contract tests skipped), `npm run build`, and `git diff --check` passed. Eight new real-Pi tests cover argument/refusal paths, interpretation revision conflicts, evidence-backed resolution, deferred/stale/aborted conclusions, replacement isolation including foreign cursors, outage/active inspection, reload/compaction deduplication, and bounded large evidence/long-identity summaries. No provider, installed-terminal or live-cluster run is claimed; those remain Slice 7.
 
 ## 13. Slice 7 — Full-Path Acceptance and Phase Gate
+
+**Status (2026-10-29):** Automated acceptance and canonical checks passed (670 tests; 7 optional contract tests skipped). Installed-package smoke passed against two disposable read-only kind clusters. Visual terminal acceptance is pending because Computer Use denied Terminal access. Slice 7 and Phase 4 remain open until that result is recorded in [PHASE4_ACCEPTANCE.md](./PHASE4_ACCEPTANCE.md).
 
 **Outcome:** Phase 4 is demonstrated through the application rather than only domain unit tests.
 

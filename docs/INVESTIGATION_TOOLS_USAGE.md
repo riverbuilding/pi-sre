@@ -6,12 +6,12 @@
 
 两类入口操作同一份 Investigation 数据，但服务于不同的调用者：
 
-| 入口 | 调用者 | 用途 |
-| --- | --- | --- |
-| `/incident` | 用户 | 查看当前调查的 scope 和状态摘要 |
-| `/incident new <question>` | 用户 | 显式开始新调查，替换当前调查 |
-| `/evidence`、`/evidence <id>` | 用户 | 查看证据列表或指定证据 |
-| 五个本地调查 tools | LLM | 读取调查状态和证据、记录假设、提交结论 |
+| 入口                          | 调用者 | 用途                                   |
+| ----------------------------- | ------ | -------------------------------------- |
+| `/incident`                   | 用户   | 查看当前调查的 scope 和状态摘要        |
+| `/incident new <question>`    | 用户   | 显式开始新调查，替换当前调查           |
+| `/evidence`、`/evidence <id>` | 用户   | 查看证据列表或指定证据                 |
+| 五个本地调查 tools            | LLM    | 读取调查状态和证据、记录假设、提交结论 |
 
 注册 tools，是为了让 LLM 能通过结构化接口参与调查管理。它们由 Pi SRE 在本地实现，不经过 Kubernetes MCP，也不访问集群。
 
@@ -19,13 +19,13 @@ Kubernetes MCP tools 负责获取集群事实；本地调查 tools 负责围绕�
 
 ## 2. 五个工具分别什么时候使用
 
-| Tool | 作用 | 典型调用时机 |
-| --- | --- | --- |
-| `investigation_get` | 读取当前调查的问题、状态、scope 摘要、revision、focus 和结论；也可按 ID 读取一个 hypothesis 或 execution outcome | 多轮对话后继续诊断时确认进度；更新假设前读取其版本；提交结论前取得当前调查 revision |
-| `evidence_list` | 分页读取已经保存的证据记录 | 回顾已查到的事实，判断下一步需要查什么，避免重复查询 |
-| `evidence_get` | 按 evidence ID 读取一条已保存证据及其来源 | 引用证据前核对内容和来源；重新查看之前采集的观察结果 |
-| `hypothesis_upsert` | 创建或更新假设，记录支持证据、反驳证据和推理理由 | 提出待验证原因，或根据新证据将假设更新为 `supported` / `rejected` |
-| `investigation_conclude` | 验证并排队提交调查结论 | 已有足够依据解释问题，或信息不足、无法继续而需要以 `inconclusive` 结束调查 |
+| Tool                     | 作用                                                                                                             | 典型调用时机                                                                        |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `investigation_get`      | 读取当前调查的问题、状态、scope 摘要、revision、focus 和结论；也可按 ID 读取一个 hypothesis 或 execution outcome | 多轮对话后继续诊断时确认进度；更新假设前读取其版本；提交结论前取得当前调查 revision |
+| `evidence_list`          | 分页读取已经保存的证据记录                                                                                       | 回顾已查到的事实，判断下一步需要查什么，避免重复查询                                |
+| `evidence_get`           | 按 evidence ID 读取一条已保存证据及其来源                                                                        | 引用证据前核对内容和来源；重新查看之前采集的观察结果                                |
+| `hypothesis_upsert`      | 创建或更新假设，记录支持证据、反驳证据和推理理由                                                                 | 提出待验证原因，或根据新证据将假设更新为 `supported` / `rejected`                   |
+| `investigation_conclude` | 验证并排队提交调查结论                                                                                           | 已有足够依据解释问题，或信息不足、无法继续而需要以 `inconclusive` 结束调查          |
 
 这些工具不是每轮都必须按顺序调用的固定流程。当前提示词说明了用途和约束，但没有强制 LLM 每轮调用全部工具。
 
@@ -90,4 +90,3 @@ Kubernetes MCP tools 负责获取集群事实；本地调查 tools 负责围绕�
 - [工具和命令注册](../src/runtime/investigation-tools.ts)
 - [模型系统提示词](../src/runtime/system-prompt.ts)
 - [Investigation 生命周期与历史查询](./INVESTIGATION_LIFECYCLE_AND_HISTORY.md)
-

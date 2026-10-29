@@ -14,7 +14,7 @@ Slice 5 adds full-path acceptance and installed-package checks against two dispo
 
 The completed milestone is [Phase 3 — Context Selection and Multi-Cluster Routing](docs/PHASE3_IMPLEMENTATION_SLICES.md), an explicit migration from the completed Phase 2 runtime. It delivers unified `/clusters`, default live `*`, exact sets, required model-supplied context on every diagnostic call, and deterministic reconnect reconciliation. It works with the current tools and one MCP server **without** an incident model or evidence store.
 
-[Phase 4 — Investigation Domain](docs/PHASE4_IMPLEMENTATION_SLICES.md) has completed Slices 0–6: domain models, incident-owned evidence storage, investigation service, application controller/lifecycle, and automatic observation capture. An eligible first user question creates an incident after credential preflight when diagnostic scope is usable. Successful diagnostics commit bounded, redacted evidence before Pi receives an evidence ID. The incident retains its exact/all rule; idle `/clusters` changes the next investigation selection. Per-incident dispatch budgets are active. Local inspection and interpretation tools plus `/incident` and `/evidence` are available. Full-path Phase 4 acceptance remains Slice 7. State is process-owned and is lost on exit; reload and same-process session resume preserve retained state.
+[Phase 4 — Investigation Domain](docs/PHASE4_IMPLEMENTATION_SLICES.md) has completed Slices 0–6: domain models, incident-owned evidence storage, investigation service, application controller/lifecycle, and automatic observation capture. An eligible first user question creates an incident after credential preflight when diagnostic scope is usable. Successful diagnostics commit bounded, redacted evidence before Pi receives an evidence ID. The incident retains its exact/all rule; idle `/clusters` changes the next investigation selection. Per-incident dispatch budgets are active. Local inspection and interpretation tools plus `/incident` and `/evidence` are available. Slice 7 adds full-path acceptance and installed-package/live-cluster verification; those checks passed, while visual terminal confirmation remains pending in the [Phase 4 acceptance record](docs/PHASE4_ACCEPTANCE.md). State is process-owned and is lost on exit; reload and same-process session resume preserve retained state.
 
 | Phase | Delivery                                                                              | Status      |
 | ----- | ------------------------------------------------------------------------------------- | ----------- |
@@ -29,7 +29,7 @@ The completed milestone is [Phase 3 — Context Selection and Multi-Cluster Rout
 
 The [multi-cluster plan](docs/MULTI_CLUSTER_INVESTIGATION_PLAN.md) records accepted semantics and the staged handoff. Exact names stay fixed; live `*` follows validated inventory, with new members marked not checked. The model supplies a context even for singleton rules; the application validates it without injection/overwrite. [Phase 5](docs/PHASE5_IMPLEMENTATION_SLICES.md) and the [HolmesGPT capability comparison](docs/HOLMESGPT_KUBERNETES_MCP_PARITY.md) cover the separate tool-parity milestone.
 
-The command/setup documentation below reflects **Phase 4 Slice 6**. Startup supports exact sets and default live `*`; diagnostic calls require one model-supplied exact context, including singleton rules. Pi executes independent MCP calls in parallel with one application-wide limit of four active calls and 32 FIFO waiters, shared across tools and contexts including model-driven enumeration. A fifth call waits; only a full queue returns `capacity-exceeded`. Queued calls expire after 30 seconds with `timeout`; the existing MCP timeout starts separately at dispatch. The unified `/clusters` command and staged multi-selection picker are implemented. Recovery keeps dispatch blocked until matching tools, inventory, rule resolution, and bounded added/removed/changed notices reach the UI and model. The widget and model snapshots show rule/source, bounded membership, availability, namespace policy, and revisions; `/clusters --status` provides full membership inspection. Historical Phase 1/2 acceptance records remain unchanged.
+The command/setup documentation below reflects **Phase 4 Slice 7 (visual acceptance pending)**. Startup supports exact sets and default live `*`; diagnostic calls require one model-supplied exact context, including singleton rules. Pi executes independent MCP calls in parallel with one application-wide limit of four active calls and 32 FIFO waiters, shared across tools and contexts including model-driven enumeration. A fifth call waits; only a full queue returns `capacity-exceeded`. Queued calls expire after 30 seconds with `timeout`; the existing MCP timeout starts separately at dispatch. The unified `/clusters` command and staged multi-selection picker are implemented. Recovery keeps dispatch blocked until matching tools, inventory, rule resolution, and bounded added/removed/changed notices reach the UI and model. The widget and model snapshots show rule/source, bounded membership, availability, namespace policy, and revisions; `/clusters --status` provides full membership inspection. Historical Phase 1/2 acceptance records remain unchanged.
 
 ## Prerequisites
 
@@ -70,7 +70,10 @@ The configuration loader uses `~/.pi-sre/config.yaml` by default. `PI_SRE_HOME` 
 
 ## Commands
 
+Before pushing, run `npm run verify`. It runs the same checks as GitHub CI in order: formatting, lint, TypeScript, tests, and build, stopping at the first failure. To fix formatting issues, run `npm run format`, review the changes, then rerun `npm run verify`.
+
 ```bash
+npm run verify
 npm run check
 npm run lint
 npm run format:check

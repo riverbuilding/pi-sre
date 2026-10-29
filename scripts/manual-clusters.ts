@@ -114,6 +114,9 @@ async function main(): Promise<void> {
       : "Try /clusters --status, /clusters (toggle alpha/beta, Apply or Cancel),\n" +
           "/clusters alpha, /clusters beta, /clusters --all, and /mcp_restart --force.\n" +
           "Every diagnostic call must supply one exact selected context.\n" +
+          "For Phase 4: /clusters alpha, /incident new Inspect alpha, /clusters beta,\n" +
+          "/incident (current alpha / next beta), /evidence, then /incident new Inspect beta.\n" +
+          "Repeat at normal/narrow widths; see docs/PHASE4_ACCEPTANCE.md for the visual gate.\n" +
           "No model login is needed for these commands. Use /login for model-driven fixture queries.\n",
   );
   if (!prepareOnly) await run(process.execPath, [executable], workspace, env);
