@@ -23,7 +23,7 @@ export function registerClusterScope(
   let lastDescription: string | undefined;
   let clearDisplay: (() => void) | undefined;
   const description = () =>
-    investigation?.currentScope().ok
+    investigation?.currentInvestigation()
       ? createInvestigationScopeDescription(investigation)
       : createClusterScopeDescription(manager.state);
   const customType = "pi-sre-cluster-scope";
@@ -43,6 +43,9 @@ export function registerClusterScope(
         : undefined;
     const update = () => {
       const effective = investigation?.currentScope();
+      // Lifecycle detaches before this extension unsubscribes on reload/shutdown.
+      // Do not persist the transient gap between old and replacement bindings.
+      if (effective && !effective.ok && effective.reason === "stale-binding") return;
       const state = effective?.ok && investigation ? investigation.clusterState() : manager.state;
       // Pi's footer truncates a single status line. A wrapping public widget
       // keeps READ ONLY on its own line while preserving Pi's model/session UI.
@@ -94,6 +97,7 @@ export function registerClusterScope(
   pi.on("agent_end", () => {
     releaseWork?.();
     releaseWork = undefined;
+    investigation?.refreshPresentation();
   });
   pi.on("session_shutdown", () => {
     unsubscribe?.();

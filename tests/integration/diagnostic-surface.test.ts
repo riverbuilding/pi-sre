@@ -1,3 +1,4 @@
+import { withoutInvestigationTools } from "../fixtures/investigation-tools.js";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -57,9 +58,9 @@ describe("reviewed diagnostics through controller, Pi, and managed stdio", () =>
         await startInvestigation(runtime.session);
         expect(controller.snapshot.tools.map((tool) => tool.name)).toEqual(names);
         runtime.session.setActiveToolsByName([...names, "bash", "resources_get"]);
-        expect(runtime.session.getActiveToolNames()).toEqual(names);
+        expect(withoutInvestigationTools(runtime.session.getActiveToolNames())).toEqual(names);
         await runtime.session.prompt("/clusters beta");
-        expect(runtime.session.getActiveToolNames()).toEqual(names);
+        expect(withoutInvestigationTools(runtime.session.getActiveToolNames())).toEqual(names);
         expect(controller.snapshot.tools.map((tool) => tool.name)).toEqual(names);
         const requests: readonly [string, Record<string, unknown>][] = [
           ["pods_list", { labelSelector: "app=api", fieldSelector: "status.phase=Running" }],
@@ -139,7 +140,7 @@ describe("reviewed diagnostics through controller, Pi, and managed stdio", () =>
             ),
           ).toMatchObject({ isError: false });
         }
-        expect(runtime.session.getActiveToolNames()).toEqual(names);
+        expect(withoutInvestigationTools(runtime.session.getActiveToolNames())).toEqual(names);
         const captured = runtime.session.getToolDefinition("pods_list");
         if (!captured) throw new Error("Expected captured tool");
         const before = await calls();
@@ -148,22 +149,28 @@ describe("reviewed diagnostics through controller, Pi, and managed stdio", () =>
           "configuration_contexts_list",
         ]);
         runtime.session.setActiveToolsByName(names);
-        expect(runtime.session.getActiveToolNames()).toEqual(["configuration_contexts_list"]);
+        expect(withoutInvestigationTools(runtime.session.getActiveToolNames())).toEqual([
+          "configuration_contexts_list",
+        ]);
         expect(
-          runtime.session
-            .getAllTools()
-            .filter((tool) => tool.exposure !== "hidden")
-            .map((tool) => tool.name),
+          withoutInvestigationTools(
+            runtime.session
+              .getAllTools()
+              .filter((tool) => tool.exposure !== "hidden")
+              .map((tool) => tool.name),
+          ),
         ).toEqual(["configuration_contexts_list"]);
         expect(
           await captured.execute("blocked", { context: "beta" }, undefined, undefined, {} as never),
         ).toMatchObject({ isError: true, details: { failureCategory: "scope-unavailable" } });
-        expect(runtime.session.getCallableToolNames()).toEqual(["configuration_contexts_list"]);
+        expect(withoutInvestigationTools(runtime.session.getCallableToolNames())).toEqual([
+          "configuration_contexts_list",
+        ]);
         expect(await calls()).toEqual(before);
         process.kill(Number(await readFile(pid, "utf8")), "SIGTERM");
         await expect.poll(() => controller.snapshot.status).toBe("unavailable");
-        expect(runtime.session.getActiveToolNames()).toEqual([]);
-        expect(runtime.session.getCallableToolNames()).toEqual([]);
+        expect(withoutInvestigationTools(runtime.session.getActiveToolNames())).toEqual([]);
+        expect(withoutInvestigationTools(runtime.session.getCallableToolNames())).toEqual([]);
         expect(await captured.execute("lost", {}, undefined, undefined, {} as never)).toMatchObject(
           { isError: true },
         );

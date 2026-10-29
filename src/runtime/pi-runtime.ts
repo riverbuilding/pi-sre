@@ -14,6 +14,7 @@ import { registerClusterScope } from "../tui/cluster-extension.js";
 import type { SreConfig } from "../config/config.js";
 import { createSreResourceLoaderOptions } from "./resource-loader.js";
 import { registerInvestigationLifecycle } from "./investigation-lifecycle.js";
+import { registerInvestigationTools } from "./investigation-tools.js";
 import { SreRuntime } from "./sre-runtime.js";
 
 /** Pi uses this for TUI assets and managed helpers outside its session factory. */
@@ -52,6 +53,7 @@ export async function createSreRuntime(
                       feedback,
                       mcpController.investigation,
                     );
+                    registerInvestigationTools(pi, mcpController.investigation, feedback);
                   },
                 },
               ]

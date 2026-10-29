@@ -149,6 +149,15 @@ with supporting evidence. Inconclusive requires a reason describing uncertainty 
 have no evidence. Conclusion stores referenced hypothesis/evidence IDs from the same
 incident. Resolved means explained, not repaired. Terminal incidents are immutable.
 
+**Slice 6 delivery clarification (2026-10-28):** The public model conclusion tool validates
+and queues a proposal during its turn, returning `pending`. It commits through the existing
+idle-only controller conclusion boundary after lifecycle/scope work guards release at
+`agent_end`. Binding and aggregate revision must still match, no diagnostic work may remain,
+and aborted/error completion discards the proposal. A later state change refuses commit;
+no terminal lifecycle mutation occurs during active work. The next inspection confirms the
+actual terminal state. Local inspection stays available during MCP loss and after conclusion
+until another incident starts; transcript messages never supply missing domain state.
+
 Supporting/contradicting links must exist in the same incident, without duplicates or an
 ID on both sides. Supported requires support; rejected requires contradiction; candidate
 can have neither. Legitimate support and contradiction can coexist. Hypothesis updates

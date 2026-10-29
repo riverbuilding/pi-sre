@@ -1,3 +1,4 @@
+import { withoutInvestigationTools } from "../fixtures/investigation-tools.js";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -234,7 +235,7 @@ describe("Phase 3 acceptance through CLI, configuration, production Pi runtime, 
       })),
     ]);
     for (const forbidden of ["bash", "write", "pods_delete"]) {
-      expect(session.getCallableToolNames()).not.toContain(forbidden);
+      expect(withoutInvestigationTools(session.getCallableToolNames())).not.toContain(forbidden);
     }
   });
 
@@ -313,10 +314,12 @@ describe("Phase 3 acceptance through CLI, configuration, production Pi runtime, 
         status: "enumeration-failed",
         inventoryRevision,
       });
-      expect(session.getCallableToolNames()).toEqual([]);
+      expect(withoutInvestigationTools(session.getCallableToolNames())).toEqual([]);
       await configure("diagnostic-empty");
       await session.prompt("/mcp_restart --force");
-      expect(session.getCallableToolNames()).toEqual(["configuration_contexts_list"]);
+      expect(withoutInvestigationTools(session.getCallableToolNames())).toEqual([
+        "configuration_contexts_list",
+      ]);
       expect(controller!.clusterContext.state.resolution).toMatchObject({
         status: "resolved",
         available: [],
@@ -335,7 +338,13 @@ describe("Phase 3 acceptance through CLI, configuration, production Pi runtime, 
         { isError: false, details: { scope: { context: "alpha" } } },
       ]);
       expect(await calls(recovered)).toHaveLength(3);
-      expect(session.messages.slice(0, history.length)).toEqual(history);
+      // Pi reprojects persisted steering timestamps; message content and ordering stay intact.
+      expect(session.messages.slice(0, history.length)).toMatchObject(
+        history.map(({ timestamp, ...message }) => {
+          void timestamp;
+          return message;
+        }),
+      );
       expect(controller!.clusterContext.state.selection.selectionRevision).toBe(revision);
     },
   );

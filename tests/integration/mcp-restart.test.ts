@@ -1,3 +1,4 @@
+import { withoutInvestigationTools } from "../fixtures/investigation-tools.js";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -252,8 +253,10 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
       await start();
       await configure("diagnostic-reconciled-restricted");
       await command("--force");
-      expect(runtime.session.getActiveToolNames().includes("pods_list")).toBe(kind === "all");
-      expect(runtime.session.getActiveToolNames()).toContain("pods_get");
+      expect(
+        withoutInvestigationTools(runtime.session.getActiveToolNames()).includes("pods_list"),
+      ).toBe(kind === "all");
+      expect(withoutInvestigationTools(runtime.session.getActiveToolNames())).toContain("pods_get");
       if (kind === "all") {
         expect(await inspect("alpha")).toMatchObject({
           isError: true,
@@ -275,13 +278,15 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
       await configure(scenario);
       await command("--force");
       expect(controller.snapshot.status).toBe("ready");
-      expect(runtime.session.getActiveToolNames()).not.toContain("pods_list");
+      expect(withoutInvestigationTools(runtime.session.getActiveToolNames())).not.toContain(
+        "pods_list",
+      );
       expect(controller.clusterContext.state.selection).toBe(selection);
       if (scenario !== "diagnostic-empty") {
         expect(controller.clusterContext.state.status).toBe("enumeration-failed");
         expect(controller.clusterContext.state.inventory).toBe(inventory);
         expect(controller.clusterContext.state.inventoryRevision).toBe(1);
-        expect(runtime.session.getActiveToolNames()).toEqual([]);
+        expect(withoutInvestigationTools(runtime.session.getActiveToolNames())).toEqual([]);
       } else {
         expect(controller.clusterContext.state.resolution).toEqual({
           status: "resolved",
@@ -480,7 +485,7 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
     const session = runtime.session;
     session.sessionManager.appendCustomEntry("preserved", { value: 42 });
     const entries = session.sessionManager.getEntries();
-    expect(session.getActiveToolNames()).toEqual([]);
+    expect(withoutInvestigationTools(session.getActiveToolNames())).toEqual([]);
     expect(session.extensionRunner.getCommand("mcp_restart")).toBeDefined();
     await command();
     await command();
@@ -489,7 +494,9 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
     await command();
     expect(runtime.session).toBe(session);
     expect(session.sessionManager.getEntries().slice(0, entries.length)).toEqual(entries);
-    expect(session.getActiveToolNames()).toEqual(["configuration_contexts_list"]);
+    expect(withoutInvestigationTools(session.getActiveToolNames())).toEqual([
+      "configuration_contexts_list",
+    ]);
     expect(await invoke()).toMatchObject({ isError: false });
     expect(JSON.stringify(await invoke())).toContain("prod");
     let turns = 0;
@@ -549,7 +556,9 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
     expect(session.agent.state.messages.slice(0, messages.length)).toEqual(messages);
 
     session.setActiveToolsByName(["bash", "read", "pods_list", "configuration_contexts_list"]);
-    expect(session.getActiveToolNames()).toEqual(["configuration_contexts_list"]);
+    expect(withoutInvestigationTools(session.getActiveToolNames())).toEqual([
+      "configuration_contexts_list",
+    ]);
     controller.clusterContext.select("prod");
     const scope = controller.clusterContext.state;
     await runtime.newSession();
@@ -567,10 +576,12 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
     await runtime.session.reload();
     expect(runtime.session.messages).toEqual(newSessionMessages);
     expect(controller.clusterContext.state).toBe(scope);
-    expect(runtime.session.getActiveToolNames()).toEqual(["configuration_contexts_list"]);
+    expect(withoutInvestigationTools(runtime.session.getActiveToolNames())).toEqual([
+      "configuration_contexts_list",
+    ]);
     await configure("empty-tools");
     await command("--force");
-    expect(runtime.session.getActiveToolNames()).toEqual([]);
+    expect(withoutInvestigationTools(runtime.session.getActiveToolNames())).toEqual([]);
   });
 
   it("keeps healthy connections and rejects unknown command arguments", async () => {
@@ -599,7 +610,9 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
         resolution: { status: "resolved", available: [{ name: cluster ?? "alpha" }] },
       });
       await startInvestigation(runtime.session);
-      expect(runtime.session.getActiveToolNames()).toContain("pods_list");
+      expect(withoutInvestigationTools(runtime.session.getActiveToolNames())).toContain(
+        "pods_list",
+      );
     },
   );
 
@@ -637,7 +650,7 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
     await configure("contexts-malformed", process.execPath, ["alpha"]);
     await command("--force");
     expect(controller.clusterContext.state.status).toBe("enumeration-failed");
-    expect(runtime.session.getActiveToolNames()).toEqual([]);
+    expect(withoutInvestigationTools(runtime.session.getActiveToolNames())).toEqual([]);
     await configure("diagnostic-alpha-only", process.execPath, ["alpha"]);
     await command();
     expect(controller.clusterContext.state).toMatchObject({
@@ -645,7 +658,9 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
       selection: { rule: { kind: "exact", contexts: ["beta"] }, source: "user" },
       resolution: { status: "resolved", available: [], unavailable: ["beta"] },
     });
-    expect(runtime.session.getActiveToolNames()).toEqual(["configuration_contexts_list"]);
+    expect(withoutInvestigationTools(runtime.session.getActiveToolNames())).toEqual([
+      "configuration_contexts_list",
+    ]);
     expect(await invoke(old)).toMatchObject({
       isError: true,
       details: { failureCategory: "stale-scope" },
@@ -687,7 +702,7 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
       status: "resolved",
       selection: { rule: { kind: "all" }, source: "default-all" },
     });
-    expect(runtime.session.getActiveToolNames()).toContain("pods_list");
+    expect(withoutInvestigationTools(runtime.session.getActiveToolNames())).toContain("pods_list");
   });
 
   it("publishes coherent recovery state, coalesces listener retries, and validates new schemas", async () => {
@@ -781,7 +796,9 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
       expect(controller.snapshot.status).toBe(connection.status);
       if (transition === "new-session") {
         expect(controller.investigation.currentScope()).toMatchObject({ ok: false });
-        expect(runtime.session.getActiveToolNames()).toEqual(["configuration_contexts_list"]);
+        expect(withoutInvestigationTools(runtime.session.getActiveToolNames())).toEqual([
+          "configuration_contexts_list",
+        ]);
         await runtime.session.bindExtensions({
           uiContext: runtime.session.extensionRunner.getUIContext(),
         });
@@ -828,7 +845,7 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
     process.kill(Number(await readFile(pids.at(-1)!, "utf8")), "SIGTERM");
     await expect.poll(() => controller.snapshot.status).toBe("unavailable");
     expect(observed).toEqual(["ready", "unavailable"]);
-    expect(runtime.session.getActiveToolNames()).toEqual([]);
+    expect(withoutInvestigationTools(runtime.session.getActiveToolNames())).toEqual([]);
     expect(runtime.session.messages.at(-1)).toMatchObject({
       content: expect.stringContaining("Cluster-dependent calls are blocked"),
     });
@@ -890,7 +907,9 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
     expect(controller.snapshot).toBe(connection);
     expect(session.sessionManager.getEntries().slice(0, entries.length)).toEqual(entries);
     expect(session.messages).toHaveLength(3);
-    expect(session.getActiveToolNames()).toEqual(["configuration_contexts_list"]);
+    expect(withoutInvestigationTools(session.getActiveToolNames())).toEqual([
+      "configuration_contexts_list",
+    ]);
     expect(await readFile(join(home, "config.yaml"), "utf8")).toBe(yaml);
     expect(await readFile(join(home, "kubernetes-mcp.toml"), "utf8")).toBe(toml);
   });
@@ -1174,9 +1193,9 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
     expect(controller.restart(true)).toBe(first);
     await first;
     expect(controller.snapshot).toMatchObject({ status: "ready", tools: [] });
-    expect(runtime.session.getActiveToolNames()).toEqual([]);
+    expect(withoutInvestigationTools(runtime.session.getActiveToolNames())).toEqual([]);
     runtime.session.setActiveToolsByName(["configuration_contexts_list", "bash"]);
-    expect(runtime.session.getActiveToolNames()).toEqual([]);
+    expect(withoutInvestigationTools(runtime.session.getActiveToolNames())).toEqual([]);
   });
 
   it.each(["yaml", "toml", "unsafe", "home"])(
@@ -1191,7 +1210,7 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
       if (kind === "home") reloadHome = join(home, "different");
       await command("--force");
       expect(controller.snapshot.status).toBe("unavailable");
-      expect(runtime.session.getActiveToolNames()).toEqual([]);
+      expect(withoutInvestigationTools(runtime.session.getActiveToolNames())).toEqual([]);
       expect(controller.snapshot.message).toContain("configuration");
       reloadHome = undefined;
       await writeFile(join(home, "kubernetes-mcp.toml"), "read_only = true\n");
@@ -1261,7 +1280,9 @@ describe("in-session MCP recovery with real Pi and stdio", () => {
     await configure();
     await start();
     process.kill(Number(await readFile(pids[0]!, "utf8")), "SIGTERM");
-    await expect.poll(() => runtime.session.getActiveToolNames()).toEqual([]);
+    await expect
+      .poll(() => withoutInvestigationTools(runtime.session.getActiveToolNames()))
+      .toEqual([]);
     expect(controller.snapshot.status).toBe("unavailable");
     await configure();
     await command();

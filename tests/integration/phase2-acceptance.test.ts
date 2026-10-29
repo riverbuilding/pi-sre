@@ -1,3 +1,4 @@
+import { withoutInvestigationTools } from "../fixtures/investigation-tools.js";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -213,7 +214,9 @@ describe("Phase 2 acceptance through CLI input, configuration, controller, Pi, a
     const pid = await configure(test.scenario, test.configured);
     const session = await start(test.args);
     expect(controller?.clusterContext.state.status).toBe(test.status);
-    expect(session.getCallableToolNames()).toEqual(["configuration_contexts_list"]);
+    expect(withoutInvestigationTools(session.getCallableToolNames())).toEqual([
+      "configuration_contexts_list",
+    ]);
     // Even a provider emitting an unavailable operation cannot dispatch it to MCP.
     requestPods(session, "alpha");
     await session.prompt("Inspect pods despite unavailable scope");
@@ -237,7 +240,13 @@ describe("Phase 2 acceptance through CLI input, configuration, controller, Pi, a
     expect(
       session.messages.filter((message) => message.role === "toolResult").at(-1),
     ).toMatchObject({ isError: true });
-    expect(session.messages.slice(0, history.length)).toEqual(history);
+    // Pi reprojects persisted steering timestamps; message content and ordering stay intact.
+    expect(session.messages.slice(0, history.length)).toMatchObject(
+      history.map(({ timestamp, ...message }) => {
+        void timestamp;
+        return message;
+      }),
+    );
     expect(await calls(initial)).toEqual([
       { name: "configuration_contexts_list", arguments: {} },
       { name: "pods_list", arguments: { context: "alpha" } },
@@ -273,10 +282,16 @@ describe("Phase 2 acceptance through CLI input, configuration, controller, Pi, a
     const removed = await configure("diagnostic-alpha-only", "alpha");
     await session.prompt("/mcp_restart --force");
     expect(activeController.clusterContext.state.status).toBe("resolved");
-    expect(session.getCallableToolNames()).toContain("pods_list");
+    expect(withoutInvestigationTools(session.getCallableToolNames())).toContain("pods_list");
     requestPods(session, "beta");
     await session.prompt("Inspect pods after selected context disappeared");
     expect(await calls(removed)).toEqual([{ name: "configuration_contexts_list", arguments: {} }]);
-    expect(session.messages.slice(0, history.length)).toEqual(history);
+    // Pi reprojects persisted steering timestamps; message content and ordering stay intact.
+    expect(session.messages.slice(0, history.length)).toMatchObject(
+      history.map(({ timestamp, ...message }) => {
+        void timestamp;
+        return message;
+      }),
+    );
   });
 });

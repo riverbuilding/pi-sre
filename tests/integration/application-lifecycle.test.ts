@@ -1,3 +1,4 @@
+import { withoutInvestigationTools } from "../fixtures/investigation-tools.js";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -108,7 +109,9 @@ describe("application lifecycle with real Pi and managed MCP", () => {
 
   it("starts approved tools and exits without a managed child", async () => {
     ui.run.mockImplementation(async (runtime) => {
-      expect(runtime.session.getActiveToolNames()).toEqual(["configuration_contexts_list"]);
+      expect(withoutInvestigationTools(runtime.session.getActiveToolNames())).toEqual([
+        "configuration_contexts_list",
+      ]);
       expect(runtime.session.systemPrompt).toContain("read-only");
     });
     await new SreApplication(config()).run();
@@ -119,7 +122,7 @@ describe("application lifecycle with real Pi and managed MCP", () => {
   it("opens a usable session without tools when the MCP executable is missing", async () => {
     const settings = config();
     ui.run.mockImplementation(async (runtime) => {
-      expect(runtime.session.getActiveToolNames()).toEqual([]);
+      expect(withoutInvestigationTools(runtime.session.getActiveToolNames())).toEqual([]);
     });
     await new SreApplication({
       ...settings,

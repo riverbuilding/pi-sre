@@ -1,6 +1,6 @@
 # Phase 4 Implementation Slices — Investigation Domain
 
-**Status:** Slice 0 contracts and offline lifecycle fixtures completed on 2026-10-20; see [PHASE4_CONTRACTS.md](./PHASE4_CONTRACTS.md). Slice 1 domain models and pure invariants completed on 2026-10-21; Slice 2 bounded EvidenceStore completed on 2026-10-22; Slice 3 investigation service, hypothesis consistency, and dispatch accounting completed on 2026-10-23; Slice 4 application controller, lifecycle hooks, and incident authority completed on 2026-10-23, initially inactive; Slice 5 observation capture and runtime/bridge activation completed on 2026-10-27. Production incidents, evidence capture and per-incident diagnostic budgets are enabled. Slices 6–7 remain planned. Renumbered on 2026-10-18 after insertion of Phase 3 Context Selection and Multi-Cluster Routing.
+**Status:** Slice 0 contracts and offline lifecycle fixtures completed on 2026-10-20; see [PHASE4_CONTRACTS.md](./PHASE4_CONTRACTS.md). Slice 1 domain models and pure invariants completed on 2026-10-21; Slice 2 bounded EvidenceStore completed on 2026-10-22; Slice 3 investigation service, hypothesis consistency, and dispatch accounting completed on 2026-10-23; Slice 4 application controller, lifecycle hooks, and incident authority completed on 2026-10-23, initially inactive; Slice 5 observation capture and runtime/bridge activation completed on 2026-10-27. Production incidents, evidence capture and per-incident diagnostic budgets are enabled. Slice 6 public inspection/interpretation completed on 2026-10-28. Slice 7 remains planned. Renumbered on 2026-10-18 after insertion of Phase 3 Context Selection and Multi-Cluster Routing.
 
 **Applies to:** Pi SRE V0.1, Phase 4 — Investigation Domain.
 
@@ -551,6 +551,8 @@ Land the Phase 4 incident wiring and Slice 5 evidence capture together, or keep 
 
 ## 12. Slice 6 — Minimal Investigation Tools and Inspection
 
+**Status:** Implemented on 2026-10-28; full-path/installed-terminal/live-cluster acceptance remains Slice 7.
+
 **Outcome:** Users and the model can inspect state and record interpretation through public APIs.
 
 ### Work
@@ -576,6 +578,16 @@ Land the Phase 4 incident wiring and Slice 5 evidence capture together, or keep 
 - Compaction/reload preserves operational state; new/forked sessions are isolated; resuming
   without in-memory state cannot manufacture evidence from transcript content.
 - Unchanged state adds no repeated snapshots; model summaries stay within their frozen budget.
+
+### Implementation and handoff
+
+- `src/runtime/investigation-tools.ts` registers five local tools with explicit TypeBox argument validation and safe domain errors. Controller-bound identity prevents foreign incident/scope inputs. Evidence pages reuse authenticated high-water cursors (20 default, 50 maximum); results are bounded to 64 KiB. Single evidence inspection preserves exact provenance and visibly truncates only the excerpt when needed. `investigation_get` supplies a bounded summary/current revision and optional full hypothesis inspection by ID.
+- `/incident`, `/incident new <question>` and `/evidence [<id> | --cursor <cursor>]` reuse timestamped invocation feedback. Reads work during outages and active work; replacement validates through both UI and controller idle guards. No archive command, raw retention or Kubernetes writes are added.
+- Conclusion proposals validate same-incident links, supported-resolution semantics and aggregate revision during a turn, then return `pending`. Registration follows lifecycle/scope work guards; `agent_end` releases those guards before committing through the existing idle-only controller API. Revision/binding changes, outstanding diagnostic work, aborted/error completion and shutdown refuse/discard proposals. No terminal lifecycle mutation occurs during active work. The model must inspect a later turn to confirm commit.
+- Investigation summaries extend the existing persisted scope message, deduplicate unchanged state, and restore through `before_agent_start`. Reload suppresses the transient unbound shutdown snapshot. Turn completion publishes dispatch/observation/outcome changes without introducing listeners inside atomic diagnostic dispatch/commit; hypothesis changes publish updated state; terminal summaries remain inspectable. Stable prompt guidance explains evidence links, interpretation, deferred conclusion, quotas and in-memory/archive limits.
+- `tests/integration/investigation-tools.test.ts` uses installed Pi with a deterministic provider stream and no cluster/provider. Existing MCP-focused regression assertions exclude the five local tools, which stay available independently. Persisted steering timestamps can be reprojected by Pi; prefix assertions retain message content and ordering while ignoring those timestamps.
+
+**Validation (2026-10-28):** `npm run check`, `npm run lint`, `npm run format:check`, `npm test` (649 passed; 7 optional executable-dependent contract tests skipped), `npm run build`, and `git diff --check` passed. Eight new real-Pi tests cover argument/refusal paths, interpretation revision conflicts, evidence-backed resolution, deferred/stale/aborted conclusions, replacement isolation including foreign cursors, outage/active inspection, reload/compaction deduplication, and bounded large evidence/long-identity summaries. No provider, installed-terminal or live-cluster run is claimed; those remain Slice 7.
 
 ## 13. Slice 7 — Full-Path Acceptance and Phase Gate
 

@@ -5,8 +5,11 @@ import type {
   ClusterSelection,
 } from "../cluster/context-resolver.js";
 import type { ExecutionAdmissionFailure } from "../cluster/execution-queue.js";
-import { requireDomain } from "../domain/errors.js";
+import { requireDomain, requireRevision } from "../domain/errors.js";
+import { concludeIncident } from "../domain/incident.js";
+import type { HypothesisUpdate } from "../investigation/investigation-service.js";
 import type { Evidence } from "../domain/evidence.js";
+import type { Hypothesis } from "../domain/hypothesis.js";
 import type { Conclusion } from "../domain/incident.js";
 import {
   copyInvestigationScope,
@@ -137,6 +140,67 @@ export class InvestigationController {
     this.#requireBinding(binding);
     const id = this.#sessions.get(binding.sessionId);
     return id ? this.#service.inspect(id) : undefined;
+  }
+
+  bindingFor(sessionId: string): InvestigationBinding {
+    const binding = this.#binding;
+    requireDomain(binding?.sessionId === sessionId, "This investigation binding is stale.");
+    this.#requireBinding(binding);
+    return binding;
+  }
+
+  currentInvestigation(): InvestigationState | undefined {
+    return this.#binding ? this.inspect(this.#binding) : undefined;
+  }
+
+  /** Notify presentation after the tool loop; never call listeners inside atomic dispatch/commit. */
+  refreshPresentation(): void {
+    this.#publish();
+  }
+
+  evidenceGet(binding: InvestigationBinding, id: string): Evidence {
+    return this.#service.evidenceGet(this.#incidentId(binding), id);
+  }
+
+  evidenceList(
+    binding: InvestigationBinding,
+    options: Parameters<InvestigationService["evidenceList"]>[1] = {},
+  ): ReturnType<InvestigationService["evidenceList"]> {
+    return this.#service.evidenceList(this.#incidentId(binding), options);
+  }
+
+  upsertHypothesis(binding: InvestigationBinding, input: HypothesisUpdate): Hypothesis {
+    const hypothesis = this.#service.upsertHypothesis(this.#incidentId(binding), input);
+    this.#publish();
+    return hypothesis;
+  }
+
+  /** Validate a proposal during the turn; only idle conclude() can commit it. */
+  validateConclusion(
+    binding: InvestigationBinding,
+    expectedRevision: number,
+    status: "resolved" | "inconclusive",
+    conclusion: Omit<Conclusion, "concludedAt">,
+  ): Conclusion {
+    const current = this.inspect(binding);
+    requireDomain(current !== undefined, "No investigation is bound to this session.");
+    requireRevision(current.revision, expectedRevision);
+    requireDomain(
+      this.#leases.size === 0,
+      "Settle active diagnostics before proposing conclusion.",
+    );
+    const validated = concludeIncident(
+      current.incident,
+      status,
+      {
+        ...conclusion,
+        concludedAt: current.updatedAt,
+      },
+      current.hypotheses,
+      current.evidence,
+    );
+    requireDomain(validated.conclusion !== undefined, "Conclusion validation failed.");
+    return validated.conclusion;
   }
 
   start(binding: InvestigationBinding, question: string): InvestigationState {
@@ -421,6 +485,13 @@ export class InvestigationController {
 
   #requireBinding(binding: InvestigationBinding): void {
     requireDomain(this.isBound(binding), "This investigation binding is stale.");
+  }
+
+  #incidentId(binding: InvestigationBinding): string {
+    this.#requireBinding(binding);
+    const id = this.#sessions.get(binding.sessionId);
+    requireDomain(id !== undefined, "No investigation is bound to this session.");
+    return id;
   }
 
   #usable(context: string, operation?: string): boolean {
