@@ -1,5 +1,13 @@
 # MCP Reconnect During an Investigation
 
+**设计更新（2026-10-30，尚未实施）：** 后续实施以 [调查与 Context 简化方案](./INVESTIGATION_CONTEXT_SIMPLIFICATION.md) 和 [命令与操作限制方案](./TUI_COMMAND_VISIBILITY_AND_RESTRICTIONS.md) 为准。下文保留当前/此前实现与阶段记录，不再规定新架构必须保留 Incident 或旧生命周期。文档更新不代表代码已迁移或命令已禁用。
+
+## 最新目标与迁移影响
+
+继续采用手动 /mcp_restart（健康连接保留，--force 替换），不新增后台自动重连。关闭 dispatch/撤下工具 → 中断旧活动与排队调用 → 重新发现工具/schema 和 inventory → 发布匹配工具、目标与环境通知 → 开放 dispatch。已派发返回“连接中断，未取得有效结果”，未派发返回“连接中断，未执行”；不迁移、不重放、迟到不成功、调用不悬空。保留 messages、选择和本轮剩余额度，不保留 incident/领域 attempt ledger。活动对话可继续；空闲恢复不自动启动模型。
+
+## 既有设计与实现记录（保留历史，不作为新方案实施要求）
+
 **Status (2026-10-21):** This note explains implemented Phase 3 connection/session behavior and the planned Phase 4 investigation semantics. Phase 4 Slice 1 provides pure Incident, Evidence, and Hypothesis models; runtime investigation services, evidence capture, and durable query-attempt records are not implemented. The proposed query-attempt representation below is a design recommendation, not an existing domain contract.
 
 Reconnect preserves the investigation's intent and accepted observations while replacing execution authority. It restores permission to issue fresh calls; interrupted calls do not resume or replay.

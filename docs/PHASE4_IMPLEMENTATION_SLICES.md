@@ -1,5 +1,13 @@
 # Phase 4 Implementation Slices — Investigation Domain
 
+**设计更新（2026-10-30，尚未实施）：** 后续实施以 [调查与 Context 简化方案](./INVESTIGATION_CONTEXT_SIMPLIFICATION.md) 和 [命令与操作限制方案](./TUI_COMMAND_VISIBILITY_AND_RESTRICTIONS.md) 为准。下文保留当前/此前实现与阶段记录，不再规定新架构必须保留 Incident 或旧生命周期。文档更新不代表代码已迁移或命令已禁用。
+
+## 最新目标与迁移影响
+
+本文件作为旧 Phase 4 的交付历史保留，完成日期、测试结果和视觉终端待验收状态不改写。后续不继续扩展调查模型或照此重建领域；使用简化方案第 7 节迁移顺序和第 13 节验收。Phase 5/6 不再依赖本文件的 evidence IDs、scope leases 或调查生命周期 API。
+
+## 既有设计与实现记录（保留历史，不作为新方案实施要求）
+
 **Status:** Slice 0 contracts and offline lifecycle fixtures completed on 2026-10-20; see [PHASE4_CONTRACTS.md](./PHASE4_CONTRACTS.md). Slice 1 domain models and pure invariants completed on 2026-10-21; Slice 2 bounded EvidenceStore completed on 2026-10-22; Slice 3 investigation service, hypothesis consistency, and dispatch accounting completed on 2026-10-23; Slice 4 application controller, lifecycle hooks, and incident authority completed on 2026-10-23, initially inactive; Slice 5 observation capture and runtime/bridge activation completed on 2026-10-27. Production incidents, evidence capture and per-incident diagnostic budgets are enabled. Slice 6 public inspection/interpretation completed on 2026-10-28. Slice 7 automated acceptance and installed-package/live-cluster smoke passed on 2026-10-29; visual terminal acceptance remains pending; see [PHASE4_ACCEPTANCE.md](./PHASE4_ACCEPTANCE.md). Renumbered on 2026-10-18 after insertion of Phase 3 Context Selection and Multi-Cluster Routing.
 
 **Applies to:** Pi SRE V0.1, Phase 4 — Investigation Domain.

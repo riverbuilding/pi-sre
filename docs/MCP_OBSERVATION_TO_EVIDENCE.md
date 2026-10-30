@@ -1,5 +1,13 @@
 # MCP 结果如何转换为工具响应和调查证据
 
+**设计更新（2026-10-30，尚未实施）：** 后续实施以 [调查与 Context 简化方案](./INVESTIGATION_CONTEXT_SIMPLIFICATION.md) 和 [命令与操作限制方案](./TUI_COMMAND_VISIBILITY_AND_RESTRICTIONS.md) 为准。下文保留当前/此前实现与阶段记录，不再规定新架构必须保留 Incident 或旧生命周期。文档更新不代表代码已迁移或命令已禁用。
+
+## 最新目标与迁移影响
+
+统一为 MCP raw → 标准化/脱敏/限长 → 带来源的工具结果 → messages，不再调用 recordObservation、保存 Evidence 或等待领域提交才返回成功。模型可见 content 必须包含准确 context、操作、必要 namespace、适用时间、状态与截断信息；不能只放 details。未派发结果标明未执行；省略 namespace 表示 server/context policy。原始响应不留存，不新增临时文件存储。
+
+## 既有设计与实现记录（保留历史，不作为新方案实施要求）
+
 本文解释 incident 诊断路径中的两步：`presentObservation(...)` 准备返回内容，`controller.recordObservation(...)` 将同一份正文提交为调查证据。
 
 相关实现：

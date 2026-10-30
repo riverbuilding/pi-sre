@@ -1,5 +1,13 @@
 # Investigation 交互优化提案
 
+**设计更新（2026-10-30，尚未实施）：** 后续实施以 [调查与 Context 简化方案](./INVESTIGATION_CONTEXT_SIMPLIFICATION.md) 和 [命令与操作限制方案](./TUI_COMMAND_VISIBILITY_AND_RESTRICTIONS.md) 为准。下文保留当前/此前实现与阶段记录，不再规定新架构必须保留 Incident 或旧生命周期。文档更新不代表代码已迁移或命令已禁用。
+
+## 最新目标与迁移影响
+
+撤回下文 /incident new --force、next selection、调查归属和原子替换的优化提案，不实施中间方案。用户通过 steering 调整本轮、通过逐条 follow-up 继续或换题；显式取消停止所属调用，迟到结果不串入新请求。界面展示当前选择/可用性、实际执行 profile 和 MCP 状态，无 Incident ID 或 next-selection 状态。
+
+## 既有设计与实现记录（保留历史，不作为新方案实施要求）
+
 记录日期：2026-10-29。状态：后续优化提案，尚未实现，不改变当前 Phase 4 行为或验收结论。
 
 ## 当前行为与问题

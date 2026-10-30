@@ -1,5 +1,13 @@
 # Session Projection 与 TranscriptContext
 
+**设计更新（2026-10-30，尚未实施）：** 后续实施以 [调查与 Context 简化方案](./INVESTIGATION_CONTEXT_SIMPLIFICATION.md) 和 [命令与操作限制方案](./TUI_COMMAND_VISIBILITY_AND_RESTRICTIONS.md) 为准。下文保留当前/此前实现与阶段记录，不再规定新架构必须保留 Incident 或旧生命周期。文档更新不代表代码已迁移或命令已禁用。
+
+## 最新目标与迁移影响
+
+Pi projection/TranscriptContext 的类型与转换说明仍可参考；分支恢复和 incident/next 摘要不属于新产品流程。环境变化通过应用消息通知，历史工具结果保留原 context 和时间。手动和自动压缩后均需在下一次模型请求前恢复当前环境，不能只依赖 before_agent_start；details 不等于模型可见正文。单一 Session 不需要分支导航兼容；对话投影不恢复预算或执行权限。
+
+## 既有设计与实现记录（保留历史，不作为新方案实施要求）
+
 **Implementation baseline:** Cluster examples below describe the current Phase 2 runtime. The accepted [multi-cluster plan](./MULTI_CLUSTER_INVESTIGATION_PLAN.md) first migrates session selection in new Phase 3 (rules, resolved membership, inventory revisions, and added/removed notices), independently of incidents. Phase 4 later adds incident identity and next-selection summaries. Steering delivery still cannot authorize calls or replace reconnect enforcement; execution uses application state even before the model consumes an update.
 
 本文基于项目当前使用的 `@earendil-works/pi-coding-agent` **0.99.0**，说明

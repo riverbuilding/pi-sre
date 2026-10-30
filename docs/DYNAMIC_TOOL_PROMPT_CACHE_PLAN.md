@@ -1,5 +1,7 @@
 # Dynamic Tool Changes and Prompt Cache Preservation
 
+**Target alignment (2026-10-30):** Apply the [simplified conversation/request architecture](./INVESTIGATION_CONTEXT_SIMPLIFICATION.md). Cache optimization must not retain Incident APIs, binding epochs or unsupported session/reload recovery. Retain MCP connection protection and publication readiness; selection changes preserve already admitted diagnostic calls. Dated provider/upstream observations below are historical and have not been reverified by this documentation update.
+
 **Status:** Tracked design and verification work; implementation pending.  
 **Recorded:** 2026-10-20.  
 **Current dependency baseline:** Pi coding agent, MCP, and TUI 0.99.0.  
@@ -56,7 +58,7 @@ Pi owns provider request serialization, transcript tool deltas, and provider cap
 
 Keep names, descriptions, schema representation, and ordering deterministic when their meaning is unchanged. Replacing an execution handler for a new MCP generation does not by itself require changing its model-facing declaration. Genuine discovered-schema changes still require truthful publication and validation; cache reuse must not preserve an obsolete contract.
 
-Current contexts, availability, inventory revisions, and connection generations remain application state and bounded scope messages. Avoid embedding these changing values in stable tool descriptions or the system prompt merely to communicate availability. Preserve discovered context constraints and require the model's exact target on every cluster-dependent call.
+Current selection and availability remain application state and bounded environment messages. Keep connection identity internal; do not reintroduce domain or selection/inventory revision combinations into result authority. Avoid embedding these changing values in stable tool descriptions or the system prompt merely to communicate availability. Preserve discovered context constraints and require the model's exact target on every cluster-dependent call.
 
 ### Publication and execution safety
 
@@ -70,7 +72,7 @@ Distinguish capability changes from contract changes. Newly available tools can 
 
 Use Pi's supported capability path for each provider/model. Unsupported paths may legitimately rebuild the request catalog and incur a miss; correct requests and current authority take precedence. Do not assume Responses, Chat Completions, Codex sign-in, API-key access, gateways, and Anthropic have equivalent support.
 
-Avoid per-turn system-prompt replacement for scope updates. During verification, inspect both the configured resource-loader prompt and extension hooks for the projection issue reported in #10489. Preserve delta ordering through reload, resume, branch navigation, and compaction. Compaction, model changes, or an upgrade may establish a new cache baseline; unchanged-prefix assertions apply within comparable baselines.
+Avoid per-turn system-prompt replacement for scope updates. During verification, inspect both the configured resource-loader prompt and extension hooks for the projection issue reported in #10489. Preserve delta ordering through MCP tool replacement and manual/automatic compaction. The simplified architecture assumes a single session and no reload/resume/branch-navigation compatibility; entry-point restrictions ship separately. Compaction, model changes, or an upgrade may establish a new cache baseline; unchanged-prefix assertions apply within comparable baselines.
 
 ## Work tracker
 
@@ -96,7 +98,7 @@ Avoid per-turn system-prompt replacement for scope updates. During verification,
 | Removal followed by further additions                             | The removed tool remains unexecutable; later additions do not repeatedly rewrite the earlier catalog on the claimed supported path.   |
 | Same-name schema redefinition                                     | The new contract is published truthfully; obsolete arguments or old-generation handlers cannot dispatch under a substituted contract. |
 | MCP loss, failed enumeration, empty resolution, and recovery      | Existing dispatch gates, stale-result rejection, and exact/all semantics pass using the real hide/re-register path.                   |
-| Reload, resume, branch navigation, and compaction                 | Tool history and current execution authority remain consistent; expected cache-baseline resets are documented.                        |
+| MCP replacement and manual/automatic compaction                   | Tool history and current execution authority remain consistent; expected cache-baseline resets are documented.                        |
 | Unsupported provider or authentication path                       | Valid fallback requests and truthful availability; no unsupported append-only or cache-hit claim.                                     |
 
 Offline tests should inspect synthetic request structure without logging real prompts, credentials, kubeconfig, or Kubernetes payloads. Test both the supported provider path and its fallback. Existing scope, cancellation, and recovery tests remain correctness gates.

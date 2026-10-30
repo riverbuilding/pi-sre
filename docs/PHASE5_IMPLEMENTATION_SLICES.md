@@ -1,9 +1,11 @@
 # Phase 5 Implementation Slices — Kubernetes MCP Config/Core Parity
 
+**Design alignment (2026-10-30):** Consume the [simplified execution architecture](./INVESTIGATION_CONTEXT_SIMPLIFICATION.md), not Incident/EvidenceStore APIs. Controlled operations remain separately planned and opt-in; this update enables no mutation. Concrete approval contracts must be frozen in Slice 0 without restoring removed domain revisions. Historical Phase 4 delivery is not a new implementation dependency.
+
 **Status:** Planned (2026-10-17), explicitly requested by the user. Documentation only;
 no additional tool or write capability is enabled by this change.
 
-**Prerequisite:** Complete Phase 3 context selection/routing and Phase 4 incident scope, leases, evidence, and lifecycle integration. See the [accepted multi-cluster plan](./MULTI_CLUSTER_INVESTIGATION_PLAN.md). The 2026-10-18 scope update is planned, not implemented.
+**Prerequisite:** Complete the accepted context-routing baseline and the investigation/context simplification migration: current selection, request budgets, unified bridge, cancellation and model-visible provenance. See the [accepted multi-cluster plan](./MULTI_CLUSTER_INVESTIGATION_PLAN.md). The 2026-10-30 simplification is a design target, not a claim of runtime delivery.
 
 **Scope:** Support the **22 documented tool definitions** in Kubernetes MCP Server's
 `config` (3) and `core` (19) toolsets, including their write-capable operations.
@@ -19,7 +21,7 @@ the historical version is not a downgrade requirement.
 | ------- | ----------------------------------------------------- |
 | 1–2     | Completed runtime/MCP and singleton context baseline  |
 | 3 — new | Context Selection and Multi-Cluster Routing           |
-| 4       | Investigation Domain                                  |
+| 4       | Historical Investigation Domain (superseded target)   |
 | 5       | Kubernetes MCP config/core parity: all 22 definitions |
 | 6       | Kubernetes Diagnostic Skills                          |
 | 7       | Eval Framework                                        |
@@ -34,7 +36,7 @@ the default profile remains read-only. Completion requires both expanded reads a
 controlled operations; shipping only the reads does not complete the requested parity.
 
 The application still uses Kubernetes MCP Server for all Kubernetes execution. There is
-no local Kubernetes client implementation, generic local shell, `kubectl` bypass, exploration outside incident permission, or automatic remediation loop. Phase 3 supplies model-driven cross-cluster routing; Phase 4 binds it to incidents for diagnosis inside exact sets or live `*`, through one agent and one MCP server. Human-approved individual operations
+no local Kubernetes client implementation, generic local shell, `kubectl` bypass, exploration outside current user selection, or automatic remediation loop. Phase 3 supplies model-driven cross-cluster routing; the simplified pipeline enforces the current exact/all selection for diagnosis, through one agent and one MCP server. Human-approved individual operations
 become in scope here; autonomous remediation remains outside this milestone.
 
 ## 2. Parity Contract
@@ -47,14 +49,14 @@ execution profile, argument restrictions, result handling, and automated/live ev
   Do not introduce exact schema snapshots as runtime admission requirements.
 - Keep application-owned classification and operation allowlists. MCP annotations do not
   authorize capabilities. Unknown operations remain unavailable until reviewed.
-- Require one exact context admitted by the Phase 4 incident rule/current resolution for every cluster-dependent operation. All rules, including singleton, require and validate an exact model-selected context; no injection/overwrite is permitted. Manifests/exec inputs cannot expand scope or override that target.
+- Require one exact context admitted by the current user rule and validated availability for every cluster-dependent operation. All rules, including singleton, require and validate an exact model-selected context; no injection/overwrite is permitted. Manifests/exec inputs cannot expand scope or override that target.
 - Support conditional tools when the server/provider/platform actually supplies them.
   Report unsupported, disabled-by-policy, unavailable-scope, and failed-operation states
   separately. Do not manufacture an always-present 22-tool inventory.
 - Record historical names or verified successor mappings explicitly when server versions
   differ. Do not implement local substitutes or silently equate unrelated capabilities.
 - Preserve bounded/redacted presentation, cancellation, budgets, connection generations,
-  immutable incident rules, current exact/live resolution, and evidence provenance across all added reads.
+  current exact/live selection, request limits, and tool-result provenance across all added reads.
 - Keep raw retention disabled. Configuration contents, Secret values, credentials, and
   sensitive manifests/exec output must not enter logs, Pi history, or model-facing details.
 
@@ -84,18 +86,18 @@ credentials, and a separately reviewed MCP configuration permitting the requeste
 Do not silently change the existing read-only TOML or expand RBAC. Use one managed connection
 for the selected profile; profile changes require a deliberate restart with new configuration.
 
-Each controlled execution requires a concrete human approval covering the exact incident,
+Each controlled execution requires a concrete human approval covering the exact request/call,
 cluster, namespace, resource identity, operation, and final arguments. Show a safe preview
 of the change or container command. Freeze arguments before approval, then revalidate
 scope, connection generation, permissions, and freshness immediately before dispatch.
-Changed arguments, scope-rule/inventory revision, session/incident binding, or replacement connection invalidate approval. Approval is single-use. Live wildcard additions grant diagnostic permission only; no approval authorizes a set-wide operation or silently follows a new target.
+Changed final arguments, user selection, relevant target identity/availability, execution profile, cancellation, expiry or replacement connection invalidate approval. Compare concrete approval facts; do not recreate incident bindings or domain revisions. Freeze the precise invalidation contract in Phase 5 Slice 0; the read-only rule that later selection changes preserve admitted calls does not grant mutation approval. Approval is single-use. Live wildcard additions grant diagnostic permission only; no approval authorizes a set-wide operation or silently follows a new target.
 
 Approval denial/expiry or cancellation before dispatch makes no external call. Do not automatically retry a
 mutation: a transport timeout or cancellation after dispatch can leave its outcome unknown.
 Report that uncertainty and gather read-only verification before proposing another attempt.
 Do not run conflicting controlled operations concurrently.
 
-Continuously display the actual profile and incident scope. A write-enabled MCP connection
+Continuously display the actual profile and current selection. A write-enabled MCP connection
 must never be labelled READ ONLY. Distinguish “controlled operations; approval required”
 from the default READ ONLY state, even while only read tools are being used.
 
@@ -149,10 +151,10 @@ reach output/storage, and policy errors differ from empty results or MCP failure
 
 Add the remaining applicable reads: `pods_list_in_namespace`, `pods_top`, `nodes_log`,
 `nodes_stats_summary`, `nodes_top`, `resources_list`, `resources_get`, and conditional
-`projects_list`. Reuse Phase 4 scope leases and evidence capture; keep tool handlers thin.
+`projects_list`. Reuse the unified admission/dispatch/result pipeline; keep tool handlers thin.
 
 **Acceptance:** Each added capability has tests for validated final arguments, explicit
-incident context, known/omitted namespace, success/empty results, malformed presentation,
+model-supplied exact context, known/omitted namespace, success/empty results, malformed presentation,
 MCP failures, timeout/cancellation, truncation, recovery, and stale-result withholding.
 Different resource kinds are handled through MCP's generic tools, not local Kubernetes code.
 
@@ -169,8 +171,7 @@ no rule amendment or authoritative inventory install caused by model-driven enum
 ### Slice 4 — Controlled Profile and Human Approval Infrastructure
 
 Add validated opt-in application/MCP configuration and profile-aware capability publication.
-Implement safe previews, single-use approvals bound to immutable final calls, scope and
-scope-rule/inventory revision and generation rechecks, serialization, execution records, and truthful status display. Keep
+Implement safe previews, single-use approvals bound to immutable final calls; recheck current selection, concrete target/argument facts and the original connection. Add serialization, execution records and truthful status display. Keep
 controlled tools disabled until their individual Slice 5 adapters pass.
 
 **Acceptance:** Unit and real-Pi integration tests prove no write/exec call in default mode,
@@ -185,8 +186,7 @@ service. Include operation-specific previews, argument policy, deadlines, and sa
 
 Keep an execution record separate from diagnostic evidence. A successful mutation response
 records what the server reported; fresh read calls provide verification evidence. Preserve
-pre-operation observations with their original timestamps. Do not automatically conclude an
-incident as resolved, treat “request accepted” as recovery, or add automatic rollback.
+pre-operation observations with their original timestamps. Do not treat “request accepted” as recovery, or add automatic rollback.
 
 **Acceptance:** Each operation has approved-success, denied, validation/scope failure,
 tool failure, and uncertain post-dispatch timeout/cancellation coverage. Server-side success
@@ -197,7 +197,7 @@ followed by lost acknowledgement must not trigger an automatic duplicate operati
 Create `docs/PHASE5_ACCEPTANCE.md` and a test matrix for all 22 reference definitions.
 Exercise production application composition with real Pi, deterministic model streams,
 and the recording fake MCP server. Cover default versus controlled profiles, resource
-policy, conditional inventory, approvals, restart, session replacement, and result handling.
+policy, conditional inventory, approvals, MCP restart, cancellation, single-session operation, and result handling.
 
 Run affected tests first, then the existing canonical gate:
 
@@ -214,14 +214,14 @@ and every controlled operation against named disposable resources with human app
 including read-after-write verification. Use provider/OpenShift fixtures and an explicit
 compatible test environment for conditional capabilities; record which checks are offline
 and which are live. Check installed-package behavior outside the checkout, status visibility,
-unchanged kubeconfig, bounded output, safe records, and process cleanup. Include exact-set versus live-`*` reconnect cases, per-context attribution, and approval invalidation on inventory/generation change. No production
+unchanged kubeconfig, bounded output, safe records, and process cleanup. Include exact-set versus live-`*` reconnect cases, per-context attribution, and approval invalidation on relevant target/selection or connection changes. No production
 mutation is necessary for acceptance.
 
 ## 6. Exit Criteria
 
 - All **3 config + 19 core = 22** reference definitions have explicit capability coverage;
   provider/platform conditions and version mappings are recorded and tested.
-- All applicable read capabilities work through the incident-scoped bridge and EvidenceStore.
+- All applicable read capabilities work through the current-selection bridge with bounded, redacted results in messages.
 - All six controlled capabilities work through the opt-in profile and per-execution human
   approval. Their absence from default mode is tested independently of tool visibility.
 - Discovery, generic resource access, configuration inspection, manifests, and exec arguments
@@ -231,5 +231,5 @@ mutation is necessary for acceptance.
 - The broader 45-tool inventory is reference context only; `helm`, `kcp`, `kiali`, `kubevirt`,
   and `tekton` are outside this milestone.
 
-Phase 6 diagnostic skills then use the expanded read surface and Phase 4 evidence APIs.
+Phase 6 diagnostic skills then use the expanded read surface and prior tool results in messages.
 Skills do not authorize controlled operations or substitute for application enforcement.

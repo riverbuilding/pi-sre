@@ -1,5 +1,63 @@
 # Pi SRE — Project Design Document
 
+## Current architecture decision — 2026-10-30
+
+**Status: accepted design, runtime migration pending.** This amendment is the current V0.1 target and takes precedence over conflicting staged descriptions, examples, ADRs, source layouts and open questions retained below. [Investigation/context simplification](./INVESTIGATION_CONTEXT_SIMPLIFICATION.md) defines the detailed contracts; [command/action restrictions](./TUI_COMMAND_VISIBILITY_AND_RESTRICTIONS.md) defines the separate entry-point delivery. Documentation enables no runtime capability. Phase 4 implementation and acceptance records remain evidence of the existing domain-based application, not evidence that this migration has shipped.
+
+### Ownership and flow
+
+```text
+User question → Pi messages / agent loop
+                         ↓
+Pi SRE: current selection + request limits + read-only policy
+                         ↓
+MCP bridge: validate → admit → queue → dispatch → normalize result
+                         ↓
+Kubernetes MCP Server → Kubernetes API
+                         ↓
+Bounded, redacted tool result → Pi messages → explanation / follow-up
+```
+
+Pi owns messages, persistence, compaction, provider requests and TUI. The model forms and revises hypotheses, asks questions and writes the report in messages. Pi SRE owns operational selection, MCP lifecycle, allowlists, argument validation, cancellation, concurrency, request budgets and result provenance. No Kubernetes client, shell or kubectl bypass is added.
+
+Remove Incident, InvestigationScope, Target/Evidence/Hypothesis/Conclusion aggregates, InvestigationState, EvidenceStore, domain OperationOutcome, structured JSONL investigation archival and their quotas, IDs, reference checks and revisions. Migrate necessary argument/identity validation to its owning execution layer rather than deleting useful validation with a directory. Remove the five local investigation tools, `/incident`, `/evidence`, pending conclusion and domain-summary injection. There is no incident creation prerequisite or terminal investigation state; an ordinary answer is the report and later messages can continue querying. Facts and interpretation must still be distinguished in the response.
+
+### Current selection and admitted calls
+
+One user-owned exact/all selection replaces active/next scope. Startup precedence remains CLI, explicit configured rule, then live `*`; default metadata never narrows scope. Initial unknown exact names fail without fallback. Runtime missing exact names remain selected/unavailable; executable targets are the intersection with validated inventory. Returning names become candidates, not proof of health; new unselected names remain excluded. Live `*` follows successful application discovery, not continuous watching.
+
+Every cluster-dependent call requires one exact model-supplied context, even for a singleton. Never infer, inject or overwrite it. Synchronously validate and register each accepted call's request/call identity, actual context, arguments and original connection before queueing. A later user selection affects only newly accepted calls; accepted queued calls are not reauthorized against the new selection. Before dispatch check cancellation, original connection/tool/target availability and limits. No global current-context routing or implicit replay is allowed.
+
+### Request boundaries and limits
+
+User follow-ups are processed one at a time. Each actually started user request gets an independent identity and diagnostic dispatch allowance; queueing alone does not create an active request. User steering joins the current request; environment steering creates no request. Model iterations, automatic continuation/retry, compaction and MCP recovery retain the same allowance. Do not reset on `agent_end` or assume every follow-up passes `before_agent_start`; final settlement and per-message processing are distinct boundaries.
+
+Deduct synchronously immediately before actual diagnostic dispatch. Pre-dispatch refusals cost no dispatch allowance; dispatched failures/timeouts/cancellation do not refund it; retries count again. Parallel tools share the request limit. Keep bounded queue/concurrency, timeouts and a separate request model-iteration ceiling so invalid-call/refusal loops cannot run indefinitely. No limit belongs to an Incident. Normal completion settles accepted calls; explicit cancellation prevents queued dispatch and late successful publication, returning matching tool outcomes without transferring calls to the next request.
+
+### MCP replacement
+
+Startup connects automatically; runtime recovery stays manual through `/mcp_restart`, with `--force` replacing a healthy connection. No background reconnect loop is added. Close dispatch and withdraw tools, invalidate/cancel/settle old queued and active calls, rediscover tools/schema and inventory on a new connection, then publish matching capabilities, targets and environment notices before reopening dispatch. Keep one internal connection identity and a publication barrier in MCP/application lifecycle state, not domain generations or multi-layer revision leases.
+
+Completed results stay historical. Dispatched unfinished calls return “连接中断，未取得有效结果”; queued undispatched calls return “连接中断，未执行”. No old call migrates or replays; late payloads cannot publish success. Connection cancellation does not cancel the conversation. A running model can continue using new calls with remaining allowance; idle recovery only updates tools/environment, and a subsequent user request starts a new allowance. Server-pointer changes invalidate assumptions about same-named targets; do not expose raw endpoints or reinterpret old observations as current.
+
+### Results and compaction
+
+Model-visible result content includes exact context, operation, known namespace, applicable dispatch/completion times, outcome and truncation; details alone are insufficient. Omitted namespace means server/context policy, never all-namespace coverage. Failed/unexecuted queries are not empty successes. Bound and redact results; raw retention remains disabled and no temporary raw-result storage is added.
+
+Environment changes are application messages, not a second event store. After manual or automatic compaction, supply the current environment before the next model request, including direct automatic continuation paths. Deduplicate unchanged snapshots. Pi compaction is lossy and is not evidence auditing; when key facts or origin are missing, explain limits and query again if needed. No transcript restores execution authority.
+
+### Single-session architecture and delivery
+
+Design now assumes one AgentSession for the process, no historical navigation, and extensions initialized once at startup and released at exit. Remove session→incident maps, binding/lifecycle epochs, reload/rebind and branch/session recovery compatibility now; do not preserve those paths because command blocking ships later. Keep normal request cancellation, MCP replacement and exit cleanup. Actual blocking of commands, shortcuts, selectors and programmatic actions is a separate follow-up feature; unblocked upstream paths are a delivery gap, not a supported compatibility requirement or a claim of enforced restrictions.
+
+### Roadmap and acceptance impact
+
+The Phase 4 domain plan/contracts below are historical implemented contracts superseded for new work by this migration. Do not implement intermediate direct-conclude or event-store proposals. Phase 5 reads and later skills consume the unified bridge and messages, not EvidenceStore or incident leases. Controlled operations remain a separate opt-in, per-call human-approved design; no writes are enabled here. Phase 5 approval identity must be specified against concrete execution facts without resurrecting domain revisions. Phase 8 retains `/clusters`, `/mcp_restart`, current availability and actual-profile display; incident/evidence commands and status are removed from its target.
+
+Migration acceptance covers follow-up/steering budgets, parallel dispatch races, invalid-call loop bounds, queued calls across selection changes, exact unavailable restoration, interrupted/late calls and manual recovery, same-named resources across contexts, automatic compaction reinjection, redaction/truncation, unchanged kubeconfig and normal exit cleanup. Old Phase 1–4 results remain dated records, including pending Phase 4 visual terminal acceptance; they do not validate the new behavior.
+
+## 既有设计与实现记录（保留历史，不作为新方案实施要求）
+
 **Status:** Draft  
 **Version:** 0.1  
 **Primary Language:** TypeScript  

@@ -1,5 +1,13 @@
 # Investigation 生命周期与历史查询
 
+**设计更新（2026-10-30，尚未实施）：** 后续实施以 [调查与 Context 简化方案](./INVESTIGATION_CONTEXT_SIMPLIFICATION.md) 和 [命令与操作限制方案](./TUI_COMMAND_VISIBILITY_AND_RESTRICTIONS.md) 为准。下文保留当前/此前实现与阶段记录，不再规定新架构必须保留 Incident 或旧生命周期。文档更新不代表代码已迁移或命令已禁用。
+
+## 最新目标与迁移影响
+
+不再维护调查创建、替换、终态、驻留历史或 JSONL flush。问题、假设、结论通过 messages 延续；用户下一条实际开始处理的 follow-up 获得新请求身份和额度。不存在重新打开 Incident 或历史 evidence ID 查询。Pi 保存对话，不提供等价的证据审计；压缩后缺少关键事实时按需重查。
+
+## 既有设计与实现记录（保留历史，不作为新方案实施要求）
+
 本文记录截至 2026-10-29 的当前实现，说明 `InvestigationController`、`InvestigationService` 如何管理 Incident，以及结束后的 Investigation 保存在哪里、如何查询。本文描述现有行为，不代表历史管理功能已完整实现。
 
 ## 1. 是否同时只维护一个活跃 Incident？

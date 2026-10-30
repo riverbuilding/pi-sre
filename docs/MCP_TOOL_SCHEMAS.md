@@ -1,5 +1,13 @@
 # MCP Tool Policy and Schemas
 
+**设计更新（2026-10-30，尚未实施）：** 后续实施以 [调查与 Context 简化方案](./INVESTIGATION_CONTEXT_SIMPLIFICATION.md) 和 [命令与操作限制方案](./TUI_COMMAND_VISIBILITY_AND_RESTRICTIONS.md) 为准。下文保留当前/此前实现与阶段记录，不再规定新架构必须保留 Incident 或旧生命周期。文档更新不代表代码已迁移或命令已禁用。
+
+## 最新目标与迁移影响
+
+保留工具 allowlist、发现的输入 schema、显式准确 context、参数与日志限制和只读 MCP/RBAC。移除 incident lease 和 selection/inventory/scope revision 组合授权；接收时同步固定请求、context、参数和连接身份。后续改选不撤销已接收调用，派发前检查原连接/工具/目标与取消。并行工具共享请求预算；连接替换和结果发布屏障仍必要。结果直接进入 messages，不依赖 EvidenceStore。
+
+## 既有设计与实现记录（保留历史，不作为新方案实施要求）
+
 **Implementation baseline:** Phase 3 Slice 2 implements exact/all session routing through one MCP connection. Every cluster-dependent call requires one explicit model-supplied context, including singleton scope. Execution snapshots and connection generations protect direct and agent callers. Atomic recovery publication/change notices remain Slice 3; full scope presentation remains Slice 4. See the [delivery slices](./PHASE3_IMPLEMENTATION_SLICES.md).
 
 ## Trust boundary

@@ -1,5 +1,37 @@
 # Multi-Cluster Investigation Plan
 
+**Status (2026-10-30):** Updated accepted target; runtime simplification pending. [Investigation/context simplification](./INVESTIGATION_CONTEXT_SIMPLIFICATION.md) controls execution semantics; [command restrictions](./TUI_COMMAND_VISIBILITY_AND_RESTRICTIONS.md) controls the separately delivered entry-point policy. Existing Phase 3/4 acceptance records remain historical.
+
+## Scope and selection
+
+One agent and one Kubernetes MCP connection serve read-only diagnosis. The user owns one current exact/all selection; the model supplies one exact context per call and cannot amend that rule. CLI overrides explicit config, otherwise default live `*`; MCP default metadata never narrows it. Initial unknown exact names reject without fallback. Runtime exact `{A,B}` with inventory `{A,C}` retains B as unavailable selected, allows A, excludes C; B returns automatically as a candidate if still selected. Live `*` permits A/C after discovery, without implying coverage or health.
+
+/clusters changes the current rule even during active work. There is no Incident, immutable incident rule, next selection or later active-incident amendment milestone. Preserve exact names, do not change kubeconfig, and never infer/inject/overwrite a missing or disallowed model context. Patterns and multiple servers remain deferred.
+
+## Unified call boundary
+
+Synchronously validate arguments, current selection, tool compatibility and availability; register request/call identity, exact context, parameters and original connection before waiting. New selections affect only new admissions. Queued admitted calls retain their original context, with cancellation, original connection/tool/target and limits checked before dispatch. Never retarget or transfer calls. Remove compound selection/inventory/scope revision leases and agent-work guards that prohibit selection; keep bounded concurrency, queue, timeout, cancellation and truthful failures.
+
+Each started user request has its own dispatch budget. Follow-ups start one at a time; user steering belongs to the current request and application messages create no request. Automatic continuation/retry, compaction and recovery do not reset budgets. Charge immediately before actual dispatch; failures/cancellation after dispatch are charged and retries count again. Bound model iterations independently of dispatch count.
+
+## Recovery and provenance
+
+Use manual /mcp_restart, with --force for healthy replacement. Withdraw tools and block dispatch; cancel/settle old queued and active work; rediscover schema/tools and inventory; publish matching tools, targets and environment notices; reopen dispatch. Keep connection identity and publication readiness inside MCP/application coordination. Do not replay old calls or assume unchanged tools/targets. Dispatched unfinished calls return “连接中断，未取得有效结果”; undispatched queued calls return “连接中断，未执行”. No late success or dangling tool result is allowed.
+
+Results go directly to messages with model-visible context, operation, known namespace, applicable times, status and truncation. Namespace omission is server/context policy, not all-namespace coverage. Same-named resources and changed server pointers retain distinct historical origin/time. Keep raw retention disabled. No EvidenceStore, hypothesis references, domain outcome ledger, environment event store or JSONL investigation archive is required.
+
+After compaction restore the current environment before the next model request, including direct automatic continuation. Missing historical facts may require fresh queries; transcripts grant no permission. Show current rule, availability, namespace policy and actual profile continuously; show exact target per call.
+
+## Delivery and verification
+
+Design immediately for one AgentSession, no tree navigation and extensions initialized once. Delete binding/epoch and session/reload recovery compatibility now. Command/shortcut/programmatic blocking ships separately; until then unblocked upstream paths are a delivery gap, not supported migration compatibility.
+
+Migration tests cover exact unavailable restoration, live additions, concurrent contexts and same names, admission during selection changes, shared request budgets, cancellation and late results, tool/schema replacement, manual recovery and post-compaction environment injection. Keep Phase 1–4 dated acceptance factual. Phase 5 expands reads through this pipeline; controlled operations remain a separate opt-in approval boundary and cannot obtain blanket write authority from wildcard diagnosis.
+
+## Previous cross-phase plan and research (historical)
+
+The retained plan below explains the former phase decomposition. Incident-owned rules, evidence APIs, revisions, next selection and future active-rule amendment are superseded by the target above. External comparison observations retain their original source revisions; this update does not reverify upstream behavior.
+
 **Status:** Design accepted on October 18, 2026; implementation pending. The current Phase 2 runtime still supports one selected context. Phase 3 independently upgrades that runtime's context selection; Phase 4 adds Investigation Domain and Phase 5 adds tool parity. This document describes the cross-phase target; documentation changes enable no runtime capabilities.
 
 ## 1. Accepted first delivery

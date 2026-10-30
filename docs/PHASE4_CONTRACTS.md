@@ -1,5 +1,13 @@
 # Phase 4 Slice 0 — Investigation Domain Contracts
 
+**设计更新（2026-10-30，尚未实施）：** 后续实施以 [调查与 Context 简化方案](./INVESTIGATION_CONTEXT_SIMPLIFICATION.md) 和 [命令与操作限制方案](./TUI_COMMAND_VISIBILITY_AND_RESTRICTIONS.md) 为准。下文保留当前/此前实现与阶段记录，不再规定新架构必须保留 Incident 或旧生命周期。文档更新不代表代码已迁移或命令已禁用。
+
+## 最新目标与迁移影响
+
+本文件冻结的是旧 Investigation Domain 的已实施契约，保留供理解现有代码和既有测试。新迁移删除调查对象、EvidenceStore、领域工具、结论提交、不可变 scope/next、session binding 与领域 revisions；预算迁至逐条用户请求，结果归属迁至调用身份和准确 context。新验收按简化方案第 13 节，不以本文件中的旧 API/数据结构作为新实现要求。
+
+## 既有设计与实现记录（保留历史，不作为新方案实施要求）
+
 **Status:** Contracts frozen, 2026-10-20; capacity handling simplified and incident-owned storage/archive adopted on 2026-10-23. Runtime evidence uses installed Pi coding agent,
 MCP, and TUI **0.99.0**. Phase 3 is [accepted](./PHASE3_ACCEPTANCE.md).
 This slice adds offline lifecycle fixtures and contracts only. Incidents, evidence storage,

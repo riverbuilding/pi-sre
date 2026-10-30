@@ -1,5 +1,13 @@
 # Session 生命周期、Investigation Binding 与 SRE 扩展
 
+**设计更新（2026-10-30，尚未实施）：** 后续实施以 [调查与 Context 简化方案](./INVESTIGATION_CONTEXT_SIMPLIFICATION.md) 和 [命令与操作限制方案](./TUI_COMMAND_VISIBILITY_AND_RESTRICTIONS.md) 为准。下文保留当前/此前实现与阶段记录，不再规定新架构必须保留 Incident 或旧生命周期。文档更新不代表代码已迁移或命令已禁用。
+
+## 最新目标与迁移影响
+
+现在就按单一 AgentSession、禁止历史导航和 reload/rebind 设计：扩展仅启动初始化、退出释放。不保留 session→incident、bindingEpoch、lifecycleEpoch、恢复与重新挂接兼容流程。入口禁用后续交付，不要求为未关闭入口保留兼容代码/测试，也不能宣称禁用已生效。正常请求取消、MCP 重连、订阅注销和退出资源释放继续保留。
+
+## 既有设计与实现记录（保留历史，不作为新方案实施要求）
+
 本文记录当前 Phase 4 实现中 session 操作、investigation 绑定和内置扩展的关系。
 Session 是 Pi 的对话与运行时抽象；Incident 是 SRE 的调查领域对象，两者分别管理。
 

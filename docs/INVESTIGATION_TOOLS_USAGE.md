@@ -1,5 +1,13 @@
 # 调查工具的用途与调用时机
 
+**设计更新（2026-10-30，尚未实施）：** 后续实施以 [调查与 Context 简化方案](./INVESTIGATION_CONTEXT_SIMPLIFICATION.md) 和 [命令与操作限制方案](./TUI_COMMAND_VISIBILITY_AND_RESTRICTIONS.md) 为准。下文保留当前/此前实现与阶段记录，不再规定新架构必须保留 Incident 或旧生命周期。文档更新不代表代码已迁移或命令已禁用。
+
+## 最新目标与迁移影响
+
+移除 investigation_get、evidence_list、evidence_get、hypothesis_upsert、investigation_conclude 以及 /incident、/evidence。模型直接调用允许的 Kubernetes MCP 工具，结果进入 messages，随后解释、修正假设或询问用户；普通最终回答就是报告，不额外提交结论。后续提示词和示例不得再要求领域 ID、revision 或 pending 确认。
+
+## 既有设计与实现记录（保留历史，不作为新方案实施要求）
+
 本文说明当前 Pi SRE 中 `/incident`、`/evidence` 命令与五个本地调查工具的区别，以及 LLM 在诊断过程中何时使用这些工具。
 
 ## 1. Commands 给用户用，Tools 给 LLM 用
