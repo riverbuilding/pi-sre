@@ -1,5 +1,7 @@
 # Session 生命周期、Investigation Binding 与 SRE 扩展
 
+Pi 通用事件接口与执行钩子的区别见 [Pi Knowledge](./PI_KNOWLEDGE.md)。
+
 **设计更新（2026-10-30，尚未实施）：** 后续实施以 [调查与 Context 简化方案](./INVESTIGATION_CONTEXT_SIMPLIFICATION.md) 和 [命令与操作限制方案](./TUI_COMMAND_VISIBILITY_AND_RESTRICTIONS.md) 为准。下文保留当前/此前实现与阶段记录，不再规定新架构必须保留 Incident 或旧生命周期。文档更新不代表代码已迁移或命令已禁用。
 
 ## 最新目标与迁移影响

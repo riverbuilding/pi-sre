@@ -1,0 +1,67 @@
+# 调查与 Context 状态简化 — 执行契约
+
+状态：Slice 0 验证完成（2026-10-30）；生产仍采用 Phase 4 路径。本文冻结后续 slices 的执行契约，不声明迁移已接线。
+
+依据：设计正文第 1–13 节及 Implementation Slices。历史附录不是实施要求。
+
+## 已验证的 Pi 接口
+
+依赖为安装的 `@earendil-works/pi-coding-agent` 0.99.0 及其嵌套 `pi-agent-core` 0.99.0。直接阅读 `dist/core/agent-session.js`、`extensions/types.d.ts`、`settings-manager.js`，以及嵌套 core 的 `dist/agent.js`、`agent-loop.js`。测试见 [真实 Pi fixture](../tests/integration/pi-execution-boundaries.test.ts)：真实 services/session、内存设置与 transcript、临时应用目录、确定性 stream，无模型网络请求；压缩使用公开 `session_before_compact` 返回确定性 summary，不 mock 压缩调度。
+
+| 场景                  | 已验证顺序/行为                                                                                           |
+| --------------------- | --------------------------------------------------------------------------------------------------------- |
+| input 返回 handled    | 无 before_agent_start、用户 message_start 或模型请求                                                      |
+| 空闲提问              | before_agent_start → agent_start → 用户 message_start → context → stream                                  |
+| 用户 steering         | 本轮工具收尾后交付用户 message_start → context → stream；不重新 before_agent_start                        |
+| 两条 follow-up        | 同一个 agent_start 内逐条 message_start → context → stream，直到 agent_end；仅一次 before_agent_start     |
+| 429 自动重试          | agent_end → auto_retry_start → 新底层 loop/context/stream；没有新用户 message_start 或 before_agent_start |
+| 手动压缩              | session_before_compact(manual) → 压缩；下一提问的 context 注入环境                                        |
+| overflow 自动压缩续跑 | session_before_compact(overflow) → 直接重试 → context 注入环境；不再 before_agent_start                   |
+| 无效工具循环          | 每次仍有 finishTurn；返回 action:end 可在固定次数停止；每个无效调用有匹配 toolResult                      |
+| 显式取消              | abort → aborted 响应 → settled；下一用户提问正常开始                                                      |
+
+`agent_before_settle` 在最终 settled 前仍可要求续跑。`agent_end` 不是最终清理点；最终清理使用 `agent_settled`。`finishTurn` 不是模型尝试总数：错误重试、压缩重试仍需计数。工具 handler 不是计数边界，无效工具名甚至不会到 handler。
+
+## 请求身份与受维护适配方案
+
+Pi 0.99.0 **没有带来源的“用户请求开始”专用事件**。`message_start` 在下一模型请求之前交付，但无 steering/follow-up 来源；Session 自身按文本维护展示队列，不能用它识别请求（重复文本会歧义）。
+
+Slice 1 使用应用拥有的、集中安装一次的公开 API 适配器：包装 `agent.steer` / `agent.followUp`，以消息对象 WeakMap 标记来源，在同步 `message_start` 订阅中消费；测试验证对象身份保留。初始有效 prompt 的用户消息作为新请求，follow-up 交付时作为新请求；steering 保持原请求。应用 custom 环境消息不创建请求。不得按内容、timestamp 或队列长度猜测来源，不访问 Pi 私有字段。
+
+这是一项明确的受维护集成交付方案，不需要先升级依赖。Slice 1 必须将适配器与请求计数组合验收，覆盖重复文本、取消时清队列、程序入口及消费后的输入。未完成组合验收前不能接入生产。直接低层 agent.prompt/continue 属于内部受控入口，不允许绕过适配器。
+
+follow-up 固定 one-at-a-time：适配器必须在交付入口强制该模式，并拦截 Session/agent 设置路径，不能仅启动时设置一次。该锁定尚未在生产交付，Slice 1 需验证用户设置无法恢复批处理。
+
+## 模型迭代与停止
+
+每次即将调用模型流计一次，包括无效工具循环、dispatch 耗尽后的循环、重试和压缩重试。环境 context hook 用于每次模型请求恢复当前环境；不以 before_agent_start 代替。模型迭代守卫应在实际流边界检查余额，在调用真实流前同步扣减；压缩 summary 的模型调用不属于诊断迭代，但保留 Pi 独立的重试限制。
+
+工具循环正常停止可用公开 `agent.finishTurn` 返回 `{action:"end"}`（保留原 hook）。达到全请求上限还必须设置终止标记、清理待续跑工作并调用 Session abort，使 post-run retry、before-settle continuation 也无法启动真实流；不能只返回 end 或拒绝工具。禁止在当前流/hook 内 await Session abort（它会等待当前运行）；应显式处理其 promise，在 settled/退出时等待清理。
+
+Slice 0 证明 finishTurn 能停止无效工具循环和 abort 能 settled；全请求守卫、dispatch 耗尽、queued follow-up 与自动续跑的组合停止由 Slice 1 实现验证。不得把这些尚未实现的策略声称为 Pi 自带限制。
+
+## 最小运行字段与配置迁移
+
+请求仅含 `requestId`、取消信号、dispatch/model iteration 已用计数，以及 queued/active call 集合；不保存问题、假设、结论、Incident 或调查状态。调用保留 Pi `toolCallId`、`requestId`、操作名、原样准确 context、必要参数、原连接身份、取消信号和收尾标记；已派发时增加 dispatch/settlement 时间。调用 ID 按请求组合识别，不假定跨请求唯一。
+
+Slice 1 冻结新配置为 `execution.maxToolCalls`（默认 40，上限 1000）、`execution.maxModelIterations`（默认 80，上限 2000），均为正安全整数。两者独立，不要求大小关系；允许先耗尽工具额度后用剩余迭代解释结果。旧 `investigation.maxToolCalls`、`defaultTimeRange` 删除，无别名。模板移除 investigation；证据库/领域容量随 Slice 6 删除，不转成另一套存储额度。当前 schema 不提前修改。
+
+实际诊断 MCP dispatch 前同步扣减工具额度：已派发失败、取消、超时不退款；入队、校验拒绝及派发前拒绝不计费。并行共享同一请求余额。启动/用户恢复过程中的工具及 context 发现不计诊断 dispatch，但仅由连接生命周期调用；不能把模型诊断转成“发现”绕过额度。模型可调用的 inventory 工具仍按诊断派发计费。
+
+## 接收、收尾与发布
+
+接收在一个无 await 的边界完成：参数/schema、当前选择、工具能力与目标可用性校验 → 固定来源与连接 → 登记调用。之后排队即已接收。改选不撤销它；派发前检查原请求、取消、原连接、原工具与原目标，不按新选择重新授权，不重路由。
+
+正常完成先收尾全部已接收调用。取消停止队列、尝试 abort 活动调用，每个原 toolCallId 只产生一次取消/错误结果；迟到成功不得发布或归入新请求。排队取消标未执行，无查询时间；派发后保留派发及收尾时间，两者表示客户端执行区间，不冒充 Kubernetes 对象观测时间。结果来源必须在受限、脱敏的 content 内完整呈现；raw retention disabled。
+
+选择器草稿仅校验其基于的当前选择和 inventory 是否仍适用；过期时刷新/重新确认，不以全局 execution revision 撤销已接收调用。exact 中消失项保留 unavailable selected，候选为 selected ∩ available；all 使用当前 inventory。
+
+连接替换顺序：关闭 dispatch/撤工具 → 旧连接失效、旧调用收尾 → 新工具/schema/inventory 发现 → 按未变选择计算候选 → 发布匹配工具、环境与通知 → ready。任何发现或发布失败都保持关闭。旧调用不迁移、不重放；只保留一处连接身份保护。
+
+## 检查记录
+
+2026-10-30：窄测试 6/6 通过；`npm run verify` 通过（格式、lint、类型检查、46 个测试文件通过/1 跳过，676 个测试通过/7 跳过，构建通过）。跳过项包含既有 opt-in 检查，不以此声称 live server 验收。
+
+## 交付边界
+
+Slice 0 不改变生产授权、预算、领域模型、配置或命令。Slices 1–5 的组合测试通过后在 Slice 6 一次切换。Pi 内置命令/快捷键/程序入口禁用仍为独立产品缺口，不因本文而视为已经强制实施。安装包、live cluster 和视觉终端验收留给 Slice 7；离线 fixture 不代表这些验收。
