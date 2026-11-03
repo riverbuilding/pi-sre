@@ -4,7 +4,7 @@ import { ClusterContextManager } from "../../../src/cluster/context-manager.js";
 import { ClusterContextRegistry } from "../../../src/cluster/context-registry.js";
 import { DEFAULT_RESULT_POLICY } from "../../../src/config/schema.js";
 import { createMcpToolBridge } from "../../../src/mcp/tool-bridge.js";
-import { evaluateToolPolicy } from "../../../src/runtime/tool-policy.js";
+import { evaluateToolPolicy, McpToolSchemaError } from "../../../src/runtime/tool-policy.js";
 import * as toolPolicy from "../../../src/runtime/tool-policy.js";
 import capture from "../../fixtures/phase2-server-0.0.67.json" with { type: "json" };
 import { diagnosticTools } from "../../fixtures/diagnostic-tools.js";
@@ -190,7 +190,12 @@ describe("scoped MCP bridge", () => {
     "rejects undeclared or incompatible context schema %j",
     (inputSchema) => {
       expect(() => setup("alpha", { ...scopedPodTool, inputSchema })).toThrow(
-        "requires an object input schema",
+        expect.objectContaining(
+          new McpToolSchemaError("incompatible-schema", {
+            path: "inputSchema.properties.context",
+            message: "Cluster-dependent tools must declare a context parameter.",
+          }),
+        ),
       );
     },
   );

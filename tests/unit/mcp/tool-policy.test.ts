@@ -23,6 +23,55 @@ const descriptor: McpToolDescriptor = {
 };
 
 describe("discovered MCP argument schemas", () => {
+  it.each([
+    { overrides: { type: "array" }, path: "inputSchema.type", message: 'Expected "object".' },
+    {
+      overrides: { properties: [] },
+      path: "inputSchema.properties",
+      message: "Expected an object of property schemas.",
+    },
+    {
+      overrides: { required: "context" },
+      path: "inputSchema.required",
+      message: "Expected an array of property names.",
+    },
+    {
+      overrides: { required: ["context", 123] },
+      path: "inputSchema.required[1]",
+      message: "Expected a string property name.",
+    },
+    ...[{}, undefined].map((properties) => ({
+      overrides: { properties },
+      path: "inputSchema.properties.context",
+      message: "Cluster-dependent tools must declare a context parameter.",
+    })),
+  ])("reports incompatible schema at $path for $overrides", ({ overrides, path, message }) => {
+    const inputSchema = Object.assign({}, descriptor.inputSchema, overrides);
+    expect(() => prepareMcpToolSchema({ ...descriptor, inputSchema })).toThrow(
+      expect.objectContaining({
+        name: "McpToolSchemaError",
+        reason: "incompatible-schema",
+        info: { path, message },
+        message: `Kubernetes MCP tool rejected at ${path}: ${message}`,
+      }),
+    );
+  });
+
+  it("reports a tool outside the allowlist at name before inspecting its schema", () => {
+    expect(() =>
+      prepareMcpToolSchema({
+        name: "pods_delete",
+        inputSchema: { type: "object", properties: {} },
+      }),
+    ).toThrow(
+      expect.objectContaining({
+        name: "McpToolSchemaError",
+        reason: "not-allowlisted",
+        info: { path: "name", message: "Tool is not approved for execution." },
+      }),
+    );
+  });
+
   it("retains the diagnostic capability allowlist", () => {
     expect(MCP_TOOL_POLICIES.map((policy) => policy.name).sort()).toEqual(
       diagnosticTools.map((tool) => tool.name).sort(),
@@ -95,7 +144,17 @@ describe("discovered MCP argument schemas", () => {
     };
     await expect(
       discoverClusterContexts({ state: "ready", callTool }, { exposed: [required], decisions: [] }),
-    ).rejects.toMatchObject({ kind: "incompatible-tool" });
+    ).rejects.toMatchObject({
+      kind: "incompatible-tool",
+      cause: {
+        name: "McpToolSchemaError",
+        reason: "incompatible-schema",
+        info: {
+          path: "inputSchema",
+          message: "Context enumeration must accept empty arguments.",
+        },
+      },
+    });
     expect(callTool).not.toHaveBeenCalled();
   });
 });

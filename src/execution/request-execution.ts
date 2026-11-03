@@ -69,10 +69,12 @@ export class RequestExecution {
     identity: CallIdentity,
     check: () => void,
     dispatch: (signal: AbortSignal) => Promise<T>,
+    callSignal?: AbortSignal,
   ): Promise<CallResult<T>> {
     this.assertOpen();
     if (this.#calls.has(identity.toolCallId)) throw new Error("Duplicate active tool call ID.");
-    const signal = this.signal;
+    const signal = callSignal ? AbortSignal.any([this.signal, callSignal]) : this.signal;
+    signal.throwIfAborted();
     const call = { identity, phase: "queued" as "queued" | "active" };
     this.#calls.set(identity.toolCallId, call);
     return (async (): Promise<CallResult<T>> => {

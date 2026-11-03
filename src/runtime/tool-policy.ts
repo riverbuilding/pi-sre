@@ -35,15 +35,16 @@ export function evaluateToolPolicy(tool: { readonly name: string }): ToolPolicyD
 
 export class McpToolSchemaError extends Error {
   readonly reason: "not-allowlisted" | "incompatible-schema";
+  readonly info: { readonly path: string; readonly message: string };
 
-  constructor(reason: "not-allowlisted" | "incompatible-schema" = "incompatible-schema") {
-    super(
-      reason === "not-allowlisted"
-        ? "Kubernetes MCP tool is not approved for execution."
-        : "Kubernetes MCP tool requires an object input schema and a declared context parameter for cluster-dependent operations.",
-    );
+  constructor(
+    reason: "not-allowlisted" | "incompatible-schema",
+    info: { readonly path: string; readonly message: string },
+  ) {
+    super(`Kubernetes MCP tool rejected at ${info.path}: ${info.message}`);
     this.name = "McpToolSchemaError";
     this.reason = reason;
+    this.info = info;
   }
 }
 
@@ -69,25 +70,51 @@ function matches(schema: TUnsafe<Record<string, unknown>>, value: unknown): bool
 /** Copy discovered schemas; require exact model context while retaining discovered constraints. */
 export function prepareMcpToolSchema(tool: McpToolDescriptor): PreparedToolSchema {
   const policy = getMcpToolPolicy(tool.name);
-  if (!policy) throw new McpToolSchemaError("not-allowlisted");
+  if (!policy)
+    throw new McpToolSchemaError("not-allowlisted", {
+      path: "name",
+      message: "Tool is not approved for execution.",
+    });
   const schema = tool.inputSchema;
-  if (
-    schema.type !== "object" ||
-    (schema.properties !== undefined && !isRecord(schema.properties)) ||
-    (schema.required !== undefined &&
-      (!Array.isArray(schema.required) ||
-        !schema.required.every((name) => typeof name === "string")))
-  )
-    throw new McpToolSchemaError();
+  if (schema.type !== "object")
+    throw new McpToolSchemaError("incompatible-schema", {
+      path: "inputSchema.type",
+      message: 'Expected "object".',
+    });
+  if (schema.properties !== undefined && !isRecord(schema.properties))
+    throw new McpToolSchemaError("incompatible-schema", {
+      path: "inputSchema.properties",
+      message: "Expected an object of property schemas.",
+    });
+  if (schema.required !== undefined) {
+    if (!Array.isArray(schema.required))
+      throw new McpToolSchemaError("incompatible-schema", {
+        path: "inputSchema.required",
+        message: "Expected an array of property names.",
+      });
+    const invalidIndex = schema.required.findIndex((name) => typeof name !== "string");
+    if (invalidIndex !== -1)
+      throw new McpToolSchemaError("incompatible-schema", {
+        path: `inputSchema.required[${invalidIndex}]`,
+        message: "Expected a string property name.",
+      });
+  }
   if (
     policy.clusterDependent &&
     (!isRecord(schema.properties) || !Object.hasOwn(schema.properties, "context"))
   )
-    throw new McpToolSchemaError();
+    throw new McpToolSchemaError("incompatible-schema", {
+      path: "inputSchema.properties.context",
+      message: "Cluster-dependent tools must declare a context parameter.",
+    });
 
   const modelSchema: Record<string, unknown> = structuredClone(schema);
   if (policy.clusterDependent) {
-    if (!isRecord(modelSchema.properties)) throw new McpToolSchemaError();
+    if (!isRecord(modelSchema.properties))
+      throw new McpToolSchemaError("incompatible-schema", {
+        path: "inputSchema.properties",
+        message: "Copied schema must contain an object of property schemas.",
+      });
     const original = modelSchema.properties.context;
     modelSchema.properties.context = {
       allOf: [original, { type: "string", minLength: 1 }],

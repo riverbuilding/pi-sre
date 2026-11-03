@@ -1,6 +1,6 @@
 # 调查与 Context 状态简化 — Implementation Slices
 
-状态：Slices 0–1 已完成契约、迁移部件与离线 Pi 验证；Slices 2–7 待实施，生产尚未切换。编写日期：2026-10-30；更新日期：2026-11-03。
+状态：Slices 0–2 已完成契约、迁移部件与离线验证；Slices 3–7 待实施，生产尚未切换。编写日期：2026-10-30；更新日期：2026-11-03。
 
 依据：[调查与 Context 状态简化：设计方案](./INVESTIGATION_CONTEXT_SIMPLIFICATION.md)正文第 1–13 节。该设计正文优先于其历史附录及旧 Phase 4 契约。本文拆解迁移任务，不声明运行时已经改变；不改写历史验收结果，也不把本次迁移重新编号为 Phase 5。
 
@@ -53,7 +53,7 @@ Slice 0 契约与 Pi 事件验证
 
 Slices 1–5 提供可测试的迁移部件及组合测试；在 Slice 6 前不将部分新语义接入生产。生产仍保持完整旧路径，避免新请求预算、旧 incident 授权、旧证据提交混合执行。若拆成多个 PR，每个合并点都必须保持现有生产行为和安全门禁；Slice 6 一次切换并删除旧路径，不增加兼容配置、双写或长期双管线。
 
-Slices 0–1 的契约与验证记录见下文；Slices 2–7 待实施。通过前置测试不等于生产迁移完成。
+Slices 0–2 的契约与验证记录见下文；Slices 3–7 待实施。通过前置测试不等于生产迁移完成。
 
 ## 3. Slice 0 — 冻结执行契约并验证 Pi 事件边界
 
@@ -124,6 +124,13 @@ Slice 1 交付（2026-11-02）：
 - `{A,B}` + inventory `{A,C}` 保留选择 `{A,B}`，仅 A 可执行；B 恢复后可执行，C 仍越界。全部不可用时阻止调用且不改写选择。
 - singleton/all/exact 都要求模型显式提供准确 context；缺失、未知、越界、不可用或工具不兼容时不派发，不注入或覆盖参数。
 - 与目标无关的 inventory 增减或 default 展示元数据变化不使有效在途结果失效；原目标消失或实际指向变化时不将排队调用路由到替代目标。
+
+Slice 2 交付（2026-11-03）：
+
+- `src/cluster/current-selection.ts` 分离严格启动名称校验与运行时交集计算，复用 CLI → 配置 → live `*` 优先级。exact 保留 unavailable selected；all 跟随 inventory。没有 validatedSelection、执行 revision 或 work epoch。
+- `src/execution/accept-mcp-call.ts` 在同步边界消费发现 schema、只读策略与当前选择，复制参数并通过 Slice 1 的 RequestExecution 登记、排队和计费。派发前只检查原连接、原工具及原目标，不按新选择重新授权；结果返回前也检查原运行条件。每个目标的局部身份仅用于防止消失/恢复或实际指向变化后旧调用访问替代目标；无关 inventory/default 变化不使调用失效。
+- `src/tui/current-cluster-picker.ts` 复用已支持 unavailable 行的 picker，活动调用不阻止改选；草稿只比较选择及 inventory 的名称/目标事实，不比较工作或全局执行版本。允许保留或明确移除 unavailable 成员，取消/UI 失败不提交。
+- `tests/unit/execution/accept-mcp-call.test.ts` 将新选择、接收入口、RequestExecution 与 recording fake MCP 组合，覆盖同步登记、A 排队后改选 B、参数复制、exact 消失/恢复/全部不可用、all、显式 context/schema/能力拒绝、无关刷新、原目标/工具失效、单调用取消与选择器过期草稿。生产 composition 仍不引用新部件；连接失效的主动中断及发布屏障由 Slice 3 交付，模型可见来源封装由 Slice 4 交付。
 
 ## 6. Slice 3 — MCP 连接替换与统一发布屏障
 

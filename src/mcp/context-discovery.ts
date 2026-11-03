@@ -157,7 +157,11 @@ export async function discoverClusterContexts(
   const tool = candidates[0];
   if (candidates.length !== 1 || !tool) throw new ContextDiscoveryError("incompatible-tool");
   try {
-    if (!prepareMcpToolSchema(tool).validateArguments({})) throw new McpToolSchemaError();
+    if (!prepareMcpToolSchema(tool).validateArguments({}))
+      throw new McpToolSchemaError("incompatible-schema", {
+        path: "inputSchema",
+        message: "Context enumeration must accept empty arguments.",
+      });
   } catch (error) {
     if (!(error instanceof McpToolSchemaError)) throw error;
     throw new ContextDiscoveryError("incompatible-tool", undefined, { cause: error });
