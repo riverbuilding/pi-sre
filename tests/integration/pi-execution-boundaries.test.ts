@@ -9,9 +9,11 @@ import {
   SettingsManager,
   type ExtensionAPI,
   type AgentSession,
+  type AgentBeforeSettleEventResult,
 } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 
+import { installRequestExecution } from "../../src/runtime/request-execution-adapter.js";
 import { createSreResourceLoaderOptions } from "../../src/runtime/resource-loader.js";
 
 type Stream = Awaited<ReturnType<AgentSession["agent"]["streamFunction"]>>;
@@ -29,7 +31,10 @@ function response(message: Message): Stream {
   } as unknown as Stream;
 }
 
-async function fixture(run: (session: AgentSession, events: string[]) => Promise<void>) {
+async function fixture(
+  run: (session: AgentSession, events: string[]) => Promise<void>,
+  beforeSettle?: () => AgentBeforeSettleEventResult,
+) {
   const home = await mkdtemp(join(tmpdir(), "pi-sre-boundaries-"));
   const events: string[] = [];
   const services = await createAgentSessionServices({
@@ -78,6 +83,7 @@ async function fixture(run: (session: AgentSession, events: string[]) => Promise
             });
             pi.on("agent_before_settle", () => {
               events.push("before_settle");
+              return beforeSettle?.();
             });
             pi.on("agent_settled", () => {
               events.push("settled");
@@ -162,25 +168,6 @@ describe("Slice 0: installed Pi execution boundaries", () => {
       await session.prompt("consumed");
       expect(events).toEqual([]);
       session.setFollowUpMode("one-at-a-time");
-      // The public queue methods preserve object identity at delivery. Text cannot
-      // identify origin: a steering message and a follow-up can be identical.
-      const origins = new WeakMap<object, string>();
-      const delivered: string[] = [];
-      const steer = session.agent.steer.bind(session.agent);
-      const followUp = session.agent.followUp.bind(session.agent);
-      session.agent.steer = (message) => {
-        origins.set(message, "steer");
-        steer(message);
-      };
-      session.agent.followUp = (message) => {
-        origins.set(message, "followUp");
-        followUp(message);
-      };
-      session.subscribe((event) => {
-        if (event.type === "message_start" && event.message.role === "user") {
-          delivered.push(origins.get(event.message) ?? "initial");
-        }
-      });
       let calls = 0;
       session.agent.streamFunction = async (model, context) => {
         expect(JSON.stringify(context.messages)).toContain("CURRENT_ENVIRONMENT");
@@ -194,7 +181,6 @@ describe("Slice 0: installed Pi execution boundaries", () => {
       };
       await session.prompt("initial");
       expect(calls).toBe(4);
-      expect(delivered).toEqual(["initial", "steer", "followUp", "followUp"]);
       expect(events.filter((e) => e === "before_agent_start")).toHaveLength(1);
       expect(events.filter((e) => e === "agent_start")).toHaveLength(1);
       expect(events.filter((e) => e.startsWith("user:"))).toHaveLength(4);
@@ -304,3 +290,297 @@ describe("Slice 0: installed Pi execution boundaries", () => {
       expect(events.at(-1)).toBe("settled");
     }));
 });
+
+describe("Slice 1: request execution with installed Pi", () => {
+  it("gives every delivered user message fresh budgets and locks both queue modes", async () =>
+    fixture(async (session) => {
+      const seen: { id: string; iterations: number }[] = [];
+      let calls = 0;
+      session.agent.streamFunction = async (model) => {
+        const request = execution.current!;
+        seen.push({ id: request.requestId, iterations: request.counts.modelIterations });
+        if (++calls === 1) {
+          session.setSteeringMode("all");
+          session.settingsManager.setSteeringMode("all");
+          session.agent.steeringMode = "all";
+          expect(session.agent.steeringMode).toBe("one-at-a-time");
+          expect(session.settingsManager.getSteeringMode()).toBe("one-at-a-time");
+          session.setFollowUpMode("all");
+          session.settingsManager.setFollowUpMode("all");
+          session.agent.followUpMode = "all";
+          expect(session.agent.followUpMode).toBe("one-at-a-time");
+          expect(session.settingsManager.getFollowUpMode()).toBe("one-at-a-time");
+          await session.steer("same");
+          await session.steer("same");
+          await session.followUp("same");
+          await session.followUp("same");
+          expect(execution.current?.requestId).toBe(request.requestId);
+        }
+        expect(request.counts.dispatches).toBe(0);
+        const result = await request.accept(
+          {
+            toolCallId: "same-id",
+            operation: "pods_list",
+            context: "A",
+            parameters: {},
+            connection: {},
+          },
+          () => {},
+          async () => "ok",
+        );
+        expect(result.status).toBe("success");
+        expect(request.counts.dispatches).toBe(1);
+        return response(answer(model));
+      };
+      const execution = installRequestExecution(
+        session,
+        { maxToolCalls: 1, maxModelIterations: 1 },
+        () => {},
+      );
+      try {
+        await session.prompt("consumed");
+        expect(execution.current).toBeUndefined();
+        await session.prompt("same");
+        expect(seen.map((s) => s.iterations)).toEqual([1, 1, 1, 1, 1]);
+        expect(new Set(seen.map((s) => s.id)).size).toBe(5);
+        await session.prompt("follow-up question");
+        await session.prompt("different topic");
+        expect(new Set(seen.map((s) => s.id)).size).toBe(7);
+      } finally {
+        await execution.dispose();
+      }
+    }));
+
+  it("stops invalid-tool loops at the stream boundary despite continuation hooks", async () =>
+    fixture(async (session) => {
+      let calls = 0;
+      const notices: string[] = [];
+      session.agent.finishTurn = () => ({ action: "continue" });
+      session.agent.streamFunction = (model) => {
+        calls++;
+        return response(answer(model, "toolUse"));
+      };
+      const execution = installRequestExecution(
+        session,
+        { maxToolCalls: 1, maxModelIterations: 3 },
+        (text) => notices.push(text),
+      );
+      try {
+        await session.prompt("invalid loop");
+        expect(calls).toBe(3);
+        expect(execution.current?.counts.modelIterations).toBe(3);
+        expect(session.messages.filter((m) => m.role === "toolResult")).toHaveLength(3);
+        expect(notices).toHaveLength(1);
+      } finally {
+        await execution.dispose();
+      }
+    }));
+
+  it("keeps counters across retry and compaction and creates fresh ownership after cancellation", async () =>
+    fixture(async (session) => {
+      let calls = 0;
+      const ids: string[] = [];
+      session.agent.streamFunction = (model) => {
+        ids.push(execution.current!.requestId);
+        return response(answer(model, ++calls === 1 ? "error" : "stop"));
+      };
+      const execution = installRequestExecution(
+        session,
+        { maxToolCalls: 2, maxModelIterations: 8 },
+        () => {},
+      );
+      try {
+        await session.prompt("retry " + "history ".repeat(1000));
+        expect(ids[0]).toBe(ids[1]);
+        expect(execution.current?.counts.modelIterations).toBe(2);
+        await session.prompt("second ".repeat(200));
+        const previous = execution.current!;
+        await session.compact();
+        expect(execution.current).toBe(previous);
+        expect(previous.counts.modelIterations).toBe(1);
+        await session.abort();
+        expect(previous.signal.aborted).toBe(true);
+        await session.prompt("next");
+        expect(execution.current?.requestId).not.toBe(previous.requestId);
+        expect(execution.current?.counts.modelIterations).toBe(1);
+      } finally {
+        await execution.dispose();
+      }
+    }));
+});
+
+it("Slice 1: dispatch exhaustion and before-settle continuation cannot bypass the iteration cap", async () => {
+  await fixture(
+    async (session) => {
+      let calls = 0;
+      let dispatched = 0;
+      session.agent.streamFunction = async (model) => {
+        calls++;
+        const result = await execution.current!.accept(
+          {
+            toolCallId: String(calls),
+            operation: "pods_list",
+            context: "A",
+            parameters: {},
+            connection: {},
+          },
+          () => {},
+          async () => ++dispatched,
+        );
+        expect(result.status).toBe(calls === 1 ? "success" : "error");
+        return response(answer(model));
+      };
+      const execution = installRequestExecution(
+        session,
+        { maxToolCalls: 1, maxModelIterations: 3 },
+        () => {},
+      );
+      try {
+        await session.prompt("continue after exhausted dispatch budget");
+        expect(calls).toBe(3);
+        expect(dispatched).toBe(1);
+        expect(execution.current?.counts).toMatchObject({ dispatches: 1, modelIterations: 3 });
+      } finally {
+        await execution.dispose();
+      }
+    },
+    () => ({
+      continue: true,
+      entries: [
+        {
+          type: "custom_message",
+          customType: "continuation",
+          content: "Continue checking.",
+          display: false,
+        },
+      ],
+    }),
+  );
+});
+
+it("Slice 1: automatic overflow retry preserves request and iteration counts", async () =>
+  fixture(async (session) => {
+    let overflow = false;
+    const ids: string[] = [];
+    session.agent.streamFunction = (model) => {
+      ids.push(execution.current!.requestId);
+      const message = answer(model);
+      if (overflow) {
+        overflow = false;
+        message.stopReason = "error";
+        message.errorMessage = "maximum context length exceeded";
+      }
+      return response(message);
+    };
+    const execution = installRequestExecution(
+      session,
+      { maxToolCalls: 2, maxModelIterations: 3 },
+      () => {},
+    );
+    try {
+      await session.prompt("history ".repeat(1000));
+      await session.prompt("more history ".repeat(200));
+      session.settingsManager.setCompactionEnabled(true);
+      overflow = true;
+      await session.prompt("overflow ".repeat(200));
+      expect(ids.at(-1)).toBe(ids.at(-2));
+      expect(execution.current?.counts.modelIterations).toBe(2);
+    } finally {
+      await execution.dispose();
+    }
+  }));
+
+it("Slice 1: cancel clears queued follow-ups and aborts calls before the next prompt", async () =>
+  fixture(async (session) => {
+    let calls = 0;
+    let cancelPromise: Promise<void> | undefined;
+    const late = Promise.withResolvers<string>();
+    session.agent.streamFunction = async (model) => {
+      if (++calls === 1) {
+        await session.followUp("same");
+        await session.followUp("same");
+        const call = execution.current!.accept(
+          {
+            toolCallId: "reused",
+            operation: "pods_list",
+            context: "A",
+            parameters: {},
+            connection: {},
+          },
+          () => {},
+          () => late.promise,
+        );
+        await Promise.resolve();
+        cancelPromise = session.abort();
+        expect((await call).status).toBe("cancelled");
+        return response(answer(model, "aborted"));
+      }
+      return response(answer(model));
+    };
+    const execution = installRequestExecution(
+      session,
+      { maxToolCalls: 2, maxModelIterations: 4 },
+      () => {},
+    );
+    try {
+      await session.prompt("cancel");
+      await cancelPromise;
+      const old = execution.current!;
+      expect(calls).toBe(1);
+      expect(session.agent.hasQueuedMessages()).toBe(false);
+      late.resolve("ignored success");
+      await session.prompt("same");
+      expect(execution.current?.requestId).not.toBe(old.requestId);
+      expect(execution.current?.counts).toMatchObject({ dispatches: 0, modelIterations: 1 });
+    } finally {
+      await execution.dispose();
+    }
+  }));
+
+it("Slice 1: application steering keeps the current budgets and idle environment updates do not run the model", async () =>
+  fixture(async (session) => {
+    const ids: string[] = [];
+    const iterations: number[] = [];
+    session.agent.streamFunction = async (model) => {
+      ids.push(execution.current!.requestId);
+      iterations.push(execution.current!.counts.modelIterations);
+      if (ids.length === 1) {
+        await session.sendCustomMessage(
+          { customType: "environment", content: "targets changed", display: false },
+          { deliverAs: "steer" },
+        );
+      }
+      return response(answer(model));
+    };
+    const execution = installRequestExecution(
+      session,
+      { maxToolCalls: 1, maxModelIterations: 3 },
+      () => {},
+    );
+    try {
+      await session.sendCustomMessage({
+        customType: "environment",
+        content: "initial environment",
+        display: false,
+      });
+      expect(execution.current).toBeUndefined();
+      expect(ids).toHaveLength(0);
+      await session.prompt("inspect");
+      expect(ids).toHaveLength(2);
+      expect(ids[0]).toBe(ids[1]);
+      expect(iterations).toEqual([1, 2]);
+      const request = execution.current!;
+      await session.sendCustomMessage({
+        customType: "environment",
+        content: "reconnected",
+        display: false,
+      });
+      expect(execution.current).toBe(request);
+      expect(ids).toHaveLength(2);
+      await session.prompt("continue");
+      expect(ids[2]).not.toBe(ids[1]);
+      expect(iterations[2]).toBe(1);
+    } finally {
+      await execution.dispose();
+    }
+  }));

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { parseClusterRule } from "../cluster/context-resolver.js";
+import { executionLimitsSchema } from "./execution.js";
 
 const nonBlank = z.string().trim().min(1);
 
@@ -49,3 +50,8 @@ export const sreConfigSchema = z.strictObject({
 
 export type SreConfigFile = z.input<typeof sreConfigSchema>;
 export type ParsedSreConfig = z.output<typeof sreConfigSchema>;
+
+/** Migration contract only, activated with the request pipeline in Slice 6. */
+export const requestSreConfigSchema = sreConfigSchema.omit({ investigation: true }).extend({
+  execution: executionLimitsSchema.default(executionLimitsSchema.parse({})),
+});

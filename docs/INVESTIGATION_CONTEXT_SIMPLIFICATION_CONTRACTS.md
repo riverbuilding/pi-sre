@@ -1,6 +1,6 @@
 # 调查与 Context 状态简化 — 执行契约
 
-状态：Slice 0 验证完成（2026-10-30）；生产仍采用 Phase 4 路径。本文冻结后续 slices 的执行契约，不声明迁移已接线。
+状态：Slice 0 验证完成（2026-10-30），Slice 1 迁移部件及组合验证完成（2026-11-02）；生产仍采用 Phase 4 路径。本文冻结后续 slices 的执行契约，不声明迁移已接线。
 
 依据：设计正文第 1–13 节及 Implementation Slices。历史附录不是实施要求。
 
@@ -24,13 +24,13 @@
 
 ## 请求身份与受维护适配方案
 
-Pi 0.99.0 **没有带来源的“用户请求开始”专用事件**。`message_start` 在下一模型请求之前交付，但无 steering/follow-up 来源；Session 自身按文本维护展示队列，不能用它识别请求（重复文本会歧义）。
+2026-11-03 简化约定：每条用户消息实际开始处理时统一创建新请求和完整额度，包括初始问题、steering 与 follow-up；不按文本或问题语义分类。Pi 的用户 `message_start` 在下一模型请求之前交付，可直接作为边界，无需区分队列来源。适配器不再包装 `agent.steer` / `agent.followUp`，也不再维护消息对象 WeakMap。
 
-Slice 1 使用应用拥有的、集中安装一次的公开 API 适配器：包装 `agent.steer` / `agent.followUp`，以消息对象 WeakMap 标记来源，在同步 `message_start` 订阅中消费；测试验证对象身份保留。初始有效 prompt 的用户消息作为新请求，follow-up 交付时作为新请求；steering 保持原请求。应用 custom 环境消息不创建请求。不得按内容、timestamp 或队列长度猜测来源，不访问 Pi 私有字段。
+steering 与 follow-up 均固定 one-at-a-time，避免多条用户消息在一次模型调用前合并交付。适配器锁定 Session、settings 和 agent 公共属性的两个模式入口，不能仅启动时设置一次。排队本身不创建新身份或消耗额度；新用户消息不取消或接管旧工具调用，旧调用仍按原请求计费并完成收尾。
 
-这是一项明确的受维护集成交付方案，不需要先升级依赖。Slice 1 必须将适配器与请求计数组合验收，覆盖重复文本、取消时清队列、程序入口及消费后的输入。未完成组合验收前不能接入生产。直接低层 agent.prompt/continue 属于内部受控入口，不允许绕过适配器。
+应用环境通知使用 custom 消息，即使通过 steering 交付也不创建请求；空闲通知只追加消息。工具循环、重试、压缩、自动续跑与 MCP 恢复没有新用户消息，不重置身份或额度。
 
-follow-up 固定 one-at-a-time：适配器必须在交付入口强制该模式，并拦截 Session/agent 设置路径，不能仅启动时设置一次。该锁定尚未在生产交付，Slice 1 需验证用户设置无法恢复批处理。
+组合测试覆盖重复文本、多个 steering/follow-up、各模式入口、取消清队列、消费输入及活动/空闲环境消息。直接低层 agent.prompt/continue 属于内部受控入口；生产接线仍留到 Slice 6。
 
 ## 模型迭代与停止
 
@@ -44,7 +44,7 @@ Slice 0 证明 finishTurn 能停止无效工具循环和 abort 能 settled；全
 
 请求仅含 `requestId`、取消信号、dispatch/model iteration 已用计数，以及 queued/active call 集合；不保存问题、假设、结论、Incident 或调查状态。调用保留 Pi `toolCallId`、`requestId`、操作名、原样准确 context、必要参数、原连接身份、取消信号和收尾标记；已派发时增加 dispatch/settlement 时间。调用 ID 按请求组合识别，不假定跨请求唯一。
 
-Slice 1 冻结新配置为 `execution.maxToolCalls`（默认 40，上限 1000）、`execution.maxModelIterations`（默认 80，上限 2000），均为正安全整数。两者独立，不要求大小关系；允许先耗尽工具额度后用剩余迭代解释结果。旧 `investigation.maxToolCalls`、`defaultTimeRange` 删除，无别名。模板移除 investigation；证据库/领域容量随 Slice 6 删除，不转成另一套存储额度。当前 schema 不提前修改。
+Slice 1 冻结新配置为 `execution.maxToolCalls`（默认 40，上限 1000）、`execution.maxModelIterations`（默认 80，上限 2000），均为正安全整数。两者独立，不要求大小关系；允许先耗尽工具额度后用剩余迭代解释结果。旧 `investigation.maxToolCalls`、`defaultTimeRange` 删除，无别名。模板移除 investigation；证据库/领域容量随 Slice 6 删除，不转成另一套存储额度。Slice 1 在独立的 `requestSreConfigSchema` 验证新配置与拒绝旧字段，并提供 `config/pi-sre.request.example.yaml`；生产 schema、loader 和当前模板继续保留旧配置，直到 Slice 6 与执行管线一起原子替换。
 
 实际诊断 MCP dispatch 前同步扣减工具额度：已派发失败、取消、超时不退款；入队、校验拒绝及派发前拒绝不计费。并行共享同一请求余额。启动/用户恢复过程中的工具及 context 发现不计诊断 dispatch，但仅由连接生命周期调用；不能把模型诊断转成“发现”绕过额度。模型可调用的 inventory 工具仍按诊断派发计费。
 
@@ -65,3 +65,7 @@ Slice 1 冻结新配置为 `execution.maxToolCalls`（默认 40，上限 1000）
 ## 交付边界
 
 Slice 0 不改变生产授权、预算、领域模型、配置或命令。Slices 1–5 的组合测试通过后在 Slice 6 一次切换。Pi 内置命令/快捷键/程序入口禁用仍为独立产品缺口，不因本文而视为已经强制实施。安装包、live cluster 和视觉终端验收留给 Slice 7；离线 fixture 不代表这些验收。
+
+Slice 1 记录（2026-11-02）：请求状态、Pi 来源适配、模型流守卫与 staged 配置已实现。针对性离线测试 18/18 通过，覆盖请求身份与计数、并发/失败扣费、未派发拒绝、取消/迟到结果、正常完成、重复文本 follow-up、批处理模式锁定、重试、手动/自动压缩及 before-settle 自动续跑。`npm run verify` 通过：格式、lint、类型检查、47 个测试文件通过/1 跳过，688 个测试通过/7 跳过，构建通过。新部件尚未接入生产；配置名称迁移随 Slice 6 原子生效。
+
+2026-11-03：按统一用户消息边界简化适配器，取代此前“用户 steering 沿用当前请求”与来源标记方案；两个消息队列均逐条交付。新增环境通知回归，验证 custom steering 不刷新额度，空闲通知不启动模型。
