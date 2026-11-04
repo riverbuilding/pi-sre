@@ -1,6 +1,6 @@
 # 调查与 Context 状态简化 — 执行契约
 
-状态：Slice 0 验证完成（2026-10-30），Slices 1–2 迁移部件及组合验证完成（2026-11-02/03）；生产仍采用 Phase 4 路径。本文冻结后续 slices 的执行契约，不声明迁移已接线。
+状态：Slice 0 验证完成（2026-10-30），Slices 1–3 迁移部件及组合验证完成（2026-11-02/03）；生产仍采用 Phase 4 路径。本文冻结后续 slices 的执行契约，不声明迁移已接线。
 
 依据：设计正文第 1–13 节及 Implementation Slices。历史附录不是实施要求。
 
@@ -73,3 +73,11 @@ Slice 1 记录（2026-11-02）：请求状态、Pi 来源适配、模型流守�
 Slice 2 记录（2026-11-03）：单一当前选择、同步 MCP 调用接收及无 work epoch 的选择器已作为迁移部件实现，测试见 `tests/unit/execution/accept-mcp-call.test.ts`。启动严格校验名称，运行时 exact 取交集并保留 unavailable selected。已接收调用固定参数、原连接与局部目标身份；改选不撤销调用，无关 inventory/default 刷新不使其失效。原目标消失、指向变化或原工具失效时拒绝旧排队派发。RequestExecution 可合并单调用取消信号与请求信号，取消单个调用不取消整轮请求。连接接口要求同一对象只代表原连接，工具 descriptor 在有效期间保持稳定且不可变；连接撤销、主动中断与 ready 发布顺序由 Slice 3 的协调层负责，结果来源与失败呈现由 Slice 4 接入。生产接线仍留到 Slice 6。
 
 Slice 2 验证：针对性测试 23/23 通过；`npm run verify` 全部通过（格式、lint、类型检查、48 个测试文件通过/1 跳过、706 个测试通过/7 跳过、构建通过）。未执行安装包、live 或视觉验收。
+
+Slice 3 记录（2026-11-03）：`RequestMcpController` 通过注入连接工厂与发布回调协调生命周期，复用现有发现器；仅供迁移组合，生产仍未切换。发布回调必须完成工具安装、环境与通知，且支持撤下全部工具；发布失败时保持关闭。回调接收的 ready publication 是待安装内容，回调完成前其 accept 仍拒绝执行，controller.snapshot 仍非 ready；不应在发布回调里等待恢复命令或诊断调用成功。完成发布不等待模型确认。工具 descriptor/schema 在连接期内深度冻结，捕获的 handler 永远绑定原连接。
+
+连接失效主动中断已接收调用，包括尚未派发的队列成员。连接取消独立于请求取消：前者返回 error，不关闭 RequestExecution；已派发保留时间且不退款，未派发无 dispatch 时间且不扣费。旧底层 transport 即使忽略 abort，其迟到结果也不能返回成功或重新派发；协调器等应用调用收尾后关闭旧连接，再发现替换连接。发现调用只走生命周期，不通过诊断 accept，不消耗请求额度。恢复本身没有 Pi 或模型入口，不创建请求、不改计数、不唤醒空闲模型、不重建扩展。
+
+Slice 3 针对性验证：`tests/unit/execution/request-mcp-controller.test.ts`、`accept-mcp-call.test.ts`、`request-execution.test.ts` 共 38/38 通过。新增组合覆盖 active/queued、force/断线、异步 publication 屏障、工具/schema/inventory/发布失败、发布中断线、撤工具失败、新 schema、exact/all 和退出。认证及 Kubernetes 操作错误不把健康 transport 标为断线；结果的模型可见封装、脱敏与失败分类由 Slice 4 交付。未执行安装包、live 或视觉验收。
+
+Slice 3 完整门禁：`npm run verify` 通过（格式、lint、类型检查、49 个测试文件通过/1 跳过、728 个测试通过/7 跳过、构建通过）。跳过项为既有 opt-in 检查，不代表 live server 验收。

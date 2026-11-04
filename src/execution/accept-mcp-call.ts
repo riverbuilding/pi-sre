@@ -8,6 +8,8 @@ import type { CallResult, RequestExecution } from "./request-execution.js";
 /** One original connection, never a proxy that routes calls to a replacement. */
 export interface DiagnosticConnection {
   readonly ready: boolean;
+  /** Aborted only when this original connection is retired. */
+  readonly signal?: AbortSignal;
   getTool(name: string): McpToolDescriptor | undefined;
   callTool(
     name: string,
@@ -52,20 +54,35 @@ export function acceptMcpCall(
     if (exactContext !== undefined && selection.target(exactContext) !== target)
       throw new Error("Original MCP target is unavailable or changed.");
   };
-  return request.accept(
-    {
-      toolCallId,
-      operation,
-      ...(exactContext === undefined ? {} : { context: exactContext }),
-      parameters: args,
-      connection,
-    },
-    check,
-    async (signal) => {
-      const value = await connection.callTool(operation, args, signal);
-      check();
-      return value;
-    },
-    signal,
-  );
+  const cancellation = connection.signal
+    ? AbortSignal.any([connection.signal, ...(signal ? [signal] : [])])
+    : signal;
+  return request
+    .accept(
+      {
+        toolCallId,
+        operation,
+        ...(exactContext === undefined ? {} : { context: exactContext }),
+        parameters: args,
+        connection,
+      },
+      check,
+      async (signal) => {
+        const value = await connection.callTool(operation, args, signal);
+        check();
+        return value;
+      },
+      cancellation,
+    )
+    .then((result) => {
+      if (
+        result.status === "cancelled" &&
+        connection.signal?.aborted &&
+        !request.signal.aborted &&
+        !signal?.aborted
+      ) {
+        return { ...result, status: "error", error: connection.signal.reason };
+      }
+      return result;
+    });
 }
