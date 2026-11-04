@@ -1,6 +1,6 @@
 # 调查与 Context 状态简化 — Implementation Slices
 
-状态：Slices 0–3 已完成契约、迁移部件与离线验证；Slices 4–7 待实施，生产尚未切换。编写日期：2026-10-30；更新日期：2026-11-03。
+状态：Slices 0–4 已完成契约、迁移部件与离线验证；Slices 5–7 待实施，生产尚未切换。编写日期：2026-10-30；更新日期：2026-11-03。
 
 依据：[调查与 Context 状态简化：设计方案](./INVESTIGATION_CONTEXT_SIMPLIFICATION.md)正文第 1–13 节。该设计正文优先于其历史附录及旧 Phase 4 契约。本文拆解迁移任务，不声明运行时已经改变；不改写历史验收结果，也不把本次迁移重新编号为 Phase 5。
 
@@ -53,7 +53,7 @@ Slice 0 契约与 Pi 事件验证
 
 Slices 1–5 提供可测试的迁移部件及组合测试；在 Slice 6 前不将部分新语义接入生产。生产仍保持完整旧路径，避免新请求预算、旧 incident 授权、旧证据提交混合执行。若拆成多个 PR，每个合并点都必须保持现有生产行为和安全门禁；Slice 6 一次切换并删除旧路径，不增加兼容配置、双写或长期双管线。
 
-Slices 0–3 的契约与验证记录见下文；Slices 4–7 待实施。通过前置测试不等于生产迁移完成。
+Slices 0–4 的契约与验证记录见下文；Slices 5–7 待实施。通过前置测试不等于生产迁移完成。
 
 ## 3. Slice 0 — 冻结执行契约并验证 Pi 事件边界
 
@@ -186,6 +186,16 @@ Slice 3 交付（2026-11-03）：
 - A/B 同名 Pod 的并发结果仍可在 content 中区分；后续改选不改写历史结果 context 和时间。
 - 长 context、超小允许结果限额、namespace 省略及控制字符等边界不破坏身份表达或限额；敏感数据不进入日志、details、messages 或存储。
 - server 附加字段正常接受；无 evidence ID、领域证据写入、原始响应保留或文件取回承诺。
+
+Slice 4 交付（2026-11-03）：
+
+- `src/mcp/request-tool-bridge.ts` 在 Slice 3 publication 的原连接接收入口之上提供一条工具执行管线，组合同步接收、请求队列、派发与结果呈现；cluster-dependent 与 inventory 工具均走同一请求计费入口。复用发现 schema 和应用只读策略，不检查诊断资源形状，不引入调查记录或领域 ID。
+- 模型可见 `content` 包含完整准确 context、操作、namespace 或 server/context policy 说明、READ ONLY、执行状态、失败类别和截断标记。已派发结果保留客户端 dispatch/settlement UTC 时间，并明确不代表对象观测时间；未派发没有查询时间，context 仅表示请求目标。失败、空结果和取消保持区分。
+- 来源、正文及紧凑 details 共用一个序列化结果字符限额；派发前预留最坏状态/错误/时间封装及截断提示。不能容纳完整身份时拒绝派发并说明身份未展示，不截断或改写身份。正文复用独立于 EvidenceStore 的 normalizer 完成脱敏、条目限制、binary omission 与截断；强制 raw retention disabled，无文件写入、原始数据 details 或读取入口。
+- `src/execution/identity.ts` 将仍有用途的身份校验落在执行模块，检查 display-safe、UTF-8 上限及可原样安全呈现；敏感或带控制字符的身份拒绝执行。`src/execution/errors.ts` 提供请求预算、队列、连接、选择及关闭错误类别，结果呈现不读取 DomainError，也不把 OperationOutcome 改名保留。旧领域文件仍供旧生产路径使用，随 Slice 6 删除。
+- `RequestToolResultBoundary` 由单一 Session 持有，跨连接/工具 publication 共用；Slice 6 须创建一次并注册 `message_end` hook。真实 Pi 会在 handler 与 `tool_result` 前产生 schema/abort 拒绝，且 schema 错误可含原参数；该 hook 在保存 transcript 和下一次模型请求前替换为受限的未执行说明，不转发原错误。不把无有效参数的拒绝伪装成具有实际 context 的查询；已呈现的旧连接结果不会被新工具 publication 误改写。
+- `tests/unit/execution/request-tool-bridge.test.ts` 与真实 Pi fixture 组合覆盖并发同名资源的 A/B 来源、改选、空结果、MCP/tool/认证/授权错误、超时、活动/排队取消、连接替换、未派发预算拒绝、长/转义身份、最小 256 字符限额、条目限制、敏感数据及 binary omission。真实 Pi 验证 schema 拒绝不派发，安全结果同时进入 provider input、Session messages 与 transcript。
+- 针对性离线测试 74/74 通过；`npm run verify` 全部通过（格式、lint、类型检查、50 个测试文件通过/1 跳过、751 个测试通过/7 跳过、构建通过）。生产 composition 保持旧路径；安装包、live 与视觉验收留到 Slice 7。
 
 ## 8. Slice 5 — 当前环境消息、TUI 与 Compaction 恢复
 

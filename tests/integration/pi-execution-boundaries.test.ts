@@ -15,6 +15,12 @@ import { describe, expect, it } from "vitest";
 
 import { installRequestExecution } from "../../src/runtime/request-execution-adapter.js";
 import { createSreResourceLoaderOptions } from "../../src/runtime/resource-loader.js";
+import { RequestMcpController } from "../../src/app/request-mcp-controller.js";
+import {
+  createRequestMcpToolBridge,
+  RequestToolResultBoundary,
+} from "../../src/mcp/request-tool-bridge.js";
+import { scopedPodTool } from "../fixtures/scoped-tool.js";
 
 type Stream = Awaited<ReturnType<AgentSession["agent"]["streamFunction"]>>;
 type Message = Awaited<ReturnType<Stream["result"]>>;
@@ -34,6 +40,7 @@ function response(message: Message): Stream {
 async function fixture(
   run: (session: AgentSession, events: string[]) => Promise<void>,
   beforeSettle?: () => AgentBeforeSettleEventResult,
+  register?: (pi: ExtensionAPI) => void,
 ) {
   const home = await mkdtemp(join(tmpdir(), "pi-sre-boundaries-"));
   const events: string[] = [];
@@ -50,6 +57,7 @@ async function fixture(
         {
           name: "boundary-probe",
           factory: (pi: ExtensionAPI) => {
+            register?.(pi);
             pi.on("input", (event) =>
               event.text === "consumed" ? { action: "handled" } : undefined,
             );
@@ -96,7 +104,7 @@ async function fixture(
   const { session } = await createAgentSessionFromServices({
     services,
     sessionManager: SessionManager.inMemory(home),
-    noTools: "all",
+    noTools: register ? "builtin" : "all",
   });
   session.modelRuntime.registerProvider("boundary-fixture", {
     baseUrl: "http://unused.invalid",
@@ -489,6 +497,99 @@ it("Slice 1: automatic overflow retry preserves request and iteration counts", a
       await execution.dispose();
     }
   }));
+
+it("Slice 4: real Pi publishes bounded source content and guards pre-handler schema errors before model/history", async () => {
+  const contextsTool = { name: "configuration_contexts_list", inputSchema: { type: "object" } };
+  let dispatches = 0;
+  const controller = new RequestMcpController({
+    connect: async () => ({
+      state: "ready",
+      listTools: async () => [contextsTool, scopedPodTool],
+      callTool: async (name) => {
+        if (name === contextsTool.name)
+          return { content: [], structuredContent: { contexts: [{ name: "A", default: false }] } };
+        dispatches++;
+        return { content: [{ type: "text", text: "pod web password=private-result" }] };
+      },
+      close: async () => {},
+    }),
+    publish: () => {},
+  });
+  await controller.restart();
+  expect(controller.snapshot.status).toBe("ready");
+  let execution: ReturnType<typeof installRequestExecution> | undefined;
+  try {
+    await fixture(
+      async (session) => {
+        session.setActiveToolsByName(["pods_list"]);
+        let streams = 0;
+        const modelResults: { id: string; content: unknown }[] = [];
+        session.agent.streamFunction = (model, context) => {
+          const message = answer(model);
+          if (++streams === 1) {
+            message.stopReason = "toolUse";
+            message.content = [
+              { type: "toolCall", id: "valid", name: "pods_list", arguments: { context: "A" } },
+              {
+                type: "toolCall",
+                id: "invalid",
+                name: "pods_list",
+                arguments: { context: "A", labelSelector: { password: "private-argument" } },
+              },
+            ];
+          } else {
+            const results = context.messages.filter((m) => m.role === "toolResult");
+            modelResults.push(...results.map((m) => ({ id: m.toolCallId, content: m.content })));
+          }
+          return response(message);
+        };
+        execution = installRequestExecution(
+          session,
+          { maxToolCalls: 2, maxModelIterations: 4 },
+          () => {},
+        );
+        try {
+          await session.prompt("inspect pods");
+          expect(streams).toBe(2);
+          expect(dispatches).toBe(1);
+          expect(modelResults).toHaveLength(2);
+          const valid = modelResults.find((m) => m.id === "valid")!;
+          const invalid = modelResults.find((m) => m.id === "invalid")!;
+          expect(JSON.stringify(valid.content)).toContain('\\"context\\":\\"A\\"');
+          expect(JSON.stringify(valid.content)).toContain("dispatchedAt");
+          expect(JSON.stringify(invalid.content)).toContain("not-executed");
+          expect(JSON.stringify(invalid.content)).not.toContain("dispatchedAt");
+          expect(JSON.stringify(modelResults)).not.toMatch(/private-result|private-argument/);
+          expect(execution.current?.counts.dispatches).toBe(1);
+          const results = session.messages.filter((m) => m.role === "toolResult");
+          expect(JSON.stringify(results)).not.toMatch(/private-result|private-argument/);
+          expect(results).toHaveLength(2);
+          const stored = session.sessionManager
+            .getBranch()
+            .filter((entry) => entry.type === "message" && entry.message.role === "toolResult");
+          expect(stored).toHaveLength(2);
+          expect(JSON.stringify(stored)).not.toMatch(/private-result|private-argument/);
+        } finally {
+          await execution.dispose();
+        }
+      },
+      undefined,
+      (pi) => {
+        const boundary = new RequestToolResultBoundary();
+        const bridge = createRequestMcpToolBridge(
+          scopedPodTool,
+          controller.snapshot,
+          () => execution?.current,
+          boundary,
+        );
+        pi.registerTool(bridge);
+        pi.on("message_end", (event) => boundary.protectMessage(event));
+      },
+    );
+  } finally {
+    await controller.close();
+  }
+});
 
 it("Slice 1: cancel clears queued follow-ups and aborts calls before the next prompt", async () =>
   fixture(async (session) => {

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { ExecutionQueue } from "../cluster/execution-queue.js";
 import { executionLimitsSchema, type ExecutionLimits } from "../config/execution.js";
+import { ExecutionError } from "./errors.js";
 
 export interface CallIdentity {
   readonly toolCallId: string;
@@ -72,7 +73,8 @@ export class RequestExecution {
     callSignal?: AbortSignal,
   ): Promise<CallResult<T>> {
     this.assertOpen();
-    if (this.#calls.has(identity.toolCallId)) throw new Error("Duplicate active tool call ID.");
+    if (this.#calls.has(identity.toolCallId))
+      throw new ExecutionError("invalid-arguments", "Duplicate active tool call ID.");
     const signal = callSignal ? AbortSignal.any([this.signal, callSignal]) : this.signal;
     signal.throwIfAborted();
     const call = { identity, phase: "queued" as "queued" | "active" };
@@ -83,13 +85,17 @@ export class RequestExecution {
       let onAbort: (() => void) | undefined;
       try {
         const admission = await this.#queue.acquire(() => undefined, signal);
-        if (!admission.ok) throw new Error(`Call not executed: ${admission.category}.`);
+        if (!admission.ok)
+          throw new ExecutionError(
+            admission.category === "stale-scope" ? "scope-unavailable" : admission.category,
+            `Call not executed: ${admission.category}.`,
+          );
         release = admission.release;
         signal.throwIfAborted();
         check();
         signal.throwIfAborted();
         if (this.#dispatches >= this.#limits.maxToolCalls)
-          throw new Error("Request tool dispatch limit reached.");
+          throw new ExecutionError("budget-refused", "Request tool dispatch limit reached.");
         // No await between runtime checks, charging and transport invocation.
         this.#dispatches++;
         call.phase = "active";
@@ -136,6 +142,6 @@ export class RequestExecution {
 
   private assertOpen(): void {
     this.signal.throwIfAborted();
-    if (this.#closed) throw new Error("Request execution has closed.");
+    if (this.#closed) throw new ExecutionError("request-closed", "Request execution has closed.");
   }
 }

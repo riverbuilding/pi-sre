@@ -3,6 +3,7 @@ import { CurrentClusterSelection } from "../cluster/current-selection.js";
 import type { ClusterScopeRule, StartupClusterIntent } from "../cluster/context-resolver.js";
 import { acceptMcpCall, type DiagnosticConnection } from "../execution/accept-mcp-call.js";
 import type { CallResult, RequestExecution } from "../execution/request-execution.js";
+import { ExecutionError } from "../execution/errors.js";
 import type { McpConnection } from "../mcp/connection.js";
 import { ContextDiscoveryError, discoverClusterContexts } from "../mcp/context-discovery.js";
 import { discoverMcpTools, type McpToolDescriptor } from "../mcp/tool-discovery.js";
@@ -102,7 +103,12 @@ export class RequestMcpController {
   }
 
   private invalidate(): void {
-    this.#owned?.abort.abort(new Error("MCP connection interrupted; no valid result obtained."));
+    this.#owned?.abort.abort(
+      new ExecutionError(
+        "transport-unavailable",
+        "MCP connection interrupted; no valid result obtained.",
+      ),
+    );
   }
 
   private async retire(): Promise<void> {

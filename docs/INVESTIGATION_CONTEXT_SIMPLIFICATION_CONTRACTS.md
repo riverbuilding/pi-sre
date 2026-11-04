@@ -1,6 +1,6 @@
 # 调查与 Context 状态简化 — 执行契约
 
-状态：Slice 0 验证完成（2026-10-30），Slices 1–3 迁移部件及组合验证完成（2026-11-02/03）；生产仍采用 Phase 4 路径。本文冻结后续 slices 的执行契约，不声明迁移已接线。
+状态：Slice 0 验证完成（2026-10-30），Slices 1–4 迁移部件及组合验证完成（2026-11-02/03）；生产仍采用 Phase 4 路径。本文冻结后续 slices 的执行契约，不声明迁移已接线。
 
 依据：设计正文第 1–13 节及 Implementation Slices。历史附录不是实施要求。
 
@@ -81,3 +81,11 @@ Slice 3 记录（2026-11-03）：`RequestMcpController` 通过注入连接工厂
 Slice 3 针对性验证：`tests/unit/execution/request-mcp-controller.test.ts`、`accept-mcp-call.test.ts`、`request-execution.test.ts` 共 38/38 通过。新增组合覆盖 active/queued、force/断线、异步 publication 屏障、工具/schema/inventory/发布失败、发布中断线、撤工具失败、新 schema、exact/all 和退出。认证及 Kubernetes 操作错误不把健康 transport 标为断线；结果的模型可见封装、脱敏与失败分类由 Slice 4 交付。未执行安装包、live 或视觉验收。
 
 Slice 3 完整门禁：`npm run verify` 通过（格式、lint、类型检查、49 个测试文件通过/1 跳过、728 个测试通过/7 跳过、构建通过）。跳过项为既有 opt-in 检查，不代表 live server 验收。
+
+Slice 4 记录（2026-11-03）：`createRequestMcpToolBridge` 消费 Slice 3 publication 的原连接 accept，结果直接供 Pi 使用，不经过 EvidenceStore。`content` 内来源包含操作、完整 context、namespace/省略说明、执行状态、适用时间和截断情况；details 仅含状态、截断及安全错误类别。未派发 context 是请求目标，没有查询时间；已派发时间为客户端执行区间，不表示 Kubernetes 对象的观测时间。正文、来源及 details 的完整序列化结果共用 `maxTextChars`，派发前预留最坏来源和截断提示；无法完整、安全地呈现身份时不派发，拒绝说明可隐藏身份但不改写它。raw retention 只允许 disabled；敏感正文脱敏，二进制省略，无临时原始文件、领域写入或取回入口。
+
+身份与执行错误归属 `src/execution/identity.ts`、`errors.ts`，新路径不引用 domain validation/errors。只保留执行需要的 display-safe/UTF-8 身份校验、取消、预算和失败分类。旧生产路径及其领域代码保持到 Slice 6 原子删除。
+
+Pi 0.99.0 的 `prepareToolCall` 会在 schema/abort 拒绝后跳过 handler 与 `afterToolCall`，不能仅用 `tool_result` 覆盖全部结果。`RequestToolResultBoundary.protectMessage` 必须在 Session 初始化时注册到 `message_end`；同一个 boundary 跨连接替换及工具 publication 共用。由 boundary 标记过的结果保持原来源；其余批准工具的 Pi 前置拒绝被替换为受限的未执行说明，原 schema 错误及参数不进入工具结果历史。真实 Pi fixture 验证替换先于 provider input 与 SessionManager persistence。模型自己生成的 assistant 工具参数不属于服务端响应脱敏范围。
+
+Slice 4 针对性离线验证 74/74 通过；完整 `npm run verify` 通过（50 个测试文件通过/1 跳过、751 个测试通过/7 跳过、构建通过）。生产尚未接线；Slice 6 同时接入 bridge 与 message_end boundary。安装包、live 与视觉验收未执行。

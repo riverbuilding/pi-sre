@@ -4,6 +4,8 @@ import { prepareMcpToolArguments } from "../runtime/tool-call-preparation.js";
 import { allowsMcpToolExecution } from "../runtime/tool-execution-policy.js";
 import { prepareMcpToolSchema } from "../runtime/tool-policy.js";
 import type { CallResult, RequestExecution } from "./request-execution.js";
+import { ExecutionError } from "./errors.js";
+import { isPresentableIdentity } from "./identity.js";
 
 /** One original connection, never a proxy that routes calls to a replacement. */
 export interface DiagnosticConnection {
@@ -28,31 +30,58 @@ export function acceptMcpCall(
   parameters: unknown,
   signal?: AbortSignal,
 ): Promise<CallResult<unknown>> {
-  if (!connection.ready) throw new Error("Kubernetes MCP is unavailable; call not executed.");
+  if (!connection.ready)
+    throw new ExecutionError(
+      "transport-unavailable",
+      "Kubernetes MCP is unavailable; call not executed.",
+    );
   const descriptor = connection.getTool(operation);
   if (!descriptor || descriptor.name !== operation)
-    throw new Error("Kubernetes MCP tool is unavailable; call not executed.");
+    throw new ExecutionError(
+      "transport-unavailable",
+      "Kubernetes MCP tool is unavailable; call not executed.",
+    );
   const schema = prepareMcpToolSchema(descriptor);
   const args = prepareMcpToolArguments(schema.policy, parameters);
   if (!args || !schema.validateArguments(args) || !allowsMcpToolExecution(operation, args))
-    throw new Error("Invalid Kubernetes MCP arguments; call not executed.");
+    throw new ExecutionError(
+      "invalid-arguments",
+      "Invalid Kubernetes MCP arguments; call not executed.",
+    );
+  for (const field of ["context", "namespace", "container"]) {
+    if (args[field] !== undefined && !isPresentableIdentity(args[field]))
+      throw new ExecutionError(
+        "invalid-arguments",
+        "Invalid Kubernetes MCP identity; call not executed.",
+      );
+  }
   const context = schema.policy.clusterDependent ? args.context : undefined;
   if (
     schema.policy.clusterDependent &&
     (typeof context !== "string" || !selection.permits(context))
   )
-    throw new Error("Context is outside the current selection; call not executed.");
+    throw new ExecutionError(
+      "scope-unavailable",
+      "Context is outside the current selection; call not executed.",
+    );
   const exactContext = typeof context === "string" ? context : undefined;
   const target = exactContext === undefined ? undefined : selection.target(exactContext);
   if (exactContext !== undefined && !target)
-    throw new Error("Selected context is unavailable; call not executed.");
+    throw new ExecutionError(
+      "scope-unavailable",
+      "Selected context is unavailable; call not executed.",
+    );
 
   const check = () => {
-    if (!connection.ready) throw new Error("Original MCP connection is unavailable.");
+    if (!connection.ready)
+      throw new ExecutionError("transport-unavailable", "Original MCP connection is unavailable.");
     if (connection.getTool(operation) !== descriptor)
-      throw new Error("Original MCP tool is unavailable.");
+      throw new ExecutionError("transport-unavailable", "Original MCP tool is unavailable.");
     if (exactContext !== undefined && selection.target(exactContext) !== target)
-      throw new Error("Original MCP target is unavailable or changed.");
+      throw new ExecutionError(
+        "scope-unavailable",
+        "Original MCP target is unavailable or changed.",
+      );
   };
   const cancellation = connection.signal
     ? AbortSignal.any([connection.signal, ...(signal ? [signal] : [])])
