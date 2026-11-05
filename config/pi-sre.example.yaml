@@ -2,7 +2,6 @@
 # This template intentionally enables diagnostic, read-only operation only.
 kubernetes:
   # Startup defaults to live * when this explicit user choice and CLI choices are unset.
-  # Phase 3 Slice 1 resolves sets/all; multi-target diagnostic routing awaits Slice 2.
   # Same choices as --clusters: exact names or sole quoted '*'; no duplicates.
   # Unknown exact names block initial selection without fallback. CLI overrides this rule.
   # contexts: [staging, production]
@@ -16,9 +15,10 @@ kubernetes:
     startupTimeoutMs: 15000
     toolCallTimeoutMs: 30000
 
-investigation:
-  defaultTimeRange: 30m
+execution:
+  # Per user message when processing actually begins; retries share these limits.
   maxToolCalls: 40
+  maxModelIterations: 80
 
 safety:
   mode: read-only

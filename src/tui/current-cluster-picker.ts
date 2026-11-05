@@ -2,7 +2,7 @@ import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import type { CurrentClusterSelection } from "../cluster/current-selection.js";
 import { pickClusterRule } from "./cluster-picker.js";
 
-/** Staged migration picker: active work never prevents selecting future calls. */
+/** Active work never prevents selecting future calls. */
 export async function pickCurrentClusters(
   ui: Pick<ExtensionUIContext, "select">,
   selection: CurrentClusterSelection,

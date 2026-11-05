@@ -1,11 +1,13 @@
 import { mkdir } from "node:fs/promises";
-import { createClusterScopeDescription } from "../runtime/cluster-guidance.js";
+import { captureEnvironment, environmentDescription } from "../runtime/request-environment.js";
 
 import { InteractiveMode } from "@earendil-works/pi-coding-agent";
 
+import { loadSreConfig, SreConfigError } from "../config/loader.js";
 import type { SreConfig } from "../config/config.js";
 import { createStartupSelection, type StartupClusterIntent } from "../cluster/context-resolver.js";
-import { McpController } from "./mcp-controller.js";
+import { RequestMcpController } from "./request-mcp-controller.js";
+import { ManagedMcpConnection } from "../mcp/connection.js";
 import type { ToolDiscoveryReport } from "../mcp/tool-discovery.js";
 import { createSreRuntime, PI_AGENT_DIR_ENV } from "../runtime/pi-runtime.js";
 import type { SreRuntime } from "../runtime/sre-runtime.js";
@@ -27,7 +29,7 @@ export class SreApplication {
     // run() observes cleanup failures; signal callbacks must not float rejections.
     void this.close().catch(() => undefined);
   };
-  private readonly mcpController: McpController;
+  private readonly mcpController: RequestMcpController;
   private closePromise: Promise<void> | undefined;
   private started = false;
   private previousPiAgentDir: string | undefined;
@@ -41,16 +43,35 @@ export class SreApplication {
     this.startupClusterIntent = Object.freeze(
       intent.rule === undefined ? {} : { rule: createStartupSelection(intent).rule },
     );
-    this.mcpController = new McpController(
-      config,
-      this.cancellation.signal,
-      undefined,
-      this.startupClusterIntent,
-    );
+    let initial = true;
+    this.mcpController = new RequestMcpController({
+      connect: async (signal) => {
+        const settings = initial
+          ? config
+          : await loadSreConfig({
+              env: {
+                ...process.env,
+                PI_SRE_HOME: config.paths.home,
+                PI_SRE_CONFIG: config.paths.config,
+              },
+            });
+        initial = false;
+        for (const key of ["home", "auth", "models", "settings", "sessions", "logs"] as const) {
+          if (settings.paths[key] !== config.paths[key]) {
+            throw new SreConfigError("Session paths changed; restart pi-sre.");
+          }
+        }
+        return ManagedMcpConnection.connect(settings.kubernetes.mcp, signal);
+      },
+      publish: (state) => this.runtime?.publishMcp(state),
+      signal: this.cancellation.signal,
+      intent: this.startupClusterIntent,
+      ...(config.kubernetes.contexts ? { configuredRule: config.kubernetes.contexts } : {}),
+    });
   }
 
-  get clusterContext() {
-    return this.mcpController.clusterContext;
+  get selection() {
+    return this.mcpController.selection;
   }
 
   get toolDiscoveryReport(): ToolDiscoveryReport | undefined {
@@ -84,12 +105,15 @@ export class SreApplication {
   private async initialize(): Promise<void> {
     await mkdir(this.config.paths.home, { recursive: true, mode: 0o700 });
     if (this.cancellation.signal.aborted) return;
-    const state = await this.mcpController.restart(false, true);
+    await this.mcpController.restart();
+    const state = this.mcpController.snapshot;
     const startupDiagnostics = this.startupDiagnostics;
     const report = this.mcpController.discoveryReport;
     if (report) {
       const counts = { exposed: 0, deferred: 0, rejected: 0 };
-      for (const decision of report.decisions) counts[decision.status]++;
+      for (const decision of report.decisions) {
+        counts[decision.status]++;
+      }
       startupDiagnostics.push({
         type: "info",
         message: `Kubernetes MCP discovery: ${counts.exposed} approved, ${counts.deferred} deferred, ${counts.rejected} rejected. ${state.tools.length} read-only tools registered.`,
@@ -97,24 +121,16 @@ export class SreApplication {
     } else {
       startupDiagnostics.push({ type: "warning", message: state.message });
     }
-    const scope = this.mcpController.clusterContext.state;
     startupDiagnostics.push({
       type:
-        scope.status === "resolved" &&
-        scope.resolution.status === "resolved" &&
-        scope.resolution.available.length > 0
+        state.status === "ready" && this.selection?.availability.available.length
           ? "info"
           : "warning",
-      message: scope.status === "resolved" ? createClusterScopeDescription(scope) : scope.message,
+      message: environmentDescription(captureEnvironment(state)),
     });
     if (this.cancellation.signal.aborted) return;
     try {
-      this.runtime = await createSreRuntime(
-        this.config,
-        state.tools,
-        () => this.close(),
-        this.mcpController,
-      );
+      this.runtime = await createSreRuntime(this.config, this.mcpController, () => this.close());
     } catch (error) {
       throw new SreApplicationError("Pi SRE runtime startup failed.", error);
     }

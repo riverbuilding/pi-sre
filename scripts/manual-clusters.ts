@@ -75,7 +75,7 @@ async function main(): Promise<void> {
           configFile: "kubernetes-mcp.toml",
         },
       },
-      investigation: { defaultTimeRange: "30m", maxToolCalls: 40 },
+      execution: { maxToolCalls: 40, maxModelIterations: 80 },
       safety: { mode: "read-only" },
     }),
     { mode: 0o600 },
@@ -107,17 +107,13 @@ async function main(): Promise<void> {
   console.log(
     manyContexts
       ? "Fixture: 45 contexts (context-001 through context-045).\n" +
-          "Run /clusters --status: expect three pages with 20, 20, and 5 names.\n" +
-          "Try Next page, Previous page, select a name to inspect it, then Escape or Close status.\n" +
-          "Run /clusters context-001, then /clusters --status to inspect outside-selection labels.\n" +
-          "Run /clusters --all to restore live all. No model login or Kubernetes access is needed.\n"
+          "Run /clusters --status to inspect complete current membership.\n" +
+          "Run /clusters context-001, then /clusters --all.\n"
       : "Try /clusters --status, /clusters (toggle alpha/beta, Apply or Cancel),\n" +
           "/clusters alpha, /clusters beta, /clusters --all, and /mcp_restart --force.\n" +
-          "Every diagnostic call must supply one exact selected context.\n" +
-          "For Phase 4: /clusters alpha, /incident new Inspect alpha, /clusters beta,\n" +
-          "/incident (current alpha / next beta), /evidence, then /incident new Inspect beta.\n" +
-          "Repeat at normal/narrow widths; see docs/PHASE4_ACCEPTANCE.md for the visual gate.\n" +
-          "No model login is needed for these commands. Use /login for model-driven fixture queries.\n",
+          "Selection affects newly accepted calls, including during active work.\n" +
+          "Each diagnostic call must supply one exact available context.\n" +
+          "No model login is needed for commands. Use /login for fixture queries.\n",
   );
   if (!prepareOnly) await run(process.execPath, [executable], workspace, env);
 }

@@ -2,7 +2,7 @@
 
 Pi SRE is an independent, read-only TypeScript application for Kubernetes incident diagnosis. It reuses Pi as its agent runtime and Kubernetes MCP Server as its Kubernetes access boundary.
 
-Phases 1–3 are implemented and accepted with read-only diagnosis, exact sets, default live `*`, unified `/clusters`, and required model-supplied context through one agent/one MCP server. Phase 4 Slices 0–6 implement Investigation Domain, session-bound incident authority, automatic evidence capture and per-incident dispatch budgets, and public inspection/interpretation tools and commands. Slice 7 automated acceptance and installed-package/live-cluster smoke pass; visual terminal acceptance remains pending in docs/PHASE4_ACCEPTANCE.md. Phase 5 separately plans opt-in, human-approved controlled operations. Read-only remains the default; autonomous remediation is outside scope.
+The investigation/context simplification Slices 0–6 are implemented. Production uses Pi messages for diagnosis and request-scoped execution limits, one current exact/live-all context selection, one MCP connection, bounded redacted tool results and environment messages. There is no Incident, EvidenceStore, hypothesis store or investigation archive. Slice 7 full acceptance is pending. Phase 1–4 acceptance records remain historical; Phase 4 visual acceptance remains pending as recorded at the time. Phase 5 separately plans opt-in, human-approved controlled operations. Read-only remains the default; autonomous remediation is outside scope.
 
 ## Core Architecture
 
@@ -18,16 +18,15 @@ Kubernetes MCP Server
 Kubernetes API
 ```
 
-Pi owns the agent loop and terminal UI. Pi SRE owns operational scope, investigation state, evidence, hypotheses, safety policy, and SRE-specific user experience. Kubernetes MCP Server owns Kubernetes API access.
+Pi owns the agent loop and terminal UI. Pi SRE owns current context selection, request budgets, cancellation, MCP lifecycle, result provenance, safety policy, and SRE-specific user experience. Diagnosis and interpretation live in Pi messages. Kubernetes MCP Server owns Kubernetes API access.
 
 ## Repository Map
 
-- `src/app/` — application composition and investigation control
+- `src/app/` — application composition and MCP connection coordination
 - `src/runtime/` — Pi runtime integration, prompts, resource loading, and tool policy
 - `src/mcp/` — MCP process lifecycle, client, tool discovery, bridge, and result normalization
 - `src/cluster/` — explicit cluster-context state and startup resolution
-- `src/domain/` — Pi-independent incident, scope, evidence, target, and hypothesis models
-- `src/investigation/` — evidence and hypothesis services
+- `src/execution/` — request identity, budgets, synchronous call acceptance, cancellation and identity validation
 - `src/config/` — configuration schema and loading
 - `src/tui/` — Pi TUI commands, extension registration, and status widgets
 - `skills/kubernetes/` — diagnostic knowledge, not Kubernetes tool implementations
@@ -48,29 +47,34 @@ npm run build
 
 ## Architectural Invariants
 
-- Keep `AgentSession` and `Incident` as separate abstractions.
+- Use one AgentSession and initialize extensions once; do not restore session/incident binding or reload recovery. Pi entry-point restrictions remain a separate delivery gap; see docs/TUI_COMMAND_VISIBILITY_AND_RESTRICTIONS.md.
 - Do not implement Kubernetes API tools in Pi SRE; use Kubernetes MCP Server through the MCP bridge.
-- Keep evidence (observed facts) distinct from hypotheses (interpretation).
+- Distinguish observations from hypotheses in messages; do not create independent domain stores or conclusion tools.
 - Do not make the repository working directory the application's operational context.
 - Do not add generic shell or `kubectl` access as a path around MCP policy.
 
 ## Kubernetes Context Rules
 
-- Discover available contexts through the MCP `configuration_contexts_list` tool.
-- Target startup precedence is explicit CLI rule, explicitly configured `kubernetes.contexts` exact/all rule, then live `*`. With no user choice, default to live `*`; MCP default metadata never narrows it. Invalid explicit names fail without wildcard fallback. Configuration and CLI share exact-set/sole-wildcard validation; the old `defaultCluster` field is removed. Slice 1 implements rule state/startup/CLI; the unified /clusters command and staged exact/all picker have been brought forward. Multi-target routing and full scope presentation remain later slices.
-- The user owns the scope rule: exact context set or live `*`, session-owned in Phase 3 and incident-owned in Phase 4. The application resolves it against validated inventory; the model can explore only within that resolution. Patterns and active-incident rule amendment are later extensions.
-- Phase 3 owns a session rule: idle `/clusters` selection changes subsequent calls immediately; no incident model is required. Phase 4 captures an immutable incident rule and makes selection apply to the next incident while one is active. Inventory refresh can change live `*` resolution without amending its rule; it never expands an exact set. Replace the singular command without an alias.
-- Every cluster-dependent operation requires one exact model-supplied `context` for all rules, including singleton sets. Preserve and validate it; never hide, infer, inject, or overwrite it. Reject missing/out-of-scope values before dispatch. Never route through a mutable global current context.
-- Reconnect blocks dispatch, invalidates old generations, rediscovers tools and contexts, re-resolves the unchanged rule, and publishes state/tools and added/removed notices before dispatch resumes. Late invalidated results cannot return fresh success; Phase 4 additionally rejects stale evidence commits.
-- Inventory availability, incident permission, and investigation coverage are distinct. Keep per-context failures and evidence origin explicit; new wildcard members start as not checked.
-- Never modify kubeconfig or run `kubectl config use-context`. If inventory/rule resolution is unavailable or has no usable target, block affected calls without implicit fallback.
+- Discover contexts through MCP `configuration_contexts_list`. Startup precedence: CLI rule, explicit `kubernetes.contexts`, then live `*`. MCP default metadata never narrows the selection. Unknown explicit names fail without fallback. Configuration and CLI share exact-set/sole-wildcard validation.
+- The user owns one current exact/all selection. All follows validated inventory; exact retains unavailable selected names and executes only the available intersection. New inventory names never expand exact intent. Availability does not imply authentication, health or inspection.
+- Every cluster-dependent call requires one exact model-supplied `context`, including singleton selections. Preserve and validate it; never infer, inject or overwrite it. No mutable global current context.
+- Acceptance synchronously validates and fixes request/call identity, context, arguments and original connection before queueing. Later selection changes affect only new calls. Dispatch checks original request/cancellation, connection, tool and target, without reauthorizing against a later selection.
+- Reconnect blocks dispatch, withdraws tools, invalidates/settles old calls, discovers tools/schema/contexts, publishes matching tools/environment/notices, then opens dispatch. Old calls never migrate or replay; late invalidated results cannot publish success. Reconnect does not refresh request budgets or rebuild extensions.
+- Never modify kubeconfig or run `kubectl config use-context`. Missing inventory or usable targets blocks affected calls without fallback.
+
+## Request Execution
+
+- Each user message actually beginning processing gets an independent identity and `execution.maxToolCalls`/`execution.maxModelIterations` limits. Steering and follow-up queues are fixed one-at-a-time. Environment custom messages, retries, compaction, continuation and MCP recovery do not reset limits.
+- Charge dispatch synchronously immediately before MCP invocation; dispatched failures/timeouts/cancellation are not refunded. Pre-dispatch refusal is free. Model iterations have an independent enforced ceiling.
+- Normal completion settles accepted calls. Explicit cancellation blocks queued dispatch and attempts active abort, returning matching outcomes once; old calls never transfer to a later request.
+- Do not add investigation configuration aliases, evidence quotas, structured investigation archives or transcript-derived execution authority.
 
 ## Tool Usage Rules
 
 - Expose only approved diagnostic MCP tools in the default read-only profile. The separately planned Phase 5 controlled profile requires its explicit capability and per-call approval boundary.
 - Keep tool handling thin: validate input, resolve scope, call MCP, normalize the response, and return a compact result.
 - Enforce read-only behavior in Pi SRE, the MCP server configuration, and Kubernetes RBAC.
-- Preserve large raw responses outside the model context and return concise, relevant summaries.
+- Return bounded, redacted summaries with exact provenance in model-visible content. Raw retention stays disabled; no raw files or truncated-content retrieval.
 
 ## Diagnosis vs. Remediation
 
@@ -78,14 +82,14 @@ Phases 1–4, including context selection and Investigation Domain, are diagnosi
 
 ## Safety Rules
 
-- Display the effective session/incident scope rule, resolved contexts/availability, namespace policy, and actual execution profile continuously. Show the exact context on each call; Phase 4 adds next selection separately when different.
+- Continuously display current exact/all selection, available targets, unavailable selected names, namespace policy and actual execution profile. Show exact context per call; no effective/next scope.
 - Do not log credentials, tokens, kubeconfig contents, secrets, or raw sensitive resource data.
 - Treat an unavailable MCP server, unavailable Kubernetes authentication, and a failed Kubernetes operation as distinct states.
 - Do not claim access to infrastructure when MCP is unavailable.
 
 ## Testing
 
-- Unit-test domain logic and cluster-context resolution without a live cluster.
+- Unit-test request execution, current selection and cluster-context resolution without a live cluster.
 - Integration-test MCP protocol and tool-bridge behavior with deterministic fixtures.
 - Keep real-cluster tests in explicit end-to-end or evaluation suites.
 
@@ -103,7 +107,7 @@ A change is complete when it preserves the read-only safety model, keeps cluster
 
 - `docs/DESIGN.md` is the authoritative V0.1 scope and architecture.
 - `README.md` documents local setup and currently available project commands.
-- `docs/PHASE3_IMPLEMENTATION_SLICES.md` migrates completed Phase 2 context selection without requiring incidents/evidence. Phase 4 owns Investigation Domain; Phase 5 owns tool parity.
+- `docs/INVESTIGATION_CONTEXT_SIMPLIFICATION_IMPLEMENTATION_SLICES.md` tracks the current migration and acceptance. Phase 3/4 plans are historical; Phase 5 owns future tool parity.
 - `docs/MULTI_CLUSTER_INVESTIGATION_PLAN.md` records the accepted exact-set/live-wildcard target, reconnect contracts, and later extensions; it is not a claim of runtime implementation.
 - `config/*.example.*` contains versioned, safe configuration templates.
 

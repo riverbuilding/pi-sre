@@ -1,82 +1,32 @@
-import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { RequestMcpController } from "../app/request-mcp-controller.js";
+import { captureEnvironment, environmentDescription } from "../runtime/request-environment.js";
 import { CommandFeedback } from "./command-feedback.js";
-import { createInvestigationScopeDescription } from "../runtime/investigation-guidance.js";
-import { createClusterScopeDescription } from "../runtime/cluster-guidance.js";
-import type { McpController } from "../app/mcp-controller.js";
 
-/** Pi's public registerTool refreshes the registry; hidden tools are unreachable. */
 export function registerMcpRecovery(
   pi: ExtensionAPI,
-  controller: McpController,
+  controller: RequestMcpController,
   feedback = new CommandFeedback(),
 ): void {
-  const registered = new Map<string, ToolDefinition>();
-  const unsubscribe = controller.subscribe(({ tools }) => {
-    const names = new Set(tools.map((tool) => tool.name));
-    for (const [name, tool] of registered) {
-      if (!names.has(name)) pi.registerTool({ ...tool, exposure: "hidden" });
-    }
-    for (const tool of tools) {
-      registered.set(tool.name, tool);
-      pi.registerTool(tool);
-    }
-  });
-  pi.on("session_shutdown", () => {
-    unsubscribe();
-  });
   pi.registerCommand("mcp_restart", {
     description: "Retry Kubernetes MCP access (--force replaces a healthy connection)",
     handler: async (args, ctx) => {
       const argument = args.trim();
-      const report = feedback.begin(
-        argument === "--force" ? "/mcp_restart --force" : "/mcp_restart",
-        ctx.ui,
-      );
+      const report = feedback.begin("/mcp_restart", ctx.ui);
       if (argument !== "" && argument !== "--force") {
         report("Usage: /mcp_restart [--force]", "warning");
         return;
       }
-      const disposition = controller.restartDisposition(argument === "--force");
-      if (disposition === "closed") {
-        report("Restart refused; MCP controller is shutting down or closed.", "warning");
-        return;
-      }
-      if (disposition !== "retained") {
-        report(
-          disposition === "shared"
-            ? "Joining MCP restart already in progress…"
-            : disposition === "forced"
-              ? "Replacing MCP connection (--force)…"
-              : "Attempting MCP recovery…",
-        );
-      }
+      report(argument === "--force" ? "Replacing MCP connection…" : "Checking MCP access…");
       try {
-        const state = await controller.restart(argument === "--force");
-        const effective = controller.investigation.currentScope();
-        const scope = effective.ok
-          ? controller.investigation.clusterState()
-          : controller.clusterContext.state;
-        const prefix =
-          state.status !== "ready"
-            ? "Restart failed or interrupted; MCP unavailable."
-            : disposition === "retained"
-              ? "MCP already healthy; existing connection retained."
-              : "Restart completed; MCP transport ready.";
+        await controller.restart(argument === "--force");
+        const state = controller.snapshot;
         report(
-          `${prefix} ${state.message}\n${effective.ok ? createInvestigationScopeDescription(controller.investigation) : createClusterScopeDescription(scope)}`,
-          state.status === "ready" &&
-            scope.status === "resolved" &&
-            scope.resolution.status === "resolved" &&
-            scope.resolution.available.length > 0
-            ? "info"
-            : "warning",
+          `${state.message}\n${environmentDescription(captureEnvironment(state))}`,
+          state.status === "ready" ? "info" : "warning",
         );
       } catch {
-        // Unexpected failures must be acknowledged without exposing transport diagnostics.
-        report(
-          "Restart failed unexpectedly. Check MCP configuration and retry /mcp_restart.",
-          "error",
-        );
+        report("MCP recovery failed. Check configuration and retry /mcp_restart.", "error");
       }
     },
   });

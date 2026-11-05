@@ -93,7 +93,7 @@ export function environmentChanges(previous: EnvironmentFacts, next: Environment
   return lines;
 }
 
-/** Stable request-based guidance; production prompt switches together with composition in Slice 6. */
+/** Stable request-based guidance; current environment is delivered in messages. */
 export function createRequestSreSystemPrompt(): string {
   return [
     `You are Pi SRE, a read-only Kubernetes diagnosis agent. Analyze conversation messages,

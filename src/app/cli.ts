@@ -70,11 +70,9 @@ Use /mcp_restart in the TUI to retry Kubernetes MCP access.
 Use /clusters to select one or more contexts in a staged picker, /clusters --all
 for live all, /clusters <exact-name> for one context, and /clusters --status to
 report scope, read-only mode, and MCP availability. Apply commits the picker draft.
-An open incident keeps its rule; selection changes apply to the next incident.
-Use /incident to inspect state or /incident new <question> to start another while idle.
-Use /evidence [<id> | --cursor <cursor>] to inspect stored observations without Kubernetes calls.
-Successful diagnostics return stored evidence IDs. Hypotheses and conclusions are local
-interpretation, not repairs. State survives compaction/reload and same-process resume;
-unarchived investigation state is lost on process exit and cannot be restored from prose.
+Selection changes affect newly accepted calls immediately, including during active work.
+Each delivered user message has independent execution.maxToolCalls and
+execution.maxModelIterations limits. Results and reasoning live in Pi messages;
+there is no independent evidence store or investigation archive. Compaction is lossy.
 `;
 }

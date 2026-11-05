@@ -12,7 +12,7 @@ import { pickCurrentClusters } from "./current-cluster-picker.js";
 
 export const requestEnvironmentType = "pi-sre-environment";
 
-/** Staged Slice 5 publisher. Install once; publish after tools, before the MCP ready barrier.
+/** Current environment publisher. Install once; publish after tools, before the MCP ready barrier.
  * Owns only the latest comparison snapshot, never an event list or transcript-derived authority.
  */
 export function registerRequestEnvironment(pi: ExtensionAPI) {

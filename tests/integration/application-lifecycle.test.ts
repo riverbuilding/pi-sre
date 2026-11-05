@@ -1,5 +1,4 @@
-import { withoutInvestigationTools } from "../fixtures/investigation-tools.js";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,6 +7,7 @@ import type * as PiAgent from "@earendil-works/pi-coding-agent";
 import type { AgentSessionRuntime } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { installOfflineProvider } from "../fixtures/offline-provider.js";
 import { SreApplication } from "../../src/app/application.js";
 import { createApplicationPaths, type SreConfig } from "../../src/config/config.js";
 import * as runtimeFactory from "../../src/runtime/pi-runtime.js";
@@ -36,6 +36,9 @@ vi.mock("@earendil-works/pi-coding-agent", async (importOriginal) => {
       };
       async init(): Promise<void> {
         process.on("SIGTERM", this.onTerm);
+        await this.runtime.session.bindExtensions({
+          uiContext: this.runtime.session.extensionRunner.getUIContext(),
+        });
       }
       run(): Promise<void> {
         return ui.run(this.runtime);
@@ -80,13 +83,13 @@ describe("application lifecycle with real Pi and managed MCP", () => {
         mcp: {
           transport: "stdio",
           command: process.execPath,
-          args: ["--import", "tsx", fixture, scenario, pidPath],
+          args: ["--import", import.meta.resolve("tsx"), fixture, scenario, pidPath],
           cwd: process.cwd(),
           startupTimeoutMs: 2_000,
           toolCallTimeoutMs: 10_000,
         },
       },
-      investigation: { defaultTimeRange: "30m", maxToolCalls: 40 },
+      execution: { maxToolCalls: 40, maxModelIterations: 80 },
       safety: { mode: "read-only" },
       results: DEFAULT_RESULT_POLICY,
     };
@@ -109,9 +112,7 @@ describe("application lifecycle with real Pi and managed MCP", () => {
 
   it("starts approved tools and exits without a managed child", async () => {
     ui.run.mockImplementation(async (runtime) => {
-      expect(withoutInvestigationTools(runtime.session.getActiveToolNames())).toEqual([
-        "configuration_contexts_list",
-      ]);
+      expect(runtime.session.getActiveToolNames()).toEqual(["configuration_contexts_list"]);
       expect(runtime.session.systemPrompt).toContain("read-only");
     });
     await new SreApplication(config()).run();
@@ -122,7 +123,7 @@ describe("application lifecycle with real Pi and managed MCP", () => {
   it("opens a usable session without tools when the MCP executable is missing", async () => {
     const settings = config();
     ui.run.mockImplementation(async (runtime) => {
-      expect(withoutInvestigationTools(runtime.session.getActiveToolNames())).toEqual([]);
+      expect(runtime.session.getActiveToolNames()).toEqual([]);
     });
     await new SreApplication({
       ...settings,
@@ -135,11 +136,11 @@ describe("application lifecycle with real Pi and managed MCP", () => {
         startupDiagnostics: [
           expect.objectContaining({
             type: "warning",
-            message: expect.stringContaining("tools are unavailable"),
+            message: expect.stringContaining("/mcp_restart"),
           }),
           expect.objectContaining({
             type: "warning",
-            message: expect.stringContaining("/mcp_restart"),
+            message: expect.stringContaining("MCP: unavailable"),
           }),
         ],
       }),
@@ -179,7 +180,22 @@ describe("application lifecycle with real Pi and managed MCP", () => {
           throw new Error("Nested tool execution is unused in this test.");
         },
       };
-      const call = tool.execute("active-call", {}, caller.signal, undefined, context);
+      await runtime.session.bindExtensions({
+        uiContext: runtime.session.extensionRunner.getUIContext(),
+      });
+      await installOfflineProvider(runtime.session, (_context, iteration) =>
+        iteration === 0
+          ? [
+              {
+                type: "toolCall",
+                id: "active-call",
+                name: "configuration_contexts_list",
+                arguments: {},
+              },
+            ]
+          : [{ type: "text", text: "done" }],
+      );
+      const running = runtime.session.prompt("Inspect contexts");
       await expect
         .poll(async () => {
           try {
@@ -191,7 +207,8 @@ describe("application lifecycle with real Pi and managed MCP", () => {
         })
         .toBe("started");
       process.emit("SIGINT");
-      const result = await call;
+      await running;
+      const result = runtime.session.messages.find((message) => message.role === "toolResult");
       expect(result).toMatchObject({ isError: true });
       expect(caller.signal.aborted).toBe(false);
       const later = await tool.execute("later-call", {}, caller.signal, undefined, context);
@@ -201,6 +218,170 @@ describe("application lifecycle with real Pi and managed MCP", () => {
     await ui.run.mock.results[0]?.value;
     await expectChildExited();
   });
+  it("uses the production pipeline for repeated queries, safe Pi rejections and independent request limits", async () => {
+    ui.run.mockImplementation(async (runtime) => {
+      const session = runtime.session;
+      const originalSession = session;
+      expect(session.getActiveToolNames().sort()).toEqual([
+        "configuration_contexts_list",
+        "events_list",
+        "namespaces_list",
+        "pods_get",
+        "pods_list",
+        "pods_log",
+      ]);
+      expect(
+        session.extensionRunner
+          .getRegisteredCommands()
+          .map((command) => command.name)
+          .sort(),
+      ).toEqual(["clusters", "mcp_restart"]);
+      let streams = 0;
+      await installOfflineProvider(session, (context, iteration) => {
+        streams++;
+        expect(JSON.stringify(context)).toContain("Application Kubernetes environment:");
+        const stage = iteration % 4;
+        if (stage === 0)
+          return [
+            {
+              type: "toolCall",
+              id: `invalid-${iteration}`,
+              name: "pods_get",
+              arguments: { context: "alpha", password: "PRIVATE_REJECTION" },
+            },
+          ];
+        if (stage < 3)
+          return [
+            {
+              type: "toolCall",
+              id: `query-${iteration}`,
+              name: "pods_list",
+              arguments: { context: "alpha" },
+            },
+          ];
+        return [{ type: "text", text: "Report with uncertainty; further questions welcome." }];
+      });
+      await session.prompt("Why are pods failing?");
+      await session.prompt("Recheck after my update");
+      expect(streams).toBe(8);
+      expect(runtime.session).toBe(originalSession);
+      const results = session.messages.filter((message) => message.role === "toolResult");
+      expect(results).toHaveLength(6);
+      for (const offset of [0, 3]) {
+        expect(results[offset]).toMatchObject({
+          isError: true,
+          details: { status: "not-executed" },
+        });
+        expect(results[offset + 1]).toMatchObject({
+          isError: false,
+          details: { status: "success" },
+        });
+        expect(JSON.stringify(results[offset + 1])).toContain("dispatchedAt");
+        expect(results[offset + 2]).toMatchObject({
+          isError: true,
+          details: { failureCategory: "budget-refused" },
+        });
+      }
+      expect(JSON.stringify(results)).not.toMatch(
+        /PRIVATE_REJECTION|PRIVATE_FIXTURE|evidenceId|incidentId/,
+      );
+      const persisted = session.sessionManager
+        .getEntries()
+        .filter((entry) => entry.type === "message" && entry.message.role === "toolResult");
+      expect(JSON.stringify(persisted)).not.toMatch(/PRIVATE_REJECTION|PRIVATE_FIXTURE/);
+      const calls = (await readFile(`${pidPath}.calls`, "utf8")).trim().split("\n");
+      expect(calls).toHaveLength(3); // startup inventory plus one dispatch per user message
+    });
+    await new SreApplication({
+      ...config("diagnostic-success"),
+      execution: { maxToolCalls: 1, maxModelIterations: 6 },
+    }).run();
+    await expectChildExited();
+  });
+
+  async function writeRecoveryConfig(settings: SreConfig): Promise<void> {
+    const { transport, command, args, startupTimeoutMs, toolCallTimeoutMs } =
+      settings.kubernetes.mcp;
+    const mcp = { transport, command, args, startupTimeoutMs, toolCallTimeoutMs };
+    await writeFile(
+      settings.paths.config,
+      JSON.stringify({
+        kubernetes: { mcp: { ...mcp, configFile: "kubernetes-mcp.toml" } },
+        execution: settings.execution,
+        results: settings.results,
+        safety: settings.safety,
+      }),
+    );
+    await writeFile(settings.paths.kubernetesMcpConfig, "read_only = true\n");
+  }
+
+  it("keeps one session and current exact intent across production MCP recovery; refuses non-read-only config", async () => {
+    const settings = config("diagnostic-success");
+    await writeRecoveryConfig(config("diagnostic-alpha-only"));
+    ui.run.mockImplementation(async (runtime) => {
+      const session = runtime.session;
+      const commands = session.extensionRunner.getRegisteredCommands();
+      await session.prompt("/clusters beta");
+      const old = session.getToolDefinition("pods_list");
+      expect(old).toBeDefined();
+      await session.prompt("/mcp_restart --force");
+      expect(runtime.session).toBe(session);
+      expect(session.extensionRunner.getRegisteredCommands()).toEqual(commands);
+      expect(JSON.stringify(session.messages)).toContain("Unavailable selected: 1");
+      expect(JSON.stringify(session.messages)).toContain("Inventory removed:");
+      let queries = 0;
+      await installOfflineProvider(session, (_context, iteration) =>
+        iteration === 0
+          ? [
+              {
+                type: "toolCall",
+                id: "unavailable",
+                name: "pods_list",
+                arguments: { context: "beta" },
+              },
+            ]
+          : (queries++, [{ type: "text", text: "Selected beta is unavailable." }]),
+      );
+      await session.prompt("Continue checking beta");
+      expect(queries).toBe(1);
+      expect(session.messages.find((message) => message.role === "toolResult")).toMatchObject({
+        isError: true,
+        details: { failureCategory: "scope-unavailable" },
+      });
+      await writeFile(settings.paths.kubernetesMcpConfig, "read_only = false\n");
+      await session.prompt("/mcp_restart --force");
+      expect(session.getActiveToolNames()).toEqual([]);
+      expect(JSON.stringify(session.messages)).toContain("MCP: unavailable");
+    });
+    const app = new SreApplication(settings);
+    await app.run();
+    expect(app.selection?.rule).toEqual({ kind: "exact", contexts: ["beta"] });
+    await expectChildExited();
+  });
+
+  it("enforces the production iteration ceiling for invalid tool loops", async () => {
+    ui.run.mockImplementation(async (runtime) => {
+      let streams = 0;
+      await installOfflineProvider(runtime.session, () => {
+        streams++;
+        return [
+          { type: "toolCall", id: `invalid-${streams}`, name: "unknown_tool", arguments: {} },
+        ];
+      });
+      await runtime.session.prompt("Inspect pods");
+      expect(streams).toBe(2);
+      expect(runtime.session.isStreaming).toBe(false);
+      expect(
+        runtime.session.messages.filter((message) => message.role === "toolResult"),
+      ).toHaveLength(2);
+    });
+    await new SreApplication({
+      ...config(),
+      execution: { maxToolCalls: 1, maxModelIterations: 2 },
+    }).run();
+    await expectChildExited();
+  });
+
   it("closes the child when Pi runtime creation fails without exposing the cause", async () => {
     const cause = new Error("unexpected credential PRIVATE_FIXTURE");
     vi.spyOn(runtimeFactory, "createSreRuntime").mockRejectedValueOnce(cause);
@@ -212,21 +393,26 @@ describe("application lifecycle with real Pi and managed MCP", () => {
     await expectChildExited();
   });
 
-  it("cancels connection initialization when a signal arrives during startup", async () => {
-    const running = new SreApplication(config("timeout")).run();
-    await expect
-      .poll(async () => {
-        try {
-          return Number(await readFile(pidPath, "utf8")) > 0;
-        } catch (error) {
-          if (error instanceof Error && "code" in error && error.code === "ENOENT") return false;
-          throw error;
-        }
-      })
-      .toBe(true);
-    process.emit("SIGTERM");
-    await running;
-    expect(ui.run).not.toHaveBeenCalled();
-    await expectChildExited();
-  });
+  it.each(["timeout", "contexts-timeout"])(
+    "cancels %s initialization when a signal arrives during startup",
+    async (scenario) => {
+      const running = new SreApplication(config(scenario)).run();
+      await expect
+        .poll(async () => {
+          try {
+            return scenario === "contexts-timeout"
+              ? (await readFile(`${pidPath}.call`, "utf8")) === "started"
+              : Number(await readFile(pidPath, "utf8")) > 0;
+          } catch (error) {
+            if (error instanceof Error && "code" in error && error.code === "ENOENT") return false;
+            throw error;
+          }
+        })
+        .toBe(true);
+      process.emit("SIGTERM");
+      await running;
+      expect(ui.run).not.toHaveBeenCalled();
+      await expectChildExited();
+    },
+  );
 });

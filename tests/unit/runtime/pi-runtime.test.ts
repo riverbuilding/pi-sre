@@ -56,39 +56,23 @@ describe("Pi SRE runtime", () => {
       await runtime.dispose();
     }
   });
-  it("separates application shutdown from session disposal and preserves session replacement", async () => {
+  it("separates application shutdown from idempotent session disposal", async () => {
     home = await mkdtemp(join(tmpdir(), "pi-sre-runtime-"));
     const shutdown = vi.fn<() => Promise<void>>().mockResolvedValue();
-    const runtime = await createSreRuntime(runtimeConfig(home), [], shutdown);
-    const originalSession = runtime.session;
-    const originalDispose = vi.spyOn(originalSession, "dispose");
-    const rebind = vi.fn<() => Promise<void>>().mockResolvedValue();
-    const invalidate = vi.fn();
-    runtime.setRebindSession(rebind);
-    runtime.setBeforeSessionInvalidate(invalidate);
+    const runtime = await createSreRuntime(runtimeConfig(home), undefined, shutdown);
+    const session = runtime.session;
+    const dispose = vi.spyOn(session, "dispose");
     try {
       await runtime.dispose();
       expect(shutdown).toHaveBeenCalledOnce();
-      expect(originalDispose).not.toHaveBeenCalled();
-
-      await runtime.newSession();
-      expect(runtime.session).not.toBe(originalSession);
-      expect(originalDispose).toHaveBeenCalledOnce();
-      expect(rebind).toHaveBeenCalledOnce();
-      expect(shutdown).toHaveBeenCalledOnce();
-      expect(runtime.cwd).toBe(home);
-      expect(runtime.session.getActiveToolNames()).toEqual([]);
-
-      const currentDispose = vi.spyOn(runtime.session, "dispose");
-      const firstDisposal = runtime.disposeSession();
-      expect(runtime.disposeSession()).toBe(firstDisposal);
-      await firstDisposal;
-      expect(currentDispose).toHaveBeenCalledOnce();
-      expect(invalidate).toHaveBeenCalledTimes(2);
-      expect(shutdown).toHaveBeenCalledOnce();
+      expect(dispose).not.toHaveBeenCalled();
+      const first = runtime.disposeSession();
+      expect(runtime.disposeSession()).toBe(first);
+      await first;
+      expect(dispose).toHaveBeenCalledOnce();
+      expect(runtime.session).toBe(session);
     } finally {
       await runtime.disposeSession();
-      vi.restoreAllMocks();
     }
   });
 });
@@ -107,7 +91,7 @@ function runtimeConfig(home: string): SreConfig {
         toolCallTimeoutMs: 30_000,
       },
     },
-    investigation: { defaultTimeRange: "30m", maxToolCalls: 40 },
+    execution: { maxToolCalls: 40, maxModelIterations: 80 },
     safety: { mode: "read-only" },
     results: DEFAULT_RESULT_POLICY,
   };

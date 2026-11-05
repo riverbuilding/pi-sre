@@ -5,7 +5,7 @@
 **Status:** Planned (2026-10-17), explicitly requested by the user. Documentation only;
 no additional tool or write capability is enabled by this change.
 
-**Prerequisite:** Complete the accepted context-routing baseline and the investigation/context simplification migration: current selection, request budgets, unified bridge, cancellation and model-visible provenance. See the [accepted multi-cluster plan](./MULTI_CLUSTER_INVESTIGATION_PLAN.md). The 2026-10-30 simplification is a design target, not a claim of runtime delivery.
+**Prerequisite:** Complete the accepted context-routing baseline and the investigation/context simplification migration: current selection, request budgets, unified bridge, cancellation and model-visible provenance. See the [accepted multi-cluster plan](./MULTI_CLUSTER_INVESTIGATION_PLAN.md). Simplification Slice 6 switched production on 2026-11-04; its Slice 7 full acceptance remains pending. Extend `CurrentClusterSelection`, `RequestExecution`, `RequestMcpController` and `createRequestMcpToolBridge`; do not recreate incident authority.
 
 **Scope:** Support the **22 documented tool definitions** in Kubernetes MCP Server's
 `config` (3) and `core` (19) toolsets, including their write-capable operations.
@@ -55,7 +55,7 @@ execution profile, argument restrictions, result handling, and automated/live ev
   separately. Do not manufacture an always-present 22-tool inventory.
 - Record historical names or verified successor mappings explicitly when server versions
   differ. Do not implement local substitutes or silently equate unrelated capabilities.
-- Preserve bounded/redacted presentation, cancellation, budgets, connection generations,
+- Preserve bounded/redacted presentation, cancellation, budgets, original connection identity,
   current exact/live selection, request limits, and tool-result provenance across all added reads.
 - Keep raw retention disabled. Configuration contents, Secret values, credentials, and
   sensitive manifests/exec output must not enter logs, Pi history, or model-facing details.
@@ -89,7 +89,7 @@ for the selected profile; profile changes require a deliberate restart with new 
 Each controlled execution requires a concrete human approval covering the exact request/call,
 cluster, namespace, resource identity, operation, and final arguments. Show a safe preview
 of the change or container command. Freeze arguments before approval, then revalidate
-scope, connection generation, permissions, and freshness immediately before dispatch.
+current selection, original connection identity, permissions, and freshness immediately before dispatch.
 Changed final arguments, user selection, relevant target identity/availability, execution profile, cancellation, expiry or replacement connection invalidate approval. Compare concrete approval facts; do not recreate incident bindings or domain revisions. Freeze the precise invalidation contract in Phase 5 Slice 0; the read-only rule that later selection changes preserve admitted calls does not grant mutation approval. Approval is single-use. Live wildcard additions grant diagnostic permission only; no approval authorizes a set-wide operation or silently follows a new target.
 
 Approval denial/expiry or cancellation before dispatch makes no external call. Do not automatically retry a

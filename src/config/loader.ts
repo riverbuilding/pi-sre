@@ -131,7 +131,7 @@ export async function loadSreConfig(options: LoadSreConfigOptions = {}): Promise
         toolCallTimeoutMs: mcp.toolCallTimeoutMs,
       },
     },
-    investigation: parsed.data.investigation,
+    execution: parsed.data.execution,
     safety: parsed.data.safety,
   };
 }

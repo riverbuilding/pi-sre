@@ -15,7 +15,7 @@ describe("Pi SRE resource boundary", () => {
     if (root) await rm(root, { recursive: true, force: true });
   });
 
-  it("loads the SRE prompt and excludes hostile project resources across reloads", async () => {
+  it("loads the SRE prompt and excludes hostile project resources at startup", async () => {
     root = await mkdtemp(join(tmpdir(), "pi-sre-resources-"));
     const project = join(root, "project");
     const appHome = join(root, "app-home");
@@ -60,9 +60,8 @@ describe("Pi SRE resource boundary", () => {
       agentDir: appHome,
       resourceLoaderOptions: createSreResourceLoaderOptions(),
     });
-    for (let pass = 0; pass < 2; pass += 1) {
-      // The service factory performs the initial load; verify an explicit reload too.
-      if (pass > 0) await loader.reload();
+    {
+      // The service factory performs the startup load.
 
       // Loaded now.
       expect(loader.getSystemPrompt()).toBe(createSreSystemPrompt());
@@ -85,13 +84,10 @@ describe("Pi SRE resource boundary", () => {
   it("states the access and evidence limits without implying a cluster connection", () => {
     const prompt = createSreSystemPrompt();
     expect(prompt).toContain("Pi SRE");
-    expect(prompt).toContain("Kubernetes incident diagnosis");
-    expect(prompt).toContain("read-only");
-    expect(prompt).toContain(
-      "Kubernetes access is unavailable until a diagnostic MCP tool is registered",
-    );
-    expect(prompt).toContain("Do not claim to have inspected a cluster");
-    expect(prompt).toContain("without an actual successful tool result");
-    expect(prompt).toContain("Distinguish observed facts from hypotheses");
+    expect(prompt).toContain("read-only Kubernetes diagnosis");
+    expect(prompt).toContain("MCP unavailable means Kubernetes access is unavailable");
+    expect(prompt).toContain("distinguish observations from hypotheses");
+    expect(prompt).toContain("Client times are not object observation times");
+    expect(prompt).not.toContain("investigation_get");
   });
 });

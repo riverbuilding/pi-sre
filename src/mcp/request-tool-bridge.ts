@@ -177,7 +177,7 @@ export class RequestToolResultBoundary {
   }
 }
 
-/** Staged unified pipeline. Captures one publication; production switches in Slice 6. */
+/** Unified pipeline capturing one original connection publication. */
 export function createRequestMcpToolBridge(
   descriptor: McpToolDescriptor,
   publication: Pick<RequestMcpPublication, "accept">,

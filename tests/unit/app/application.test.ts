@@ -73,7 +73,11 @@ describe("SreApplication", () => {
     mocks.stop.mockReset();
     mocks.dispose.mockReset().mockResolvedValue();
     mocks.mcpClose.mockReset().mockResolvedValue();
-    mocks.mcpListTools.mockReset().mockResolvedValue([]);
+    mocks.mcpListTools
+      .mockReset()
+      .mockResolvedValue([
+        { name: "configuration_contexts_list", inputSchema: { type: "object", properties: {} } },
+      ]);
     mocks.mcpCallTool.mockReset().mockResolvedValue({
       content: [],
       structuredContent: {
@@ -91,11 +95,14 @@ describe("SreApplication", () => {
     mocks.modeRun.mockReset().mockResolvedValue();
     mocks.createRuntime
       .mockReset()
-      .mockImplementation((_config: unknown, _tools: unknown, shutdown: () => Promise<void>) => ({
-        dispose: shutdown,
-        disposeSession: mocks.dispose,
-        session: { abort: mocks.abort },
-      }));
+      .mockImplementation(
+        (_config: unknown, _controller: unknown, shutdown: () => Promise<void>) => ({
+          dispose: shutdown,
+          disposeSession: mocks.dispose,
+          publishMcp: vi.fn(),
+          session: { abort: mocks.abort },
+        }),
+      );
     mocks.modeOptions.length = 0;
   });
 
@@ -118,7 +125,7 @@ describe("SreApplication", () => {
           toolCallTimeoutMs: 30_000,
         },
       },
-      investigation: { defaultTimeRange: "30m", maxToolCalls: 40 },
+      execution: { maxToolCalls: 40, maxModelIterations: 80 },
       safety: { mode: "read-only" },
       results: DEFAULT_RESULT_POLICY,
     };
@@ -164,12 +171,13 @@ describe("SreApplication", () => {
     });
     const app = new SreApplication(config(), { rule: { kind: "exact", contexts: ["beta"] } });
     mocks.createRuntime.mockImplementation(() => {
-      expect(app.clusterContext.state).toMatchObject({
-        status: "resolved",
-        selection: { rule: { kind: "exact", contexts: ["beta"] }, source: "cli" },
-        resolution: { status: "resolved", available: [{ name: "beta" }] },
-      });
-      return { disposeSession: mocks.dispose, session: { abort: mocks.abort } };
+      expect(app.selection?.rule).toEqual({ kind: "exact", contexts: ["beta"] });
+      expect(app.selection?.availability).toEqual({ available: ["beta"], unavailable: [] });
+      return {
+        disposeSession: mocks.dispose,
+        publishMcp: vi.fn(),
+        session: { abort: mocks.abort },
+      };
     });
     await app.run();
     expect(mocks.mcpCallTool).toHaveBeenCalledExactlyOnceWith(
@@ -177,7 +185,7 @@ describe("SreApplication", () => {
       {},
       expect.any(AbortSignal),
     );
-    expect(app.clusterContext.state.resolution.status).toBe("blocked");
+    expect(app.selection?.availability.available).toEqual([]);
     expect(mocks.mcpClose).toHaveBeenCalledOnce();
   });
 
@@ -194,9 +202,8 @@ describe("SreApplication", () => {
 
     expect(mocks.createRuntime).toHaveBeenCalledWith(
       config(),
-      [],
-      expect.any(Function),
       expect.anything(),
+      expect.any(Function),
     );
     expect(mocks.modeRun).toHaveBeenCalledOnce();
     expect(mocks.mcpClose).toHaveBeenCalledOnce();
@@ -223,15 +230,14 @@ describe("SreApplication", () => {
     expect(mocks.modeOptions).toEqual([
       {
         startupDiagnostics: [
-          {
+          expect.objectContaining({
             type: "warning",
-            message:
-              "Kubernetes MCP connection failed during startup. Kubernetes tools are unavailable. Check the MCP configuration and use /mcp_restart to retry.",
-          },
-          {
+            message: expect.stringContaining("/mcp_restart"),
+          }),
+          expect.objectContaining({
             type: "warning",
-            message: "Kubernetes MCP connection failed during startup. Use /mcp_restart to retry.",
-          },
+            message: expect.stringContaining("MCP: unavailable"),
+          }),
         ],
       },
     ]);
@@ -256,31 +262,25 @@ describe("SreApplication", () => {
 
     await app.run();
 
-    expect(app.toolDiscoveryReport?.exposed.map((tool) => tool.name)).toEqual([
-      "configuration_contexts_list",
-    ]);
+    expect(app.toolDiscoveryReport).toBeUndefined();
     expect(mocks.modeOptions).toEqual([
       {
         startupDiagnostics: [
-          {
+          expect.objectContaining({
             type: "info",
-            message:
-              "Kubernetes MCP discovery: 1 approved, 0 deferred, 1 rejected. 1 read-only tools registered.",
-          },
-          {
+            message: expect.stringContaining("1 approved, 0 deferred, 1 rejected"),
+          }),
+          expect.objectContaining({
             type: "info",
-            message: expect.stringContaining(
-              "Selection rule: live *; selection source: default-all.",
-            ),
-          },
+            message: expect.stringContaining("Available targets: 1"),
+          }),
         ],
       },
     ]);
     expect(mocks.createRuntime).toHaveBeenCalledWith(
       config(),
-      [expect.objectContaining({ name: "configuration_contexts_list" })],
-      expect.any(Function),
       expect.anything(),
+      expect.any(Function),
     );
   });
 
@@ -296,11 +296,11 @@ describe("SreApplication", () => {
     expect(mocks.modeOptions).toEqual([
       {
         startupDiagnostics: [
-          expect.anything(),
-          {
+          expect.objectContaining({ type: "info" }),
+          expect.objectContaining({
             type: "info",
-            message: expect.stringContaining("Cluster scope resolved: 2 available contexts."),
-          },
+            message: expect.stringContaining("Available targets: 2"),
+          }),
         ],
       },
     ]);
@@ -321,23 +321,16 @@ describe("SreApplication", () => {
     await new SreApplication(config()).run();
     expect(mocks.createRuntime).toHaveBeenCalledWith(
       config(),
-      [],
-      expect.any(Function),
       expect.anything(),
+      expect.any(Function),
     );
     expect(mocks.modeOptions).toEqual([
       {
         startupDiagnostics: [
-          {
-            type: "info",
-            message:
-              "Kubernetes MCP discovery: 1 approved, 0 deferred, 0 rejected. 0 read-only tools registered.",
-          },
-          {
-            type: "warning",
-            message:
-              "Kubernetes MCP context enumeration requires a configuration_contexts_list tool callable with empty arguments. Check MCP configuration and use /mcp_restart to retry.",
-          },
+          expect.objectContaining({ message: expect.any(String) }),
+          expect.objectContaining({
+            message: expect.stringContaining("Application Kubernetes environment:"),
+          }),
         ],
       },
     ]);
@@ -353,15 +346,10 @@ describe("SreApplication", () => {
     expect(mocks.modeOptions).toEqual([
       {
         startupDiagnostics: [
-          {
-            type: "warning",
-            message:
-              "Kubernetes MCP tool discovery failed. Kubernetes tools are unavailable. Check the MCP configuration and use /mcp_restart to retry.",
-          },
-          {
-            type: "warning",
-            message: "Kubernetes MCP tool discovery failed. Use /mcp_restart to retry.",
-          },
+          expect.objectContaining({ message: expect.any(String) }),
+          expect.objectContaining({
+            message: expect.stringContaining("Application Kubernetes environment:"),
+          }),
         ],
       },
     ]);
@@ -390,6 +378,7 @@ describe("SreApplication", () => {
 
   it("waits for runtime creation during shutdown and never starts the TUI", async () => {
     const pending = Promise.withResolvers<{
+      publishMcp: () => void;
       disposeSession: typeof mocks.dispose;
       session: { abort: typeof mocks.abort };
     }>();
@@ -402,7 +391,11 @@ describe("SreApplication", () => {
     const running = app.run();
     await creating.promise;
     const closing = app.close();
-    pending.resolve({ disposeSession: mocks.dispose, session: { abort: mocks.abort } });
+    pending.resolve({
+      disposeSession: mocks.dispose,
+      publishMcp: vi.fn(),
+      session: { abort: mocks.abort },
+    });
     await Promise.all([running, closing]);
     expect(mocks.modeRun).not.toHaveBeenCalled();
     expect(mocks.dispose).toHaveBeenCalledOnce();

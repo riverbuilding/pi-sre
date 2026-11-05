@@ -1,14 +1,6 @@
 # Session Projection 与 TranscriptContext
 
-**设计更新（2026-10-30，尚未实施）：** 后续实施以 [调查与 Context 简化方案](./INVESTIGATION_CONTEXT_SIMPLIFICATION.md) 和 [命令与操作限制方案](./TUI_COMMAND_VISIBILITY_AND_RESTRICTIONS.md) 为准。下文保留当前/此前实现与阶段记录，不再规定新架构必须保留 Incident 或旧生命周期。文档更新不代表代码已迁移或命令已禁用。
-
-## 最新目标与迁移影响
-
-Pi projection/TranscriptContext 的类型与转换说明仍可参考；分支恢复和 incident/next 摘要不属于新产品流程。环境变化通过应用消息通知，历史工具结果保留原 context 和时间。手动和自动压缩后均需在下一次模型请求前恢复当前环境，不能只依赖 before_agent_start；details 不等于模型可见正文。单一 Session 不需要分支导航兼容；对话投影不恢复预算或执行权限。
-
-## 既有设计与实现记录（保留历史，不作为新方案实施要求）
-
-**Implementation baseline:** Cluster examples below describe the current Phase 2 runtime. The accepted [multi-cluster plan](./MULTI_CLUSTER_INVESTIGATION_PLAN.md) first migrates session selection in new Phase 3 (rules, resolved membership, inventory revisions, and added/removed notices), independently of incidents. Phase 4 later adds incident identity and next-selection summaries. Steering delivery still cannot authorize calls or replace reconnect enforcement; execution uses application state even before the model consumes an update.
+更新：2026-11-04，生产已切换请求管线。Pi 类型与转换由依赖提供；Pi SRE 不从会话投影恢复权限、预算或领域证据。单一 Session、扩展初始化一次；历史导航与 reload 入口的全面禁用仍是[独立交付缺口](./TUI_COMMAND_VISIBILITY_AND_RESTRICTIONS.md)。
 
 本文基于项目当前使用的 `@earendil-works/pi-coding-agent` **0.99.0**，说明
 `session.sessionManager.buildSessionProjection().messages` 与 `TranscriptContext` 的关系。
@@ -64,138 +56,24 @@ TranscriptContext
 
 `TranscriptContext` 仍是 provider 无关的格式；provider 随后会把它转换为对应模型 API 的请求格式。
 
-## Pi SRE 的 cluster scope 示例
+## 当前环境消息
 
-[cluster-extension.ts](../src/tui/cluster-extension.ts) 使用持久化的 custom message 记录当前 cluster scope。
-下面示例省略了具体时间和完整 scope 文案。
+[request-environment-extension.ts](../src/tui/request-environment-extension.ts) 使用 `customType: "pi-sre-environment"` 记录当前环境：all/exact、available targets、unavailable selected、MCP 状态、namespace policy 和 READ ONLY。变更通知来自同一运行事实，不维护第二份事件或调查记录，不输出 endpoint。
 
-在 projection 中，它保留 Pi 的消息类型和 UI 元数据：
+Projection 中的消息保留 `role: "custom"`、`customType`、`content`、`display: false` 和时间。`convertToLlm()` 将其正文转换为 provider 可见 user message；`display: false` 只影响 UI，不阻止模型读取。它依然是应用 custom message，不会被请求适配器误认作用户 message_start，因此不会获得新预算。
 
-```ts
-const scopeMessage = {
-  role: "custom",
-  customType: "pi-sre-cluster-scope",
-  content: 'Cluster: "alpha"...',
-  display: false,
-  timestamp: 123,
-};
-```
+空闲时 `pi.sendMessage(..., {deliverAs: "steer"})` 直接追加消息，不启动模型；活动期间排队 steering，在后续处理点进入上下文。它不改写已发送的模型请求，也不作为调用授权或取消机制。选择可在活动期间变更，已接收调用保留原 context；之后新调用按当前选择校验。
 
-经过 `convertToLlm()` 后，它作为 user 消息进入 `TranscriptContext.messages`：
+## 压缩与恢复
 
-```ts
-const modelMessage = {
-  role: "user",
-  content: [{ type: "text", text: 'Cluster: "alpha"...' }],
-  timestamp: 123,
-};
-```
+每次模型请求前的 `context` hook 检查输入中是否已有最新环境正文；缺失或过期时补充当前快照。它覆盖手动 compaction 后下一轮以及 overflow compaction 后直接重试，不依赖再次触发 before_agent_start。相同快照去重；当前环境来自实际运行状态，不能从历史文本恢复权限。
 
-`display: false` 控制 UI 展示，不会阻止该消息进入模型上下文。
-`customType`、`display` 和 `details` 不会作为该转换结果的字段传给 provider。
+Pi compaction 是有损摘要。工具结果和模型判断只在 messages 中，没有独立 EvidenceStore、引用完整性、假设 revision、结论对象或 JSONL 调查归档。丢失的历史变化不重建：恢复消息说明同名 context 可能改变目标，旧结果保留原 context/时间，缺少事实或来源时应说明限制并按需重查。
 
-扩展查询 projection，是为了检查当前有效历史中是否还存在最新的 scope 快照：
+工具结果的实际 context、操作、namespace policy、执行状态、客户端执行区间和截断在 `content` 内。仅存于 `details` 的信息不能当作 provider 可见来源。Pi 前置 schema/abort 拒绝通过 session-owned `message_end` boundary 替换为安全未执行结果，再进入 transcript/provider。模型生成的 assistant 参数不属于服务端结果脱敏范围。
 
-- `session_start` 查找已有快照，为订阅状态变化后的去重提供依据。
-- `before_agent_start` 再次检查；如果 compaction 或分支导航移除了快照，或者历史中的快照与当前状态不同，就返回当前快照，由 Pi 持久化。
-- 状态发生变化时，通过 `pi.sendMessage(..., { deliverAs: "steer" })` 记录更新；活动工作期间由 Pi 排队交付。
+## 检查位置
 
-scope 消息用于向模型解释应用状态。实际 cluster 选择与调用范围仍由应用状态和 MCP bridge 强制执行。
+需要查看有效历史使用 `sessionManager.buildSessionProjection().messages`；检查实际模型输入使用 provider 的 TranscriptContext。两者可能因运行时新增消息、context hook 与转换而不同。读取投影不等于提交会话变更；持久化由 Pi API 负责。
 
-## Scope updates during and between agent runs
-
-Pi SRE sends scope updates through
-`pi.sendMessage(message, { deliverAs: "steer" })`, without setting `triggerTurn`.
-Pi's `AgentSession` decides how to deliver each message based on whether the agent is running.
-Specifying `deliverAs: "steer"` does not always enqueue a steering message.
-
-| Agent state | Delivery                                                                      | Effect on model requests                                                                                                                                                 |
-| ----------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Running     | Queue the update through `agent.steer()`                                      | The loop consumes the update at a turn boundary, after the current response and any associated tool results, appends it to the context, and makes another model request. |
-| Idle        | Append the update directly to session history and refresh the runtime context | No model request starts automatically. The next user prompt includes the update in its history.                                                                          |
-
-An update does not rewrite a request that has already been sent. In the connection-loss
-integration test, the message sequence is conceptually:
-
-```text
-First request:
-  [system information, initial alpha scope, user question]
-
-Connection loss during the first request:
-  steering queue = [scope unavailable update]
-
-Second request, after the first response and consumption of the queued update:
-  [system information, initial alpha scope, user question,
-   first assistant response, scope unavailable update]
-```
-
-The initial `alpha` snapshot is created before the prompt: the `session_start` handler
-subscribes to the cluster manager, and `subscribe()` immediately delivers the current state.
-Because the agent is idle, this snapshot goes directly into session history. Only the later
-connection-loss update enters the steering queue in this test. Two custom messages in the
-final session history do not imply that two messages were queued together.
-
-The mock model function returns a response stream on both calls. After the second response,
-the loop ends because there are no tool calls or further queued messages.
-
-### Cluster switching and availability changes
-
-The current implementation blocks explicit cluster switching while agent work is active.
-The user must wait for the work to finish or cancel it before switching. Changes observed
-during an active loop therefore include scope availability changes, such as an MCP
-connection loss; they should not be interpreted as permission to switch clusters mid-run.
-
-The extension compares the generated scope description with the last recorded description.
-If they are identical, it sends no update and causes no additional model request.
-Scope messages inform the model; application state and the MCP bridge independently enforce
-the selected cluster and block cluster-dependent calls when scope is unavailable.
-
-### Why notify the model when scope becomes unavailable?
-
-Notifying the model is useful because connection loss changes the assumptions under which
-it can continue the investigation. Without the update, it may keep attempting tool calls
-or describe ongoing cluster access based on an outdated scope snapshot. A subsequent model
-request gives it an opportunity to explain the interruption, summarize existing evidence,
-and identify what remains unverified. For example:
-
-> The Kubernetes MCP connection was lost, so I cannot collect further data. Based on the
-> evidence obtained before the disconnection, I can confirm the following observations.
-> The remaining hypotheses have not been verified.
-
-Previously collected evidence remains an observation from the time it was obtained.
-Connection loss does not erase it, but the model must not present it as a fresh observation
-or claim that current access is still available. Selecting a cluster also does not by
-itself establish that Kubernetes authentication or authorization has succeeded.
-
-The notification supports explanation and investigation wrap-up. Application state and
-the MCP bridge must enforce the loss of access independently: subsequent cluster-dependent
-calls must be blocked when scope is unavailable, regardless of the model's response.
-The model cannot restore access or switch clusters merely by interpreting a scope message.
-
-This approach costs an additional model request and does not immediately interrupt an
-in-flight model request or tool operation. Cancellation and tool failure handling require
-separate application mechanisms; enqueueing a steering update does not cancel either one.
-
-For Pi SRE's observe, diagnose, and explain scope, allowing the model to summarize existing
-evidence and explain the interruption is a useful reason to retain this behavior. It does
-not guarantee that the model will finish in exactly one additional request.
-If the product instead requires every investigation to stop immediately on connection
-loss, the application would need an explicit cancellation policy and a direct UI notice;
-an additional model request solely to report the interruption would then be optional.
-That is an alternative policy, not the behavior implemented by the steering message itself.
-
-## 使用时如何选择
-
-需要判断“当前有效会话历史中是否保留某条 Pi 消息”，使用 `buildSessionProjection().messages`。
-需要检查“本次传给模型 provider 的标准化上下文”，查看调用处的 `TranscriptContext`。
-
-两者不能直接视为相同数组：运行时新增消息、请求前的 `transformContext` 和 `convertToLlm` 转换都可能造成差异。
-读取或修改投影结果也不等于提交会话变更；持久化变更应使用 Pi 提供的会话或扩展 API。
-
-## 对应实现与验证
-
-- Pi 依赖中的 `dist/core/session-manager.js`：`buildContextEntries()`、`buildSessionProjection()`。
-- Pi 依赖中的 `dist/core/messages.js`：`convertToLlm()`。
-- `pi-agent-core` 依赖中的 `dist/agent-loop.js`：`streamAssistantResponse()`，展示消息转换与标准化顺序。
-- `pi-ai` 依赖中的 `dist/types.d.ts` 和 `dist/utils/transcript.js`：`TranscriptContext` 类型与 `normalizeContext()`。
-- [cluster scope 集成测试](../tests/integration/cluster-scope-messages.test.ts)：验证去重、compaction 后恢复，以及活动工作期间的 scope 更新。
+验证见 [真实 Pi 请求边界](../tests/integration/pi-execution-boundaries.test.ts)、[环境测试](../tests/unit/tui/request-environment.test.ts)与[生产组合测试](../tests/integration/application-lifecycle.test.ts)。依赖中的 `session-manager.js`、`messages.js`、agent-loop 和 transcript 转换定义 Pi 自身的投影机制；这些机制的存在不代表 Pi SRE 支持分支恢复产品流程。

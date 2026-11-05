@@ -3,18 +3,14 @@ import {
   createAgentSessionServices,
   SessionManager,
   type CreateAgentSessionRuntimeFactory,
-  type ToolDefinition,
-  type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
 
-import type { McpController } from "../app/mcp-controller.js";
-import { CommandFeedback } from "../tui/command-feedback.js";
-import { registerMcpRecovery } from "../tui/mcp-restart-command.js";
-import { registerClusterScope } from "../tui/cluster-extension.js";
+import type { RequestMcpController } from "../app/request-mcp-controller.js";
 import type { SreConfig } from "../config/config.js";
+import { RequestToolResultBoundary } from "../mcp/request-tool-bridge.js";
+import { registerRequestExtension } from "../tui/request-extension.js";
 import { createSreResourceLoaderOptions } from "./resource-loader.js";
-import { registerInvestigationLifecycle } from "./investigation-lifecycle.js";
-import { registerInvestigationTools } from "./investigation-tools.js";
+import { installRequestExecution } from "./request-execution-adapter.js";
 import { SreRuntime } from "./sre-runtime.js";
 
 /** Pi uses this for TUI assets and managed helpers outside its session factory. */
@@ -22,76 +18,64 @@ export const PI_AGENT_DIR_ENV = "PI_CODING_AGENT_DIR";
 
 export async function createSreRuntime(
   config: SreConfig,
-  customTools: readonly ToolDefinition[] = [],
+  mcpController?: RequestMcpController,
   requestApplicationShutdown?: () => Promise<void>,
-  mcpController?: McpController,
 ): Promise<SreRuntime> {
   const appHome = config.paths.home;
-  const createRuntime: CreateAgentSessionRuntimeFactory = async (options) => {
-    if (options.cwd !== appHome || options.agentDir !== appHome) {
-      throw new Error("Pi SRE sessions must remain inside the Pi SRE application home.");
-    }
-
-    const feedback = new CommandFeedback();
-    const services = await createAgentSessionServices({
-      cwd: options.cwd,
-      agentDir: options.agentDir,
-      resourceLoaderOptions: {
-        ...createSreResourceLoaderOptions(),
-        extensionFactories: [
-          ...(mcpController
-            ? [
-                {
-                  name: "pi-sre-mcp-recovery",
-                  hidden: true,
-                  factory: (pi: ExtensionAPI) => {
-                    registerMcpRecovery(pi, mcpController, feedback);
-                    registerInvestigationLifecycle(pi, mcpController.investigation);
-                    registerClusterScope(
-                      pi,
-                      mcpController.clusterContext,
-                      feedback,
-                      mcpController.investigation,
-                    );
-                    registerInvestigationTools(pi, mcpController.investigation, feedback);
-                  },
-                },
-              ]
-            : []),
-          {
-            name: "pi-sre-read-only-shell-guard",
-            hidden: true,
-            factory: (pi) => {
-              pi.on("user_bash", () => ({
-                result: {
-                  output: "Shell commands are unavailable in Pi SRE read-only mode.",
-                  exitCode: 1,
-                  cancelled: false,
-                  truncated: false,
-                },
-              }));
-            },
-          },
-        ],
-      },
-    });
-    const result = await createAgentSessionFromServices({
-      services,
-      sessionManager: options.sessionManager,
-      ...(options.sessionStartEvent ? { sessionStartEvent: options.sessionStartEvent } : {}),
-      noTools: "builtin",
-      customTools: mcpController ? [] : [...customTools],
-      excludeTools: ["read", "bash", "powershell", "edit", "write", "grep", "find", "ls"],
-    });
-    return { ...result, services, diagnostics: services.diagnostics };
-  };
-
-  // Startup always creates a fresh session, so Pi's stored-session cwd guard
-  // does not apply. Inherited resume/fork/import paths retain Pi's validation.
-  const result = await createRuntime({
+  const boundary = new RequestToolResultBoundary(config.results);
+  let extension: ReturnType<typeof registerRequestExtension> | undefined;
+  let notify: ((message: string) => void) | undefined;
+  let initialized = false;
+  const services = await createAgentSessionServices({
     cwd: appHome,
     agentDir: appHome,
-    sessionManager: SessionManager.create(appHome, config.paths.sessions),
+    resourceLoaderOptions: {
+      ...createSreResourceLoaderOptions(),
+      extensionFactories: [
+        {
+          name: "pi-sre",
+          hidden: true,
+          factory: (pi) => {
+            if (initialized) {
+              throw new Error("Pi SRE extensions initialize once; restart the application.");
+            }
+
+            initialized = true;
+            extension = registerRequestExtension(pi, {
+              controller: mcpController,
+              currentRequest: () => execution.current,
+              boundary,
+              setNotifier: (callback) => {
+                notify = callback;
+              },
+            });
+          },
+        },
+      ],
+    },
   });
-  return new SreRuntime(result, createRuntime, requestApplicationShutdown);
+  const result = await createAgentSessionFromServices({
+    services,
+    sessionManager: SessionManager.create(appHome, config.paths.sessions),
+    noTools: "builtin",
+    excludeTools: ["read", "bash", "powershell", "edit", "write", "grep", "find", "ls"],
+  });
+  const execution = installRequestExecution(result.session, config.execution, (message) =>
+    notify?.(message),
+  );
+  // No application factory/recovery path for replacing this session. Pi entry-point
+  // visibility/restrictions remain a separately tracked product gap.
+  const createRuntime: CreateAgentSessionRuntimeFactory = async () => {
+    throw new Error("Pi SRE uses one session; restart the application to start another.");
+  };
+  return new SreRuntime(
+    { ...result, services, diagnostics: services.diagnostics },
+    createRuntime,
+    (state) => extension?.publish(state),
+    async () => {
+      extension?.dispose();
+      await execution.dispose();
+    },
+    requestApplicationShutdown,
+  );
 }

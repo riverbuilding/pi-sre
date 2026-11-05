@@ -54,10 +54,9 @@ it("packs a built executable that launches outside the source checkout", async (
       expect(stdout).toContain("--clusters=<name>");
       expect(stdout).toContain("--clusters > kubernetes.contexts > live all (*)");
       expect(stdout).toContain("/clusters --status");
-      expect(stdout).toContain("/incident new <question>");
-      expect(stdout).toContain("/evidence [<id> | --cursor <cursor>]");
-      expect(stdout).toContain("selection changes apply to the next incident");
-      expect(stdout).toContain("lost on process exit");
+      expect(stdout).not.toMatch(/\/incident|\/evidence/);
+      expect(stdout).toContain("execution.maxToolCalls");
+      expect(stdout).toContain("Compaction is lossy");
       expect(stdout).not.toMatch(/--cluster(?:[ =]|$)/m);
       expect(stdout).toContain("Unknown selections never fall back");
       expect(stderr).toBe("");
@@ -94,7 +93,9 @@ it("packs a built executable that launches outside the source checkout", async (
       "runtime/investigation-tools.js",
       "mcp/incident-diagnostic.js",
     ]) {
-      await access(join(installed, "dist", module));
+      await expect(access(join(installed, "dist", module))).rejects.toMatchObject({
+        code: "ENOENT",
+      });
     }
   } finally {
     await rm(home, { recursive: true, force: true });

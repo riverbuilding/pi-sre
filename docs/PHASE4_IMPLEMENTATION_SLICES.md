@@ -1,6 +1,6 @@
 # Phase 4 Implementation Slices — Investigation Domain
 
-**设计更新（2026-10-30，尚未实施）：** 后续实施以 [调查与 Context 简化方案](./INVESTIGATION_CONTEXT_SIMPLIFICATION.md) 和 [命令与操作限制方案](./TUI_COMMAND_VISIBILITY_AND_RESTRICTIONS.md) 为准。下文保留当前/此前实现与阶段记录，不再规定新架构必须保留 Incident 或旧生命周期。文档更新不代表代码已迁移或命令已禁用。
+**历史说明（2026-11-04）：** Slice 6 已按 [调查与 Context 简化方案](./INVESTIGATION_CONTEXT_SIMPLIFICATION.md) 切换生产并删除调查体系。下文保留此前实现、提案与阶段记录；其中的 Incident、领域工具/命令、证据库、binding/revision 和 reload 恢复不再是当前运行时契约。历史完成日期、结果和视觉验收待办不变。当前行为见 [执行契约](./INVESTIGATION_CONTEXT_SIMPLIFICATION_CONTRACTS.md)；[命令与操作限制](./TUI_COMMAND_VISIBILITY_AND_RESTRICTIONS.md) 仍为独立后续交付，未宣称全面禁用入口。
 
 ## 最新目标与迁移影响
 

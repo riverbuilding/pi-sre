@@ -1,8 +1,8 @@
 # Pi SRE — Project Design Document
 
-## Current architecture decision — 2026-10-30
+## Current architecture decision — 2026-11-04
 
-**Status: accepted design, runtime migration pending.** This amendment is the current V0.1 target and takes precedence over conflicting staged descriptions, examples, ADRs, source layouts and open questions retained below. [Investigation/context simplification](./INVESTIGATION_CONTEXT_SIMPLIFICATION.md) defines the detailed contracts; [command/action restrictions](./TUI_COMMAND_VISIBILITY_AND_RESTRICTIONS.md) defines the separate entry-point delivery. Documentation enables no runtime capability. Phase 4 implementation and acceptance records remain evidence of the existing domain-based application, not evidence that this migration has shipped.
+**Status: production migration implemented through Slice 6; Slice 7 full acceptance pending.** This amendment is the current V0.1 architecture and takes precedence over conflicting historical descriptions, examples, ADRs, source layouts and open questions below. [Investigation/context simplification](./INVESTIGATION_CONTEXT_SIMPLIFICATION.md) and its [execution contracts](./INVESTIGATION_CONTEXT_SIMPLIFICATION_CONTRACTS.md) define the behavior. [Command/action restrictions](./TUI_COMMAND_VISIBILITY_AND_RESTRICTIONS.md) remains a separate delivery gap: upstream selectors, shortcuts, history navigation and reload are not comprehensively blocked. Phase 1–4 completion dates/results and Phase 4 pending visual acceptance remain historical facts.
 
 ### Ownership and flow
 
@@ -20,7 +20,7 @@ Bounded, redacted tool result → Pi messages → explanation / follow-up
 
 Pi owns messages, persistence, compaction, provider requests and TUI. The model forms and revises hypotheses, asks questions and writes the report in messages. Pi SRE owns operational selection, MCP lifecycle, allowlists, argument validation, cancellation, concurrency, request budgets and result provenance. No Kubernetes client, shell or kubectl bypass is added.
 
-Remove Incident, InvestigationScope, Target/Evidence/Hypothesis/Conclusion aggregates, InvestigationState, EvidenceStore, domain OperationOutcome, structured JSONL investigation archival and their quotas, IDs, reference checks and revisions. Migrate necessary argument/identity validation to its owning execution layer rather than deleting useful validation with a directory. Remove the five local investigation tools, `/incident`, `/evidence`, pending conclusion and domain-summary injection. There is no incident creation prerequisite or terminal investigation state; an ordinary answer is the report and later messages can continue querying. Facts and interpretation must still be distinguished in the response.
+Production has removed Incident, InvestigationScope, Target/Evidence/Hypothesis/Conclusion aggregates, InvestigationState, EvidenceStore, domain OperationOutcome, structured JSONL investigation archival and their quotas, IDs, reference checks and revisions. Migrate necessary argument/identity validation to its owning execution layer rather than deleting useful validation with a directory. Removed the five local investigation tools, `/incident`, `/evidence`, pending conclusion and domain-summary injection. There is no incident creation prerequisite or terminal investigation state; an ordinary answer is the report and later messages can continue querying. Facts and interpretation must still be distinguished in the response.
 
 ### Current selection and admitted calls
 
@@ -30,7 +30,7 @@ Every cluster-dependent call requires one exact model-supplied context, even for
 
 ### Request boundaries and limits
 
-User follow-ups are processed one at a time. Each actually started user request gets an independent identity and diagnostic dispatch allowance; queueing alone does not create an active request. User steering joins the current request; environment steering creates no request. Model iterations, automatic continuation/retry, compaction and MCP recovery retain the same allowance. Do not reset on `agent_end` or assume every follow-up passes `before_agent_start`; final settlement and per-message processing are distinct boundaries.
+User follow-ups are processed one at a time. Each actually started user request gets an independent identity and diagnostic dispatch allowance; queueing alone does not create an active request. Each delivered user steering or follow-up message gets a new request and full limits; environment custom steering creates no request. Model iterations, automatic continuation/retry, compaction and MCP recovery retain the same allowance. Do not reset on `agent_end` or assume every follow-up passes `before_agent_start`; final settlement and per-message processing are distinct boundaries.
 
 Deduct synchronously immediately before actual diagnostic dispatch. Pre-dispatch refusals cost no dispatch allowance; dispatched failures/timeouts/cancellation do not refund it; retries count again. Parallel tools share the request limit. Keep bounded queue/concurrency, timeouts and a separate request model-iteration ceiling so invalid-call/refusal loops cannot run indefinitely. No limit belongs to an Incident. Normal completion settles accepted calls; explicit cancellation prevents queued dispatch and late successful publication, returning matching tool outcomes without transferring calls to the next request.
 
@@ -48,7 +48,7 @@ Environment changes are application messages, not a second event store. After ma
 
 ### Single-session architecture and delivery
 
-Design now assumes one AgentSession for the process, no historical navigation, and extensions initialized once at startup and released at exit. Remove session→incident maps, binding/lifecycle epochs, reload/rebind and branch/session recovery compatibility now; do not preserve those paths because command blocking ships later. Keep normal request cancellation, MCP replacement and exit cleanup. Actual blocking of commands, shortcuts, selectors and programmatic actions is a separate follow-up feature; unblocked upstream paths are a delivery gap, not a supported compatibility requirement or a claim of enforced restrictions.
+Design now assumes one AgentSession for the process, no historical navigation, and extensions initialized once at startup and released at exit. Session→incident maps, binding/lifecycle epochs, reload/rebind and branch/session recovery compatibility have been removed; do not preserve those paths because command blocking ships later. Keep normal request cancellation, MCP replacement and exit cleanup. Actual blocking of commands, shortcuts, selectors and programmatic actions is a separate follow-up feature; unblocked upstream paths are a delivery gap, not a supported compatibility requirement or a claim of enforced restrictions.
 
 ### Roadmap and acceptance impact
 
@@ -84,6 +84,10 @@ defines the API, format and publication rules; production incident wiring remain
 The remaining architectural sections describe the staged target; they are not claims that the current Phase 2 runtime already implements it. Use the [new Phase 3 migration plan](./PHASE3_IMPLEMENTATION_SLICES.md), [Phase 4 domain plan](./PHASE4_IMPLEMENTATION_SLICES.md), [Phase 5 parity plan](./PHASE5_IMPLEMENTATION_SLICES.md), and [cross-phase scope design](./MULTI_CLUSTER_INVESTIGATION_PLAN.md). Documentation changes enable no runtime capabilities.
 
 ---
+
+## Historical V0.1 plan (superseded by the current architecture above)
+
+The numbered sections below preserve the previous design and roadmap; removed domain types, commands and source layouts are historical, not current runtime APIs.
 
 # 1. Overview
 

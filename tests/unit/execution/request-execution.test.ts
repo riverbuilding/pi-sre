@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { parse } from "yaml";
-import { requestSreConfigSchema } from "../../../src/config/schema.js";
+import { sreConfigSchema } from "../../../src/config/schema.js";
 import { describe, expect, it } from "vitest";
 
 import { executionLimitsSchema } from "../../../src/config/execution.js";
@@ -129,16 +129,16 @@ describe("request execution", () => {
   });
 });
 
-it("validates the staged migration template and rejects removed investigation settings", async () => {
-  const raw: unknown = parse(await readFile("config/pi-sre.request.example.yaml", "utf8"));
-  const config = requestSreConfigSchema.parse(raw);
+it("validates the production template and rejects removed investigation settings", async () => {
+  const raw: unknown = parse(await readFile("config/pi-sre.example.yaml", "utf8"));
+  const config = sreConfigSchema.parse(raw);
   expect(config.execution).toEqual({ maxToolCalls: 40, maxModelIterations: 80 });
   const { execution: _limits, ...withoutLimits } = config;
   void _limits;
   // Parsed context rules differ from file input; this template omits contexts.
-  expect(requestSreConfigSchema.parse(withoutLimits).execution).toEqual(config.execution);
+  expect(sreConfigSchema.parse(withoutLimits).execution).toEqual(config.execution);
   expect(
-    requestSreConfigSchema.safeParse({
+    sreConfigSchema.safeParse({
       ...config,
       investigation: { maxToolCalls: 40, defaultTimeRange: "30m" },
     }).success,

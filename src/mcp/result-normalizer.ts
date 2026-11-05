@@ -17,15 +17,12 @@ export type ToolFailureCategory =
   | "invalid-arguments"
   | "tool-execution-failed"
   | "tool-not-approved"
-  | "scope-unbound"
   | "scope-unavailable"
-  | "stale-scope"
   | "incompatible-schema"
   | "capacity-exceeded"
   | "timeout"
   | "invalid-result"
   | "budget-refused"
-  | "storage-refused"
   | "presentation-refused";
 
 export interface NormalizedMcpResult {
@@ -67,12 +64,8 @@ const EMPTY_SUCCESS = "Tool completed successfully with no content.";
 
 const FAILURE_MESSAGES: Record<ToolFailureCategory, string> = {
   "tool-not-approved": "This Kubernetes MCP tool is not approved for execution.",
-  "scope-unbound":
-    "Cluster NOT SELECTED. Use /clusters or --clusters <name> before querying Kubernetes.",
   "scope-unavailable":
     "Cluster diagnostics are unavailable for the requested target or current resolution. Check /clusters --status and MCP availability.",
-  "stale-scope":
-    "Cluster scope or MCP connection changed. The stale operation result was withheld; retry with the current scope.",
   "incompatible-schema":
     "The Kubernetes MCP tool schema cannot accept the selected explicit context. Check server compatibility.",
   "transport-unavailable":
@@ -84,8 +77,7 @@ const FAILURE_MESSAGES: Record<ToolFailureCategory, string> = {
   "capacity-exceeded": "Kubernetes MCP waiting queue is full. Wait for pending calls to finish.",
   "invalid-result": "Kubernetes MCP returned an unsupported or invalid tool result.",
   "budget-refused":
-    "Incident diagnostic budget exhausted; explain findings or conclude inconclusive.",
-  "storage-refused": "Incident evidence capacity is full; observation was not stored or published.",
+    "Request tool dispatch limit reached; explain the available findings and limits.",
   "presentation-refused": "The diagnostic identity envelope exceeds the configured result budget.",
   timeout: "Kubernetes MCP operation timed out. Check connectivity and the configured timeout.",
 };

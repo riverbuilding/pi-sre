@@ -29,7 +29,7 @@ export interface SreConfig {
     readonly contexts?: ParsedSreConfig["kubernetes"]["contexts"];
     readonly mcp: McpServerConfig;
   };
-  readonly investigation: ParsedSreConfig["investigation"];
+  readonly execution: ParsedSreConfig["execution"];
   readonly safety: ParsedSreConfig["safety"];
 }
 

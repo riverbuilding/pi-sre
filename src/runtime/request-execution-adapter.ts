@@ -7,7 +7,7 @@ import { ExecutionQueue } from "../cluster/execution-queue.js";
 
 const installed = new WeakSet<AgentSession>();
 
-/** Staged integration: install once, after selecting the provider stream. */
+/** Install once on the application session, wrapping its provider stream. */
 export function installRequestExecution(
   session: AgentSession,
   limits: ExecutionLimits,

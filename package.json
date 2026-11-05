@@ -13,7 +13,7 @@
   "scripts": {
     "verify": "npm run format:check && npm run lint && npm run check && npm test && npm run build",
     "prepack": "npm run build",
-    "build": "tsc -p tsconfig.build.json",
+    "build": "node scripts/clean-build.ts && tsc -p tsconfig.build.json",
     "check": "tsc --noEmit",
     "dev": "tsx src/main.ts",
     "start": "node dist/main.js",

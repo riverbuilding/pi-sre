@@ -17,9 +17,9 @@ kubernetes:
     command: kubernetes-mcp-server
     args: []
     configFile: kubernetes-mcp.toml
-investigation:
-  defaultTimeRange: 30m
+execution:
   maxToolCalls: 40
+  maxModelIterations: 80
 safety:
   mode: read-only
 `;

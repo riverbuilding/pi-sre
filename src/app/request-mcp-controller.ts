@@ -6,7 +6,11 @@ import type { CallResult, RequestExecution } from "../execution/request-executio
 import { ExecutionError } from "../execution/errors.js";
 import type { McpConnection } from "../mcp/connection.js";
 import { ContextDiscoveryError, discoverClusterContexts } from "../mcp/context-discovery.js";
-import { discoverMcpTools, type McpToolDescriptor } from "../mcp/tool-discovery.js";
+import {
+  discoverMcpTools,
+  type McpToolDescriptor,
+  type ToolDiscoveryReport,
+} from "../mcp/tool-discovery.js";
 
 export interface RequestMcpPublication {
   readonly status: "connecting" | "ready" | "unavailable";
@@ -31,7 +35,7 @@ interface OwnedConnection {
   ready: boolean;
 }
 
-/** Staged Slice 3 composition; production switches in Slice 6.
+/** Owns the single MCP connection lifecycle.
  * Publication includes tool installation, environment and notices. Its completion is the
  * ready barrier, not model acknowledgement. The publisher must support empty withdrawals.
  */
@@ -42,6 +46,8 @@ export class RequestMcpController {
   readonly #configuredRule: ClusterScopeRule | undefined;
   readonly #shutdown = new AbortController();
   #selection: CurrentClusterSelection | undefined;
+  #report: ToolDiscoveryReport | undefined;
+  readonly #stopObservingShutdown: () => void;
   #owned: OwnedConnection | undefined;
   #pending: Promise<void> | undefined;
   #closing: Promise<void> | undefined;
@@ -57,11 +63,22 @@ export class RequestMcpController {
     publish: (state: RequestMcpPublication) => void | Promise<void>;
     intent?: StartupClusterIntent;
     configuredRule?: ClusterScopeRule;
+    signal?: AbortSignal;
   }) {
     this.#connect = options.connect;
     this.#publish = options.publish;
     this.#intent = options.intent ?? {};
     this.#configuredRule = options.configuredRule;
+    const abort = () => this.#shutdown.abort();
+    options.signal?.addEventListener("abort", abort, { once: true });
+    this.#stopObservingShutdown = () => options.signal?.removeEventListener("abort", abort);
+    if (options.signal?.aborted) {
+      abort();
+    }
+  }
+
+  get discoveryReport(): ToolDiscoveryReport | undefined {
+    return this.#report;
   }
 
   get snapshot(): RequestMcpPublication {
@@ -98,6 +115,7 @@ export class RequestMcpController {
 
   private withdraw(status: "connecting" | "unavailable", message: string): void {
     if (this.#owned) this.#owned.ready = false;
+    this.#report = undefined;
     this.#selection?.updateInventory(new ClusterContextRegistry([]));
     this.#state = { status, message, tools: [], selection: this.#selection };
   }
@@ -168,6 +186,7 @@ export class RequestMcpController {
         }
       });
       const report = await discoverMcpTools(transport, signal);
+      this.#report = report;
       const registry = await discoverClusterContexts(transport, report, signal);
       signal.throwIfAborted();
       if (transport.state !== "ready") throw new Error("MCP transport unavailable.");
@@ -232,6 +251,7 @@ export class RequestMcpController {
     if (this.#closing) return this.#closing;
     const closing = Promise.withResolvers<void>();
     this.#closing = closing.promise;
+    this.#stopObservingShutdown();
     this.#shutdown.abort();
     this.withdraw("unavailable", "Kubernetes MCP closed.");
     this.invalidate();

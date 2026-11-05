@@ -39,10 +39,7 @@ export const sreConfigSchema = z.strictObject({
       toolCallTimeoutMs: z.int().positive().default(30_000),
     }),
   }),
-  investigation: z.strictObject({
-    defaultTimeRange: z.string().regex(/^\d+(?:ms|s|m|h|d)$/),
-    maxToolCalls: z.int().positive(),
-  }),
+  execution: executionLimitsSchema.default(executionLimitsSchema.parse({})),
   safety: z.strictObject({
     mode: z.literal("read-only"),
   }),
@@ -50,8 +47,3 @@ export const sreConfigSchema = z.strictObject({
 
 export type SreConfigFile = z.input<typeof sreConfigSchema>;
 export type ParsedSreConfig = z.output<typeof sreConfigSchema>;
-
-/** Migration contract only, activated with the request pipeline in Slice 6. */
-export const requestSreConfigSchema = sreConfigSchema.omit({ investigation: true }).extend({
-  execution: executionLimitsSchema.default(executionLimitsSchema.parse({})),
-});
