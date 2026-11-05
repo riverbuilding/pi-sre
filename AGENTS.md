@@ -116,6 +116,25 @@ A change is complete when it preserves the read-only safety model, keeps cluster
 - Prefer `type` for unions/compositions and `interface` for extensible object contracts.
 - Use `readonly` where mutation is not intended.
 
+### Control flow and spacing
+
+Follow the Pi agent harness readability style:
+
+- Always use braces for `if` and `else` bodies, even when the body contains only one statement. Put the statement on its own line inside the braces.
+- Separate consecutive logical sections with a blank line when each section serves a distinct purpose, such as a guard clause, an external call, or result normalization. Keep closely related statements together.
+
+```ts
+async function inspectTarget(context: string): Promise<unknown> {
+  if (!isAllowedContext(context)) {
+    throw new Error(`Context is outside the allowed scope: ${context}`);
+  }
+
+  const result = await inspectContext(context);
+
+  return normalizeResult(result);
+}
+```
+
 ### ESM and imports
 
 This project uses ESM.

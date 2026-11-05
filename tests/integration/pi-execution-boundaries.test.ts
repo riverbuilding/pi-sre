@@ -1,3 +1,10 @@
+import { CurrentClusterSelection } from "../../src/cluster/current-selection.js";
+import { ClusterContextRegistry } from "../../src/cluster/context-registry.js";
+import type { RequestMcpPublication } from "../../src/app/request-mcp-controller.js";
+import {
+  registerRequestEnvironment,
+  requestEnvironmentType,
+} from "../../src/tui/request-environment-extension.js";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -685,3 +692,269 @@ it("Slice 1: application steering keeps the current budgets and idle environment
       await execution.dispose();
     }
   }));
+
+it("Slice 5: real environment publisher deduplicates, steers without new budgets and restores after compaction", async () => {
+  const selection = new CurrentClusterSelection(
+    new ClusterContextRegistry([
+      { name: "A", server: "https://first.invalid/?token=private", isDefault: false },
+      { name: "B", server: "https://b.invalid", isDefault: false },
+    ]),
+  );
+  let environment: ReturnType<typeof registerRequestEnvironment>;
+  const state = (status: RequestMcpPublication["status"] = "ready"): RequestMcpPublication => ({
+    status,
+    selection,
+    tools: [],
+    message: "untrusted password=never-forward-this",
+  });
+  await fixture(
+    async (session) => {
+      let calls = 0;
+      const inputs: string[] = [];
+      const ids: string[] = [];
+      session.agent.streamFunction = (model, context) => {
+        const input = JSON.stringify(context.messages);
+        inputs.push(input);
+        ids.push(execution.current!.requestId);
+        const environments = context.messages.filter(
+          (m) =>
+            m.role === "user" &&
+            JSON.stringify(m.content).includes("Application Kubernetes environment:"),
+        );
+        expect(environments.length).toBeGreaterThan(0);
+        expect(input).not.toMatch(/private|first.invalid|second.invalid|never-forward-this/);
+        const message = answer(model);
+        if (++calls === 1) {
+          selection.select({ kind: "exact", contexts: ["B"] });
+          environment.refresh();
+        }
+        return response(message);
+      };
+      const execution = installRequestExecution(
+        session,
+        { maxToolCalls: 2, maxModelIterations: 8 },
+        () => {},
+      );
+      try {
+        environment.publish(state());
+        environment.publish(state());
+        expect(execution.current).toBeUndefined();
+        expect(calls).toBe(0);
+        expect(
+          session.messages.filter(
+            (m) => m.role === "custom" && m.customType === requestEnvironmentType,
+          ),
+        ).toHaveLength(1);
+        await session.prompt("same named Pod web " + "history ".repeat(1000));
+        expect(calls).toBe(2);
+        expect(ids[0]).toBe(ids[1]);
+        expect(execution.current?.counts).toMatchObject({ dispatches: 0, modelIterations: 2 });
+        expect(inputs[1]).toContain("Selection changed");
+        const old = execution.current;
+        environment.publish(state("unavailable"));
+        selection.updateInventory(
+          new ClusterContextRegistry([
+            { name: "B", server: "https://second.invalid/?token=private", isDefault: true },
+          ]),
+        );
+        environment.publish(state());
+        expect(execution.current).toBe(old);
+        expect(calls).toBe(2);
+        const updates = session.messages.filter(
+          (m) => m.role === "custom" && m.customType === requestEnvironmentType,
+        );
+        expect(JSON.stringify(updates.at(-1))).toContain("Inventory target changed: 1");
+        expect(JSON.stringify(updates.at(-1))).toContain(
+          "historical observations are not current target facts",
+        );
+        environment.publish(state());
+        expect(
+          session.messages.filter(
+            (m) => m.role === "custom" && m.customType === requestEnvironmentType,
+          ),
+        ).toHaveLength(updates.length);
+        await session.prompt("more history ".repeat(200));
+        await session.compact();
+        await session.prompt("after manual compact");
+        expect(inputs.at(-1)).toContain("Exact");
+        expect(inputs.at(-1)).toContain("missing source/time or target-change history");
+      } finally {
+        await execution.dispose();
+        environment.dispose();
+      }
+    },
+    undefined,
+    (pi) => {
+      environment = registerRequestEnvironment(pi);
+    },
+  );
+});
+
+it("Slice 5: automatic overflow compaction restores current environment before direct retry", async () => {
+  const selection = new CurrentClusterSelection(
+    new ClusterContextRegistry([
+      { name: "A", server: "https://private.invalid", isDefault: false },
+    ]),
+  );
+  let environment: ReturnType<typeof registerRequestEnvironment>;
+  await fixture(
+    async (session, events) => {
+      let overflow = false;
+      const inputs: string[] = [];
+      session.agent.streamFunction = (model, context) => {
+        inputs.push(JSON.stringify(context.messages));
+        const message = answer(model);
+        if (overflow) {
+          overflow = false;
+          message.stopReason = "error";
+          message.errorMessage = "maximum context length exceeded";
+        }
+        return response(message);
+      };
+      const execution = installRequestExecution(
+        session,
+        { maxToolCalls: 2, maxModelIterations: 4 },
+        () => {},
+      );
+      try {
+        environment.publish({ status: "ready", selection, tools: [], message: "" });
+        await session.prompt("history ".repeat(500));
+        await session.prompt("second historical turn ".repeat(100));
+        const before = events.filter((e) => e === "before_agent_start").length;
+        session.settingsManager.setCompactionEnabled(true);
+        overflow = true;
+        await session.prompt("overflow recovery ".repeat(100));
+        expect(events).toContain("compact:overflow");
+        expect(events.filter((e) => e === "before_agent_start")).toHaveLength(before + 1);
+        expect(execution.current?.counts.modelIterations).toBe(2);
+        expect(execution.current?.counts.dispatches).toBe(0);
+        expect(inputs.at(-1)).toContain("Application Kubernetes environment:");
+        expect(inputs.at(-1)).toContain("Available targets: 1");
+        expect(inputs.at(-1)).toContain("missing source/time or target-change history");
+        expect(inputs.at(-1)).not.toContain("private.invalid");
+      } finally {
+        await execution.dispose();
+        environment.dispose();
+      }
+    },
+    undefined,
+    (pi) => {
+      environment = registerRequestEnvironment(pi);
+    },
+  );
+});
+
+it("Slice 5: original A/B Pod sources survive current selection and same-name target replacement", async () => {
+  let environment: ReturnType<typeof registerRequestEnvironment>;
+  let execution: ReturnType<typeof installRequestExecution> | undefined;
+  let controller: RequestMcpController;
+  let endpoint = "first";
+  const boundary = new RequestToolResultBoundary();
+  await fixture(
+    async (session) => {
+      await controller.restart();
+      session.setActiveToolsByName(["pods_list"]);
+      let calls = 0;
+      let original: string | undefined;
+      let sawReplacement = false;
+      session.agent.streamFunction = async (model, context) => {
+        const message = answer(model);
+        if (++calls === 1) {
+          message.stopReason = "toolUse";
+          message.content = ["A", "B"].map((name) => ({
+            type: "toolCall",
+            id: name,
+            name: "pods_list",
+            arguments: { context: name },
+          }));
+        } else {
+          const results = context.messages.filter((m) => m.role === "toolResult");
+          expect(results).toHaveLength(2);
+          for (const name of ["A", "B"]) {
+            const result = results.find((m) => m.toolCallId === name)!;
+            const text = result.content
+              .filter((b) => b.type === "text")
+              .map((b) => b.text)
+              .join("\n");
+            expect(text).toContain(`"context":"${name}"`);
+            expect(text).toContain("dispatchedAt");
+            expect(text).toContain("pod web");
+          }
+          if (calls === 2) {
+            original = JSON.stringify(results);
+            const request = execution!.current!;
+            controller.selection!.select({ kind: "exact", contexts: ["B"] });
+            environment.refresh();
+            endpoint = "replacement";
+            await controller.restart(true);
+            expect(execution!.current).toBe(request);
+            expect(request.counts.dispatches).toBe(2);
+          } else {
+            expect(JSON.stringify(results)).toBe(original);
+            const input = JSON.stringify(context.messages);
+            if (input.includes("Inventory target changed: 2")) {
+              sawReplacement = true;
+              expect(input).toContain("historical observations are not current target facts");
+              expect(input).toContain("Available targets: 1");
+              expect(input).not.toContain("private.invalid");
+            }
+          }
+        }
+        return response(message);
+      };
+      execution = installRequestExecution(
+        session,
+        { maxToolCalls: 2, maxModelIterations: 5 },
+        () => {},
+      );
+      try {
+        await session.prompt("compare pod web on A and B");
+        expect(calls).toBe(5);
+        expect(sawReplacement).toBe(true);
+        expect(execution.current?.counts).toMatchObject({ dispatches: 2, modelIterations: 5 });
+      } finally {
+        await controller.close();
+        await execution.dispose();
+        environment.dispose();
+      }
+    },
+    undefined,
+    (pi) => {
+      environment = registerRequestEnvironment(pi);
+      pi.on("message_end", (event) => boundary.protectMessage(event));
+      controller = new RequestMcpController({
+        connect: async () => {
+          const target = endpoint;
+          return {
+            state: "ready",
+            listTools: async () => [
+              { name: "configuration_contexts_list", inputSchema: { type: "object" } },
+              scopedPodTool,
+            ],
+            callTool: async (name) =>
+              name === "configuration_contexts_list"
+                ? {
+                    content: [],
+                    structuredContent: {
+                      contexts: ["A", "B"].map((name) => ({
+                        name,
+                        server: `https://${target}.private.invalid`,
+                        default: false,
+                      })),
+                    },
+                  }
+                : { content: [{ type: "text", text: "pod web" }] },
+            close: async () => {},
+          };
+        },
+        publish: (state) => {
+          for (const tool of state.tools)
+            pi.registerTool(
+              createRequestMcpToolBridge(tool, state, () => execution?.current, boundary),
+            );
+          environment.publish(state);
+        },
+      });
+    },
+  );
+});

@@ -1,3 +1,5 @@
+import { Text } from "@earendil-works/pi-tui";
+
 import type {
   MessageEndEvent,
   MessageEndEventResult,
@@ -191,6 +193,20 @@ export function createRequestMcpToolBridge(
     description: `${descriptor.description ?? operation}${operation === "pods_log" ? " Pi SRE limits: tail defaults to 100 lines; allowed range 1–1000; streaming is disabled." : ""}`,
     parameters: structuredClone(schema.parameters),
     executionMode: "parallel",
+    renderCall(args) {
+      const context: unknown =
+        typeof args === "object" && args !== null && "context" in args ? args.context : undefined;
+      return new Text(
+        [
+          `${operation} | READ ONLY`,
+          schema.policy.clusterDependent
+            ? `Requested context: ${isPresentableIdentity(context) ? JSON.stringify(context) : "missing or unsafe identity; withheld"}`
+            : "Context: inventory operation (not cluster dependent)",
+        ].join("\n"),
+        0,
+        0,
+      );
+    },
     prepareArguments(args: unknown) {
       return prepareMcpToolArguments(schema.policy, args) ?? args;
     },

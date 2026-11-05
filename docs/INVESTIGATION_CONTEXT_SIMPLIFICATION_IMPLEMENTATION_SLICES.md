@@ -1,6 +1,6 @@
 # 调查与 Context 状态简化 — Implementation Slices
 
-状态：Slices 0–4 已完成契约、迁移部件与离线验证；Slices 5–7 待实施，生产尚未切换。编写日期：2026-10-30；更新日期：2026-11-03。
+状态：Slices 0–5 已完成契约、迁移部件与离线验证；Slices 6–7 待实施，生产尚未切换。编写日期：2026-10-30；更新日期：2026-11-04。
 
 依据：[调查与 Context 状态简化：设计方案](./INVESTIGATION_CONTEXT_SIMPLIFICATION.md)正文第 1–13 节。该设计正文优先于其历史附录及旧 Phase 4 契约。本文拆解迁移任务，不声明运行时已经改变；不改写历史验收结果，也不把本次迁移重新编号为 Phase 5。
 
@@ -53,7 +53,7 @@ Slice 0 契约与 Pi 事件验证
 
 Slices 1–5 提供可测试的迁移部件及组合测试；在 Slice 6 前不将部分新语义接入生产。生产仍保持完整旧路径，避免新请求预算、旧 incident 授权、旧证据提交混合执行。若拆成多个 PR，每个合并点都必须保持现有生产行为和安全门禁；Slice 6 一次切换并删除旧路径，不增加兼容配置、双写或长期双管线。
 
-Slices 0–4 的契约与验证记录见下文；Slices 5–7 待实施。通过前置测试不等于生产迁移完成。
+Slices 0–5 的契约与验证记录见下文；Slices 6–7 待实施。通过前置测试不等于生产迁移完成。
 
 ## 3. Slice 0 — 冻结执行契约并验证 Pi 事件边界
 
@@ -216,6 +216,14 @@ Slice 4 交付（2026-11-03）：
 - 环境消息不重置请求/迭代/dispatch 计数，不重复注入领域摘要，也不导致空闲模型自动运行。
 - A/B 同名 Pod 经改选和目标指向变化后，模型输入能区分历史来源、目标变化和当前可查范围；不得把旧结果标成新目标当前事实。
 - `/clusters`、picker 和状态栏对 exact unavailable 项、部分可用、全部不可用及恢复的表达一致；活动期间允许改选。
+
+Slice 5 交付（2026-11-04）：
+
+- `src/runtime/request-environment.ts` 从当前选择和 MCP publication 捕获单一环境事实，生成 widget、命令和模型共用的描述：all/exact、available targets、unavailable selected、MCP 状态、namespace policy 和 READ ONLY。自动消息只预览完整安全名称，省略时指向 `/clusters --status`；不输出 server 地址或原 publication 错误。独立的新 prompt 以 messages 推理、修正判断和直接报告，待 Slice 6 与生产接线同时替换旧 prompt。
+- `src/tui/request-environment-extension.ts` 提供一次注册的待切换 publisher 与 `/clusters`，活动期间允许修改当前选择。选择器保留 unavailable 行及过期草稿检查，退出后不得提交；widget 与 status 使用同一事实。工具 bridge 的 call renderer 显示 READ ONLY 和完整准确的请求 context，不转发其他原始参数；执行事实继续以 Slice 4 的结果来源为准。
+- 选择、inventory 名称/目标和 MCP 状态变更直接产生 custom steering；相同刷新、顺序和 default 元数据不重复通知。空闲发送只追加消息，不启动模型。只保存最新比较快照；连接撤下期间保留上次已验证 inventory 用于恢复比较，展示仍为零可执行目标，绝不用于授权。恢复可识别同名目标变化，不保存 environmentEvents 或最近变更列表。
+- `context` hook 在每次模型请求前检查当前环境是否存在，缺失或过期时补充当前快照，覆盖手动压缩与 overflow 自动压缩直接重试；不从 transcript 恢复权限。缺失的目标变更历史不重建：恢复描述明确同名 context 可能换目标、历史结果保持原来源/时间、缺少来源或目标变化信息时说明限制并按需重查。不会为恢复复制领域摘要或保存第二套历史。
+- 针对性离线测试 65/65 通过：真实 Pi 的通知/预算/手动及自动压缩，与统一结果 bridge、接收管线，以及当前 command/picker/widget 的 partial、全部不可用、恢复、活动改选、去重、目标变化、退出和安全呈现。`npm run verify` 全部通过（格式、lint、类型检查、51 个测试文件通过/1 跳过、761 个测试通过/7 跳过、构建通过）。生产 composition 尚未引用新 publisher/prompt；完整安装包、live 与视觉验收留到 Slice 7。
 
 ## 9. Slice 6 — 原子切换生产并删除调查体系
 

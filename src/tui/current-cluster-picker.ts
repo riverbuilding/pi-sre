@@ -6,14 +6,19 @@ import { pickClusterRule } from "./cluster-picker.js";
 export async function pickCurrentClusters(
   ui: Pick<ExtensionUIContext, "select">,
   selection: CurrentClusterSelection,
+  assertUsable: () => void = () => {},
 ): Promise<void> {
   const draft = selection.captureDraft();
+  const assertCurrent = () => {
+    assertUsable();
+    draft.assertCurrent();
+  };
   const rule = await pickClusterRule(
     ui,
     selection.inventory.contexts.map((entry) => entry.name),
     draft.rule,
-    draft.assertCurrent,
+    assertCurrent,
   );
-  draft.assertCurrent();
+  assertCurrent();
   if (rule) selection.select(rule);
 }

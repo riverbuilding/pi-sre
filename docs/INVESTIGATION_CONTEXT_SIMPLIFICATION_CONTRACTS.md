@@ -1,6 +1,6 @@
 # 调查与 Context 状态简化 — 执行契约
 
-状态：Slice 0 验证完成（2026-10-30），Slices 1–4 迁移部件及组合验证完成（2026-11-02/03）；生产仍采用 Phase 4 路径。本文冻结后续 slices 的执行契约，不声明迁移已接线。
+状态：Slice 0 验证完成（2026-10-30），Slices 1–5 迁移部件及组合验证完成（2026-11-02/04）；生产仍采用 Phase 4 路径。本文冻结后续 slices 的执行契约，不声明迁移已接线。
 
 依据：设计正文第 1–13 节及 Implementation Slices。历史附录不是实施要求。
 
@@ -89,3 +89,13 @@ Slice 4 记录（2026-11-03）：`createRequestMcpToolBridge` 消费 Slice 3 pub
 Pi 0.99.0 的 `prepareToolCall` 会在 schema/abort 拒绝后跳过 handler 与 `afterToolCall`，不能仅用 `tool_result` 覆盖全部结果。`RequestToolResultBoundary.protectMessage` 必须在 Session 初始化时注册到 `message_end`；同一个 boundary 跨连接替换及工具 publication 共用。由 boundary 标记过的结果保持原来源；其余批准工具的 Pi 前置拒绝被替换为受限的未执行说明，原 schema 错误及参数不进入工具结果历史。真实 Pi fixture 验证替换先于 provider input 与 SessionManager persistence。模型自己生成的 assistant 工具参数不属于服务端响应脱敏范围。
 
 Slice 4 针对性离线验证 74/74 通过；完整 `npm run verify` 通过（50 个测试文件通过/1 跳过、751 个测试通过/7 跳过、构建通过）。生产尚未接线；Slice 6 同时接入 bridge 与 message_end boundary。安装包、live 与视觉验收未执行。
+
+Slice 5 记录（2026-11-04）：`registerRequestEnvironment` 必须随扩展在启动时注册一次；工具安装后调用其 `publish(publication)`，与工具发布共同位于 Slice 3 ready 屏障内；用户改选由新 `/clusters` 调用 `refresh()`。外部直接更改 selection/inventory 后也须 refresh/publish。生产接线及新 request prompt 的替换仍由 Slice 6 一次完成，不与旧环境扩展共同注册。
+
+环境通知比较当前选择、inventory 名称/目标与 MCP 状态，不比较 default 元数据、工作状态或执行 revision。连接撤下时保留上次已验证 inventory 仅作恢复比较；available targets 仍为空，exact 项标 unavailable selected。MCP 恢复后按新 inventory 展示并通知 added/removed/target changed，不输出 endpoint。相同快照不再追加消息；custom steering 不创建请求，空闲不启动模型。
+
+压缩恢复使用每次模型调用前的 `context`，而非 `before_agent_start`：当前环境缺失/过期才追加一份模型输入快照，已有最新快照时不重复。该恢复不写领域状态、不重建丢失历史，也不保留最近事件列表；统一提示历史 context/时间不变、同名目标可能改变，缺少必要来源或变化记录时应说明限制并重查。真实 Pi fixture 覆盖手动 compaction 以及 overflow compaction 后无额外用户消息的直接重试，并断言请求/计数保持。工具 call UI 显示请求 context；实际执行与时间仍以工具结果中的来源为准。
+
+Slice 5 针对性离线验证 65/65 通过；安装包、live 与视觉终端未执行，生产仍保持旧路径。
+
+Slice 5 完整门禁：`npm run verify` 通过（格式、lint、类型检查、51 个测试文件通过/1 跳过、761 个测试通过/7 跳过、构建通过）。跳过项为既有 opt-in 检查，不代表 live server 验收。
