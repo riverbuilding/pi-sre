@@ -1,6 +1,6 @@
 # 调查与 Context 状态简化 — 执行契约
 
-状态：Slices 0–6 已完成（2026-10-30 至 2026-11-04），生产已切换请求管线；Slice 7 完整验收待实施。下文逐 Slice 记录保留当时状态，staged/尚未接线不再描述当前生产。
+状态：Slices 0–6 已完成（2026-10-30 至 2026-11-04），生产已切换请求管线；Slice 7 离线、提取包/TTY、server 与 kind 检查已通过，视觉终端待验收，详见[验收记录](./INVESTIGATION_CONTEXT_SIMPLIFICATION_ACCEPTANCE.md)。下文逐 Slice 记录保留当时状态，staged/尚未接线不再描述当前生产。
 
 依据：设计正文第 1–13 节及 Implementation Slices。历史附录不是实施要求。
 

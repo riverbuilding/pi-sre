@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { stringify } from "yaml";
+import { startOfflineModelServer } from "../tests/fixtures/offline-model-server.js";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 
@@ -28,11 +29,15 @@ async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const prepareOnly = args.includes("--prepare-only");
   const manyContexts = args.includes("--many-contexts");
+  const offlineModel = args.includes("--offline-model");
   if (
-    args.some((arg) => !["--prepare-only", "--many-contexts"].includes(arg)) ||
+    args.some((arg) => !["--prepare-only", "--many-contexts", "--offline-model"].includes(arg)) ||
+    (offlineModel && prepareOnly) ||
     new Set(args).size !== args.length
   ) {
-    throw new Error("Usage: npm run manual:clusters -- [--many-contexts] [--prepare-only]");
+    throw new Error(
+      "Usage: npm run manual:clusters -- [--many-contexts] [--prepare-only | --offline-model]",
+    );
   }
   await access(join(root, "node_modules", "tsx"));
   const workspace = await mkdtemp(join(tmpdir(), "pi-sre-manual-clusters-"));
@@ -69,7 +74,11 @@ async function main(): Promise<void> {
             "--import",
             import.meta.resolve("tsx"),
             fixture,
-            manyContexts ? "diagnostic-many-contexts" : "diagnostic-success",
+            manyContexts
+              ? "diagnostic-many-contexts"
+              : offlineModel
+                ? "diagnostic-manual-delayed"
+                : "diagnostic-success",
             join(appHome, "fixture.pid"),
           ],
           configFile: "kubernetes-mcp.toml",
@@ -101,7 +110,9 @@ async function main(): Promise<void> {
   ].join("\n");
   const launcher = join(workspace, "launch.sh");
   await writeFile(launcher, launch, { mode: 0o700 });
-  console.log(`\nRelaunch: ${quote(launcher)}`);
+  console.log(
+    `\n${offlineModel ? "Launcher (local model available only during this run)" : "Relaunch"}: ${quote(launcher)}`,
+  );
   console.log(`Config: ${configPath}`);
   console.log(`Fixture MCP call log: ${join(appHome, "fixture.pid.calls")}`);
   console.log(
@@ -113,9 +124,42 @@ async function main(): Promise<void> {
           "/clusters alpha, /clusters beta, /clusters --all, and /mcp_restart --force.\n" +
           "Selection affects newly accepted calls, including during active work.\n" +
           "Each diagnostic call must supply one exact available context.\n" +
-          "No model login is needed for commands. Use /login for fixture queries.\n",
+          (offlineModel
+            ? "Local model requires no login.\n"
+            : "No model login is needed for commands. Use /login for fixture queries.\n"),
   );
-  if (!prepareOnly) await run(process.execPath, [executable], workspace, env);
+  if (offlineModel) {
+    const model = await startOfflineModelServer();
+    try {
+      await writeFile(
+        join(appHome, "models.json"),
+        JSON.stringify({
+          providers: {
+            "offline-fixture": {
+              baseUrl: model.baseUrl,
+              api: "openai-completions",
+              apiKey: "offline-fixture",
+              models: [{ id: "fixture", contextWindow: 100_000, maxTokens: 1000 }],
+            },
+          },
+        }),
+        { mode: 0o600 },
+      );
+      await writeFile(
+        join(appHome, "settings.json"),
+        JSON.stringify({ defaultProvider: "offline-fixture", defaultModel: "fixture" }),
+        { mode: 0o600 },
+      );
+      console.log(
+        "Local deterministic model enabled. Try compare alpha beta, inspect beta, or Escape during a query. No model login required.",
+      );
+      await run(process.execPath, [executable], workspace, env);
+    } finally {
+      await model.close();
+    }
+  } else if (!prepareOnly) {
+    await run(process.execPath, [executable], workspace, env);
+  }
 }
 
 main().catch((error: unknown) => {

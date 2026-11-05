@@ -315,6 +315,219 @@ describe("application lifecycle with real Pi and managed MCP", () => {
     await writeFile(settings.paths.kubernetesMcpConfig, "read_only = true\n");
   }
 
+  it("gives user steering and queued follow-ups fresh budgets through the production hooks", async () => {
+    ui.run.mockImplementation(async ({ session }) => {
+      let queued: Promise<void> | undefined;
+      const queried = new Set<string>();
+      await installOfflineProvider(session, (_context, iteration) => {
+        if (iteration === 0) {
+          queued = (async () => {
+            await session.steer("Correction: inspect beta instead");
+            await session.followUp("Report again after my update");
+            await session.followUp("Continue after the report");
+          })();
+        }
+        const user = session.messages.findLast((message) => message.role === "user");
+        const text = JSON.stringify(user?.content);
+        const needsQuery = !queried.has(text);
+        queried.add(text);
+        return needsQuery
+          ? [
+              {
+                type: "toolCall",
+                id: `query-${iteration}`,
+                name: "pods_list",
+                arguments: { context: iteration === 0 ? "alpha" : "beta" },
+              },
+            ]
+          : [{ type: "text", text: "Observation recorded; revised report." }];
+      });
+      await session.prompt("Inspect alpha");
+      await queued;
+      const results = session.messages.filter((message) => message.role === "toolResult");
+      // The correction is processed before the next model iteration. Each user
+      // message gets a complete dispatch budget even inside the same Pi run.
+      expect(results).toHaveLength(4);
+      expect(results.every((result) => !result.isError)).toBe(true);
+      expect(session.messages.filter((message) => message.role === "user")).toHaveLength(4);
+      expect(session.isStreaming).toBe(false);
+    });
+    await new SreApplication({
+      ...config("diagnostic-success"),
+      execution: { maxToolCalls: 1, maxModelIterations: 6 },
+    }).run();
+    await expectChildExited();
+  });
+
+  it("keeps accepted alpha calls after live selection changes and refuses new alpha calls", async () => {
+    const app = new SreApplication(config("diagnostic-gated"));
+    ui.run.mockImplementation(async ({ session }) => {
+      await installOfflineProvider(session, (_context, iteration) =>
+        iteration === 0
+          ? Array.from({ length: 6 }, (_, index) => ({
+              type: "toolCall" as const,
+              id: `accepted-${index}`,
+              name: "pods_list",
+              arguments: { context: "alpha" },
+            }))
+          : iteration === 1
+            ? [
+                {
+                  type: "toolCall",
+                  id: "new-alpha",
+                  name: "pods_list",
+                  arguments: { context: "alpha" },
+                },
+              ]
+            : [
+                {
+                  type: "text",
+                  text: "Historical alpha observations remain alpha; current scope is beta.",
+                },
+              ],
+      );
+      const running = session.prompt("Inspect alpha in parallel");
+      await expect
+        .poll(async () => (await readFile(`${pidPath}.calls`, "utf8")).trim().split("\n").length)
+        .toBe(5);
+      await session.prompt("/clusters beta");
+      await writeFile(`${pidPath}.release`, "release");
+      await running;
+      const results = session.messages.filter((message) => message.role === "toolResult");
+      expect(results).toHaveLength(7);
+      for (const result of results.slice(0, 6)) {
+        expect(result).toMatchObject({ isError: false, details: { status: "success" } });
+        expect(JSON.stringify(result.content)).toContain("alpha");
+      }
+      expect(results[6]).toMatchObject({
+        isError: true,
+        details: { failureCategory: "scope-unavailable" },
+      });
+      expect((await readFile(`${pidPath}.calls`, "utf8")).trim().split("\n")).toHaveLength(7);
+      expect(app.selection?.rule).toEqual({ kind: "exact", contexts: ["beta"] });
+    });
+    await app.run();
+    await expectChildExited();
+  });
+
+  it.each(["cancel", "force", "disconnect"] as const)(
+    "settles active and queued calls once on %s and isolates the next request",
+    async (action) => {
+      const settings = config("diagnostic-gated");
+      await writeRecoveryConfig(settings);
+      ui.run.mockImplementation(async ({ session }) => {
+        let phase = "old";
+        await installOfflineProvider(session, (_context, iteration) => {
+          if (iteration === 0) {
+            return Array.from({ length: 6 }, (_, index) => ({
+              type: "toolCall" as const,
+              id: `old-${index}`,
+              name: "pods_list",
+              arguments: { context: "alpha" },
+            }));
+          }
+          if (phase === "new") {
+            phase = "reported";
+            return [
+              {
+                type: "toolCall",
+                id: "new-request",
+                name: "pods_list",
+                arguments: { context: "beta" },
+              },
+            ];
+          }
+          return [{ type: "text", text: "Report only settled observations." }];
+        });
+        const running = session.prompt("Inspect six targets");
+        await expect
+          .poll(async () => (await readFile(`${pidPath}.calls`, "utf8")).trim().split("\n").length)
+          .toBe(5);
+        if (action === "cancel") {
+          await session.abort();
+        } else {
+          if (action === "disconnect") {
+            process.kill(Number(await readFile(pidPath, "utf8")), "SIGTERM");
+            await expect.poll(() => session.getActiveToolNames()).toEqual([]);
+          }
+          await session.prompt("/mcp_restart --force");
+        }
+        await running;
+        const oldResults = session.messages.filter((message) => message.role === "toolResult");
+        expect(oldResults).toHaveLength(6);
+        expect(new Set(oldResults.map((result) => result.toolCallId)).size).toBe(6);
+        expect(oldResults.every((result) => result.isError)).toBe(true);
+        const historical = JSON.stringify(oldResults);
+        await writeFile(`${pidPath}.release`, "release late responses");
+        phase = "new";
+        await session.prompt("Continue on beta with a fresh request");
+        const allResults = session.messages.filter((message) => message.role === "toolResult");
+        expect(allResults).toHaveLength(7);
+        expect(JSON.stringify(allResults.slice(0, 6))).toBe(historical);
+        expect(allResults.at(-1)).toMatchObject({ toolCallId: "new-request", isError: false });
+        expect(session.isStreaming).toBe(false);
+        // Cancelled queued calls never reach MCP; discovery is separately counted.
+        const calls = (await readFile(`${pidPath}.calls`, "utf8")).trim().split("\n");
+        expect(calls.filter((call) => call.includes('"name":"pods_list"'))).toHaveLength(5);
+      });
+      await new SreApplication(settings).run();
+      await expectChildExited();
+    },
+  );
+
+  it("retains the active request balance across recovery and does not wake an idle model", async () => {
+    const settings = {
+      ...config("diagnostic-gated"),
+      execution: { maxToolCalls: 1, maxModelIterations: 6 },
+    };
+    await writeRecoveryConfig(config("diagnostic-success"));
+    ui.run.mockImplementation(async ({ session }) => {
+      const recovered = Promise.withResolvers<void>();
+      const finishTurn = session.agent.finishTurn;
+      session.agent.finishTurn = async (turn, signal) => {
+        // Hold the deterministic next turn until publication has reopened dispatch.
+        // Preserve the production finish hook and its request accounting.
+        await recovered.promise;
+        return (await finishTurn?.(turn, signal)) ?? undefined;
+      };
+      let streams = 0;
+      await installOfflineProvider(session, (_context, iteration) => {
+        streams++;
+        return iteration < 2 || iteration === 3
+          ? [
+              {
+                type: "toolCall",
+                id: `query-${iteration}`,
+                name: "pods_list",
+                arguments: { context: "alpha" },
+              },
+            ]
+          : [{ type: "text", text: "Report with the remaining request balance." }];
+      });
+      const running = session.prompt("Inspect alpha");
+      await expect
+        .poll(async () => (await readFile(`${pidPath}.calls`, "utf8")).trim().split("\n").length)
+        .toBe(2);
+      await session.prompt("/mcp_restart --force");
+      recovered.resolve();
+      await running;
+      expect(session.messages.filter((message) => message.role === "toolResult")).toMatchObject([
+        { isError: true, details: { failureCategory: "transport-unavailable" } },
+        { isError: true, details: { failureCategory: "budget-refused" } },
+      ]);
+      expect(streams).toBe(3);
+      await session.prompt("/mcp_restart --force");
+      expect(streams).toBe(3);
+      await session.prompt("Continue as a new request");
+      expect(streams).toBe(5);
+      expect(
+        session.messages.filter((message) => message.role === "toolResult").at(-1),
+      ).toMatchObject({ isError: false });
+    });
+    await new SreApplication(settings).run();
+    await expectChildExited();
+  });
+
   it("keeps one session and current exact intent across production MCP recovery; refuses non-read-only config", async () => {
     const settings = config("diagnostic-success");
     await writeRecoveryConfig(config("diagnostic-alpha-only"));

@@ -1,6 +1,6 @@
 # 调查与 Context 状态简化 — Implementation Slices
 
-状态：Slices 0–6 已完成，生产已切换至请求管线并删除调查体系；Slice 7 完整验收待实施。编写日期：2026-10-30；更新日期：2026-11-04。
+状态：Slices 0–6 已完成，生产已切换至请求管线并删除调查体系；Slice 7 离线、安装包/TTY、server 契约和一次性 kind 检查已通过，视觉终端验收待完成。编写日期：2026-10-30；更新日期：2026-11-04。
 
 依据：[调查与 Context 状态简化：设计方案](./INVESTIGATION_CONTEXT_SIMPLIFICATION.md)正文第 1–13 节。该设计正文优先于其历史附录及旧 Phase 4 契约。本文拆解迁移任务，不声明运行时已经改变；不改写历史验收结果，也不把本次迁移重新编号为 Phase 5。
 
@@ -53,7 +53,7 @@ Slice 0 契约与 Pi 事件验证
 
 Slices 1–5 提供可测试的迁移部件及组合测试；在 Slice 6 前不将部分新语义接入生产。生产仍保持完整旧路径，避免新请求预算、旧 incident 授权、旧证据提交混合执行。若拆成多个 PR，每个合并点都必须保持现有生产行为和安全门禁；Slice 6 一次切换并删除旧路径，不增加兼容配置、双写或长期双管线。
 
-Slices 0–5 的契约与验证记录见下文，记录中的 staged/尚未切换均指当时状态；Slice 6 已完成生产迁移，Slice 7 完整验收待实施。
+Slices 0–5 的契约与验证记录见下文，记录中的 staged/尚未切换均指当时状态；Slice 6 已完成生产迁移；Slice 7 当前结果见[验收记录](./INVESTIGATION_CONTEXT_SIMPLIFICATION_ACCEPTANCE.md)，仅视觉终端验收待完成。
 
 ## 3. Slice 0 — 冻结执行契约并验证 Pi 事件边界
 
@@ -290,6 +290,13 @@ npm run verify
 安装包验收在 checkout 外验证：安全配置启动、直接诊断、改选、取消、`/mcp_restart`、状态与来源展示、无旧领域命令/工具、退出进程清理及 kubeconfig 未改变。Live 检查使用显式的一次性 kind 环境和测试 context，保持只读；覆盖 exact/all 恢复及同名资源来源，不要求访问生产集群或执行故障注入。实际 server/schema 契约测试按已有 `npm run test:contracts` 单独记录，不能把确定性 fixture 通过等同于 live 通过。
 
 视觉终端检查单独记录当前选择、unavailable selected、每次调用 context、READ ONLY/MCP 状态及取消/恢复反馈。尚未执行的 live、安装包或视觉检查标为待验收，不以自动测试替代，也不挪用旧 Phase 4 验收结果。
+
+Slice 7 交付记录（2026-11-04）：
+
+- 新增[验收矩阵](./INVESTIGATION_CONTEXT_SIMPLIFICATION_ACCEPTANCE.md)，逐项区分离线组合、提取包、实际 TTY、真实 server、kind 和视觉证据。应用组合新增 steering/follow-up 逐条额度、六调用中 active/queued 改选、取消/force/断线、迟到结果隔离及活动恢复余额验证。gate fixture 确定控制收尾时机。
+- 包测试在 checkout 外将同一应用组合的导入指向提取包 dist，另起进程重跑；实际 TTY 使用本地确定性模型完成查询、改选、Escape、unavailable、恢复及退出，不使用模型账号。新增 `manual:clusters -- --offline-model` 供复验。
+- 真实 server 契约 7/7、一次性 kind exact/all 只读检查 2/2 通过；输入 kubeconfig 不变，临时测试集群已删除。kind 使用同一集群的不同 context 别名，不声称两个物理集群故障隔离验收。
+- Computer Use 禁止访问 Terminal，未执行屏幕视觉检查；实际 TTY 和自动化不替代视觉验收。Slice 7 保持未完全验收，后续补齐截图及 picker/布局检查；不挪用 Phase 4 历史记录。
 
 ## 11. 完成标准与独立后续交付
 

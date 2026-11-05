@@ -1,4 +1,4 @@
-import { appendFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { scopedPodTool } from "./scoped-tool.js";
 import captured from "./phase2-server-0.0.67.json" with { type: "json" };
@@ -320,9 +320,27 @@ input.on("line", (line) => {
   }
   if (method === "tools/call" && scenario === "scoped-timeout" && params?.name === "pods_list")
     return;
+  if (method === "tools/call" && scenario === "diagnostic-gated" && params?.name === "pods_list") {
+    const gate = process.argv[3];
+    if (!gate) {
+      throw new Error("Gated fixture requires a PID path.");
+    }
+    writeFileSync(`${gate}.call`, "started");
+    const timer = setInterval(() => {
+      if (!existsSync(`${gate}.release`)) {
+        return;
+      }
+      clearInterval(timer);
+      process.stdout.write(
+        `${JSON.stringify({ jsonrpc: "2.0", id, result: callToolResult(scenario, params) })}\n`,
+      );
+    }, 10);
+    return;
+  }
   if (
     method === "tools/call" &&
-    ((scenario === "diagnostic-delayed" && params?.name === "pods_list") ||
+    (((scenario === "diagnostic-delayed" || scenario === "diagnostic-manual-delayed") &&
+      params?.name === "pods_list") ||
       (scenario === "diagnostic-phase3-delayed" && params?.name === "pods_get"))
   ) {
     if (process.argv[3]) writeFileSync(`${process.argv[3]}.call`, "started");
@@ -332,7 +350,11 @@ input.on("line", (line) => {
           `${JSON.stringify({ jsonrpc: "2.0", id, result: callToolResult(scenario, params) })}\n`,
         );
       },
-      scenario === "diagnostic-phase3-delayed" ? 500 : 200,
+      scenario === "diagnostic-manual-delayed"
+        ? 3_000
+        : scenario === "diagnostic-phase3-delayed"
+          ? 500
+          : 200,
     );
     return;
   }

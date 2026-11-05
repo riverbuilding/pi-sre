@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { access, mkdtemp, readFile, readdir, rm, symlink } from "node:fs/promises";
+import { access, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -97,7 +97,29 @@ it("packs a built executable that launches outside the source checkout", async (
         code: "ENOENT",
       });
     }
+    // Run the same production-composition acceptance against built modules in
+    // the extracted payload. Only terminal/provider I/O is replaced by fixtures.
+    // No application source module or checkout cwd participates in this run.
+    const acceptance = join(installed, "tests", "integration", "application-lifecycle.test.ts");
+    await writeFile(
+      acceptance,
+      (await readFile(acceptance, "utf8")).replaceAll('"../../src/', '"../../dist/'),
+    );
+    const { stdout } = await run(
+      process.execPath,
+      [
+        join(installed, "node_modules", "vitest", "vitest.mjs"),
+        "run",
+        "tests/integration/application-lifecycle.test.ts",
+      ],
+      {
+        cwd: installed,
+        env: { ...process.env, PI_SRE_MCP_COMMAND: "", PI_SRE_HOME: appHome },
+        timeout: 30_000,
+      },
+    );
+    expect(stdout).toContain("1 passed");
   } finally {
     await rm(home, { recursive: true, force: true });
   }
-}, 45_000);
+}, 60_000);
