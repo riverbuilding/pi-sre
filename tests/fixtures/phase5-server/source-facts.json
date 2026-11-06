@@ -1,0 +1,98 @@
+{
+  "version": "0.0.67",
+  "evidence": "Source-derived facts, not captured non-kubeconfig provider execution. See PHASE5_CONTRACTS.md for compatibility blockers.",
+  "sources": [
+    {
+      "path": "pkg/mcp/mcp.go",
+      "url": "https://github.com/containers/kubernetes-mcp-server/blob/v0.0.67/pkg/mcp/mcp.go",
+      "sha256": "86c89b0064932b7ba5d78c5b0b2569352f2c3bb30065989c57777701f8a1c7a6"
+    },
+    {
+      "path": "pkg/mcp/tool_filter.go",
+      "url": "https://github.com/containers/kubernetes-mcp-server/blob/v0.0.67/pkg/mcp/tool_filter.go",
+      "sha256": "e7543afd001039a59f99b2215d41f3831814b40318002e9b667b85b267c8e6da"
+    },
+    {
+      "path": "pkg/mcp/tool_mutator.go",
+      "url": "https://github.com/containers/kubernetes-mcp-server/blob/v0.0.67/pkg/mcp/tool_mutator.go",
+      "sha256": "8e4325be935f71dbf145171d794db270d6b0793215865bdcc51bd847f3c99dc7"
+    },
+    {
+      "path": "pkg/toolsets/config/configuration.go",
+      "url": "https://github.com/containers/kubernetes-mcp-server/blob/v0.0.67/pkg/toolsets/config/configuration.go",
+      "sha256": "ce0976a3a49654b6275a7d0a85f170cf7446b84561dadd7d9a21ad0c2f04eaeb"
+    },
+    {
+      "path": "pkg/toolsets/core/namespaces.go",
+      "url": "https://github.com/containers/kubernetes-mcp-server/blob/v0.0.67/pkg/toolsets/core/namespaces.go",
+      "sha256": "6e658c6c97b935d78fd74c9f1700a4a0a7fe27594d9e3fbbf7a36936acddbd57"
+    },
+    {
+      "path": "pkg/toolsets/core/pods.go",
+      "url": "https://github.com/containers/kubernetes-mcp-server/blob/v0.0.67/pkg/toolsets/core/pods.go",
+      "sha256": "4780d5e060f8cc1fcfe29de9ee307de4c4fa277ecb78d1caa0f22349bdedfbf5"
+    },
+    {
+      "path": "pkg/toolsets/core/nodes.go",
+      "url": "https://github.com/containers/kubernetes-mcp-server/blob/v0.0.67/pkg/toolsets/core/nodes.go",
+      "sha256": "ec35321cbfcfe1d442dce9898083ec2ced4946680c1be42b9f484da2ba4f249b"
+    },
+    {
+      "path": "pkg/kubernetes/pods.go",
+      "url": "https://github.com/containers/kubernetes-mcp-server/blob/v0.0.67/pkg/kubernetes/pods.go",
+      "sha256": "225211094d3c3fdb98ed05195dae602134c47779cfb23f7b062f16dcd7c2360b"
+    },
+    {
+      "path": "pkg/kubernetes/nodes.go",
+      "url": "https://github.com/containers/kubernetes-mcp-server/blob/v0.0.67/pkg/kubernetes/nodes.go",
+      "sha256": "5635a42f198e529c52c8e3a704bb91da5449f123a4a042c95e15be5641b64905"
+    }
+  ],
+  "targetDiscovery": {
+    "baseName": "targets_list",
+    "advertisedNamePattern": "{targetParameterName}_list",
+    "example": {
+      "provider": "ACM",
+      "targetParameterName": "cluster",
+      "advertisedName": "cluster_list"
+    },
+    "multiTargetKubeconfig": "configuration_contexts_list",
+    "singleTargetListing": false,
+    "kubeconfigGenericListing": false,
+    "nonKubeconfigContextListing": false,
+    "nonKubeconfigLiveProbe": false
+  },
+  "limits": {
+    "pods_log": {
+      "argument": "tail",
+      "schemaDefault": 100,
+      "schemaMinimum": 0,
+      "serverMaximum": null,
+      "zeroBehavior": "100 lines"
+    },
+    "nodes_log": {
+      "argument": "tailLines",
+      "schemaDefault": 100,
+      "schemaMinimum": 0,
+      "serverMaximum": null,
+      "zeroOrOmittedBehavior": "no tailLines query parameter"
+    },
+    "pods_exec": {
+      "durationArgument": null,
+      "outputLimitArgument": null,
+      "stdoutAndStderr": "unbounded in-memory buffers",
+      "tty": false,
+      "stdin": false,
+      "cancellation": "StreamWithContext; remote command termination is not guaranteed"
+    }
+  },
+  "podSideEffects": {
+    "pods_delete": "Managed pod deletion may also delete label-selected Services and OpenShift Routes; individual helper errors can be ignored by server.",
+    "pods_run": "Server-side apply of Pod; positive port also applies Service and, on OpenShift, Route. Name omission generates a random name. No securityContext argument."
+  },
+  "compatibilityFiltering": {
+    "defaultEnabled": false,
+    "projects_list": "Project GVK on any target when filtering enabled; otherwise advertised optimistically",
+    "metrics": "PodMetrics/NodeMetrics GVK on any target when filtering enabled; runtime API check still applies per target"
+  }
+}

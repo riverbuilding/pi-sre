@@ -7,6 +7,10 @@
 
 **Scope update (2026-10-18):** This historical capability inventory remains the Phase 5 baseline. The accepted [multi-cluster plan](./MULTI_CLUSTER_INVESTIGATION_PLAN.md) and [scope/binding research](./K8SGPT_INVESTIGATION_SCOPE.md) distinguish built-in kubectl, direct multi-context Kubernetes MCP, and Robusta remote tools. Phase 3 targets exact sets/live `*`, application-owned reconnect reconciliation, and model-selected permitted targets; it remains unimplemented. The counts and Phase 2 enabled column below are unchanged historical observations.
 
+**MVP scope revision (2026-11-05):** Only the **Multi-Context kubeconfig Provider** is supported. Other providers and their target discovery/parameter mappings are deferred for consideration until after MVP; they are not Phase 5 acceptance gaps. **Exec tools, including `pods_exec`, are unsupported in every profile**, even with human approval or improved server limits. The 22-row upstream inventory remains reference evidence; the MVP delivery target is **20 definitions: 15 reads (some platform/API-conditional) and 5 controlled operations**, excluding `targets_list` and `pods_exec`.
+
+Pi SRE has no dedicated adapter that understands or compensates for Kubernetes MCP Server operation semantics. Users and the LLM interpret discovered descriptions, choose arguments, assess side effects, and decide any preflight, follow-up verification or correction through ordinary permitted calls. The server owns Kubernetes execution semantics. Pi SRE retains a thin shared bridge for discovered-schema validation, explicit context and policy checks, approval of the exact call, budgets, cancellation, connection identity, and bounded/redacted results. It does not synthesize operation-specific plans, infer dependent effects, emulate create-only behavior, or compensate/rollback operations. Human approval authorizes the displayed call; it is not a guarantee of inferred effects or atomic resource identity.
+
 ## Integration and version baseline
 
 HolmesGPT integrates with `containers/kubernetes-mcp-server`. Its MCP adapter discovers
@@ -43,7 +47,7 @@ Counts were obtained by enumerating the tool entries in the
 [upstream v0.0.61 inventory](https://github.com/containers/kubernetes-mcp-server/blob/v0.0.61/README.md#tools-and-functionalities).
 Prompts are excluded. These counts include read and write definitions before runtime filtering.
 
-## Exact Phase 5 target: 22 config/core definitions
+## Historical Phase 5 reference: 22 config/core definitions
 
 “Controlled operation” below means write-capable or arbitrary in-container execution.
 It is not eligible for Pi SRE's default read-only profile. Tool classification is
@@ -108,9 +112,9 @@ OpenShift projects, provider-alternative discovery, and all six controlled opera
 
 ## Parity decision
 
-The user requested all **22 config/core definitions**, including writes, as the new
-Phase 5. This expands the original diagnosis-only scope. Full parity means implementing
-capability handling and tests for every entry, including provider/platform-dependent
-availability and controlled operations. It does not mean exposing 22 tools simultaneously
-or enabling writes by default. The detailed delivery and acceptance contract is in the
+The original 22-definition request is superseded by the MVP scope revision above.
+Phase 5 now targets 20 definitions for the Multi-Context kubeconfig Provider, including
+five controlled operations. Other providers are deferred beyond MVP and Exec is
+unsupported. Platform/API-conditional availability remains explicit; no write is enabled
+by default. Preserve the historical inventory and Phase 2 observations as research evidence. The detailed delivery and acceptance contract is in the
 [Phase 5 plan](./PHASE5_IMPLEMENTATION_SLICES.md).

@@ -124,6 +124,8 @@ A change is complete when it preserves the read-only safety model, keeps cluster
 
 Follow the Pi agent harness readability style:
 
+- Never use nested ternary expressions.
+- Prefer explicit `if`/`else` branches or early returns for multi-branch conditional logic.
 - Always use braces for `if` and `else` bodies, even when the body contains only one statement. Put the statement on its own line inside the braces.
 - Separate consecutive logical sections with a blank line when each section serves a distinct purpose, such as a guard clause, an external call, or result normalization. Keep closely related statements together.
 

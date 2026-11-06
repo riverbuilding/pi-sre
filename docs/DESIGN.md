@@ -50,6 +50,15 @@ Environment changes are application messages, not a second event store. After ma
 
 Design now assumes one AgentSession for the process, no historical navigation, and extensions initialized once at startup and released at exit. Session→incident maps, binding/lifecycle epochs, reload/rebind and branch/session recovery compatibility have been removed; do not preserve those paths because command blocking ships later. Keep normal request cancellation, MCP replacement and exit cleanup. Actual blocking of commands, shortcuts, selectors and programmatic actions is a separate follow-up feature; unblocked upstream paths are a delivery gap, not a supported compatibility requirement or a claim of enforced restrictions.
 
+### Phase 5 MVP scope — 2026-11-05
+
+**MVP scope revision (2026-11-05):** Only the **Multi-Context kubeconfig Provider** is supported. Other providers and their target discovery/parameter mappings are deferred for consideration until after MVP; they are not Phase 5 acceptance gaps. **Exec tools, including `pods_exec`, are unsupported in every profile**, even with human approval or improved server limits. The 22-row upstream inventory remains reference evidence; the MVP delivery target is **20 definitions: 15 reads (some platform/API-conditional) and 5 controlled operations**, excluding `targets_list` and `pods_exec`.
+
+Pi SRE has no dedicated adapter that understands or compensates for Kubernetes MCP Server operation semantics. Users and the LLM interpret discovered descriptions, choose arguments, assess side effects, and decide any preflight, follow-up verification or correction through ordinary permitted calls. The server owns Kubernetes execution semantics. Pi SRE retains a thin shared bridge for discovered-schema validation, explicit context and policy checks, approval of the exact call, budgets, cancellation, connection identity, and bounded/redacted results. It does not synthesize operation-specific plans, infer dependent effects, emulate create-only behavior, or compensate/rollback operations. Human approval authorizes the displayed call; it is not a guarantee of inferred effects or atomic resource identity.
+
+This revision supersedes the historical 22-tool/six-operation Phase 5 target below.
+See [Phase 5 scope](./PHASE5_IMPLEMENTATION_SLICES.md) and [contracts](./PHASE5_CONTRACTS.md).
+
 ### Roadmap and acceptance impact
 
 The Phase 4 domain plan/contracts below are historical implemented contracts superseded for new work by this migration. Do not implement intermediate direct-conclude or event-store proposals. Phase 5 reads and later skills consume the unified bridge and messages, not EvidenceStore or incident leases. Controlled operations remain a separate opt-in, per-call human-approved design; no writes are enabled here. Phase 5 approval identity must be specified against concrete execution facts without resurrecting domain revisions. Phase 8 retains `/clusters`, `/mcp_restart`, current availability and actual-profile display; incident/evidence commands and status are removed from its target.
