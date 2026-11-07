@@ -7,8 +7,10 @@
 Pi SRE has no dedicated adapter that understands or compensates for Kubernetes MCP Server operation semantics. Users and the LLM interpret discovered descriptions, choose arguments, assess side effects, and decide any preflight, follow-up verification or correction through ordinary permitted calls. The server owns Kubernetes execution semantics. Pi SRE retains a thin shared bridge for discovered-schema validation, explicit context and policy checks, approval of the exact call, budgets, cancellation, connection identity, and bounded/redacted results. It does not synthesize operation-specific plans, infer dependent effects, emulate create-only behavior, or compensate/rollback operations. Human approval authorizes the displayed call; it is not a guarantee of inferred effects or atomic resource identity.
 
 **Status:** Slice 0 delivered (2026-11-05): [frozen capability and design contracts](./PHASE5_CONTRACTS.md),
-22-entry matrix, real-server discovery fixtures and contract tests. Slices 1–6 remain
-planned. No additional runtime tool or write capability is enabled; full parity is not complete.
+22-entry matrix, real-server discovery fixtures and contract tests. Slice 1 delivered
+(2026-11-06): narrowing-only resource policy and structural read projections with offline
+coverage. Slices 2–6 remain planned. No additional runtime tool or write capability is
+enabled; full parity is not complete.
 
 **Prerequisite:** Complete the accepted context-routing baseline and the investigation/context simplification migration: current selection, request budgets, unified bridge, cancellation and model-visible provenance. See the [accepted multi-cluster plan](./MULTI_CLUSTER_INVESTIGATION_PLAN.md). Simplification Slice 6 switched production on 2026-11-04; its Slice 7 full acceptance remains pending. Extend `CurrentClusterSelection`, `RequestExecution`, `RequestMcpController` and `createRequestMcpToolBridge`; do not recreate incident authority.
 
@@ -160,6 +162,38 @@ have been withheld.
 **Acceptance:** Deterministic fixtures prove that extra server fields are accepted,
 Secret requests are denied before transport by default, configuration credentials never
 reach output/storage, and policy errors differ from empty results or MCP failures.
+
+**Delivered (2026-11-06):** `safety.resources.allowedReadKinds` defaults to the 19
+reviewed canonical pairs in the frozen contract. Operators may narrow it (including
+an empty set); Secret/List kinds, aliases, paths, wildcards, unknown GVKs and duplicate
+pairs are rejected. `validateResourceRead` provides the synchronous pre-transport
+policy boundary, preserving namespace omission and rejecting unsafe identities or
+namespaces on cluster-scoped kinds.
+
+`normalizeSensitiveReadResult` projects both text YAML/JSON and structured channels
+before using the existing bounded normalizer. Resource projections retain reviewed
+identity/ownership, conditions, replica counts, scheduling, CPU/memory requests and
+limits, service/endpoint routing, and ConfigMap key counts. Configuration projections
+retain only context/cluster names, context namespaces and endpoint origins. Extra
+fields are discarded; malformed selected fields, identity mismatches, unsafe identity
+controls, ambiguous YAML and unsupported content fail closed without source payloads.
+Text controls are neutralized; credential-bearing URLs and unreviewed content are
+withheld. MCP errors, policy denial, empty lists and malformed presentation remain
+distinct. No raw artifacts or additional retention are introduced.
+
+These are foundations for Slices 2/3: generic resource reads and configuration_view
+remain absent from the application allowlist and configuration_view remains disabled
+in the MCP template. Those slices must wire the policy into admission (including
+direct handlers), pass the configured narrowing policy, use the safe normalizer in
+the unified bridge, verify actual server response formats, and exercise Pi history
+boundaries before enabling tools. Operators must also configure server resource deny
+rules and scoped RBAC before enabling generic reads; read_only alone does not deny
+Secrets. Existing read behavior and controlled/Exec exclusions are unchanged.
+
+Validation on 2026-11-06: targeted offline policy/configuration/contract tests passed
+(98 passed, 6 opt-in real-server cases skipped). `npm run verify` passed formatting,
+lint, TypeScript, 453 tests (15 explicit opt-in tests skipped), and build. No live
+cluster or controlled operation was exercised by Slice 1.
 
 ### Slice 2 — Expand Core Diagnostic Reads
 

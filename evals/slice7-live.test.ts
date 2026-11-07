@@ -1,3 +1,4 @@
+import { DEFAULT_RESOURCE_READ_POLICY } from "../src/config/resource-policy.js";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -91,7 +92,7 @@ describe.skipIf(!kubeconfigPath)("Slice 7 disposable kind read-only acceptance",
         },
         execution: { maxToolCalls: 4, maxModelIterations: 6 },
         results: DEFAULT_RESULT_POLICY,
-        safety: { mode: "read-only" },
+        safety: { mode: "read-only", resources: DEFAULT_RESOURCE_READ_POLICY },
       };
       let runtime: SreRuntime | undefined;
       const controller = new RequestMcpController({

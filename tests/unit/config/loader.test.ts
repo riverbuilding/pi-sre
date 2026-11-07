@@ -186,6 +186,42 @@ describe("loadSreConfig", () => {
     await expect(load()).rejects.toThrow("results.");
   });
 
+  it("loads a narrowed resource policy without enabling new tools", async () => {
+    await writeFile(
+      configPath,
+      validYaml.replace(
+        "  mode: read-only",
+        `  mode: read-only
+  resources:
+    allowedReadKinds:
+      - apiVersion: v1
+        kind: Pod`,
+      ),
+    );
+    expect((await load()).safety.resources.allowedReadKinds).toEqual([
+      { apiVersion: "v1", kind: "Pod" },
+    ]);
+  });
+
+  it.each(["Secret", "Pod/status", "*", "Widget", "pods"])(
+    "rejects resource policy expansion %s without echoing values",
+    async (kind) => {
+      await writeFile(
+        configPath,
+        validYaml.replace(
+          "  mode: read-only",
+          `  mode: read-only
+  resources:
+    allowedReadKinds:
+      - apiVersion: v1
+        kind: ${JSON.stringify(kind)}`,
+        ),
+      );
+      await expect(load()).rejects.toThrow("safety.resources.allowedReadKinds");
+      await expect(load()).rejects.not.toThrow(kind);
+    },
+  );
+
   it("resolves paths and executable arguments relative to the selected config file", async () => {
     const alternate = join(temporaryHome, "alternate");
     await mkdir(join(alternate, "mcp"), { recursive: true });

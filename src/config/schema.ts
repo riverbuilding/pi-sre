@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { parseClusterRule } from "../cluster/context-resolver.js";
 import { executionLimitsSchema } from "./execution.js";
+import { DEFAULT_RESOURCE_READ_POLICY, resourceReadPolicySchema } from "./resource-policy.js";
 
 const nonBlank = z.string().trim().min(1);
 
@@ -42,6 +43,7 @@ export const sreConfigSchema = z.strictObject({
   execution: executionLimitsSchema.default(executionLimitsSchema.parse({})),
   safety: z.strictObject({
     mode: z.literal("read-only"),
+    resources: resourceReadPolicySchema.default(DEFAULT_RESOURCE_READ_POLICY),
   }),
 });
 

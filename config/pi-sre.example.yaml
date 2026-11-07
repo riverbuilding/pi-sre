@@ -22,6 +22,13 @@ execution:
 
 safety:
   mode: read-only
+  # Slice 1 policy foundation; generic resource/config tools remain disabled until
+  # Slices 2/3. Omit resources to use the reviewed default GVK set, or narrow it:
+  # resources:
+  #   allowedReadKinds:
+  #     - apiVersion: v1
+  #       kind: Pod
+  # An empty list denies all generic reads. Secrets, aliases and CRDs are rejected.
 
 # Limits include the visible truncation notice. Item budget covers content blocks
 # or all nested structured fields/array entries. Raw responses are not retained.

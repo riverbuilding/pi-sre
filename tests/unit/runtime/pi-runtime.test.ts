@@ -1,3 +1,4 @@
+import { DEFAULT_RESOURCE_READ_POLICY } from "../../../src/config/resource-policy.js";
 import { DEFAULT_RESULT_POLICY } from "../../../src/config/schema.js";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -92,7 +93,7 @@ function runtimeConfig(home: string): SreConfig {
       },
     },
     execution: { maxToolCalls: 40, maxModelIterations: 80 },
-    safety: { mode: "read-only" },
+    safety: { mode: "read-only", resources: DEFAULT_RESOURCE_READ_POLICY },
     results: DEFAULT_RESULT_POLICY,
   };
 }

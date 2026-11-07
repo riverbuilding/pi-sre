@@ -1,3 +1,4 @@
+import { DEFAULT_RESOURCE_READ_POLICY } from "../../src/config/resource-policy.js";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -90,7 +91,7 @@ describe("application lifecycle with real Pi and managed MCP", () => {
         },
       },
       execution: { maxToolCalls: 40, maxModelIterations: 80 },
-      safety: { mode: "read-only" },
+      safety: { mode: "read-only", resources: DEFAULT_RESOURCE_READ_POLICY },
       results: DEFAULT_RESULT_POLICY,
     };
   }
