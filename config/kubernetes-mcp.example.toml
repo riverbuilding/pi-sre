@@ -2,6 +2,15 @@
 # and Kubernetes credentials should also be bound to read-only RBAC.
 read_only = true
 
+# Generic resource presentation requires object output, never an arbitrary table.
+list_output = "yaml"
+
+# read_only alone permits Secret reads. RBAC must also exclude sensitive resources.
+denied_resources = [{ group = "", version = "v1", kind = "Secret" }]
+
+# Advertise conditional platform/metrics tools only when at least one target supports them.
+experimental_enable_target_compatibility_tool_filters = true
+
 toolsets = [
   "core",
   "config",

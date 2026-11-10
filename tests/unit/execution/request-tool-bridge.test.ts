@@ -1,22 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
-import { z } from "zod";
 
 import { RequestMcpController } from "../../../src/app/request-mcp-controller.js";
 import { DEFAULT_RESULT_POLICY } from "../../../src/config/schema.js";
 import { RequestExecution } from "../../../src/execution/request-execution.js";
 import type { McpConnection } from "../../../src/mcp/connection.js";
-import {
-  createRequestMcpToolBridge,
-  RequestToolResultBoundary,
-} from "../../../src/mcp/request-tool-bridge.js";
+import { createRequestMcpToolBridge } from "../../../src/mcp/request-tool-bridge.js";
 import { scopedPodTool } from "../../fixtures/scoped-tool.js";
 
 const contextsTool = { name: "configuration_contexts_list", inputSchema: { type: "object" } };
 const textResult = (text: string) => ({ content: [{ type: "text", text }] });
-
-function isPublicDetails(value: unknown): value is Record<string, string | boolean> {
-  return z.record(z.string(), z.union([z.string(), z.boolean()])).safeParse(value).success;
-}
 
 async function fixture(names = ["A", "B"], maxTextChars = 8000, maxToolCalls = 40) {
   const diagnostic = vi.fn(
@@ -57,19 +49,18 @@ async function fixture(names = ["A", "B"], maxTextChars = 8000, maxToolCalls = 4
   expect(controller.snapshot.status).toBe("ready");
   const request = new RequestExecution({ maxToolCalls, maxModelIterations: 80 });
   const policy = { ...DEFAULT_RESULT_POLICY, maxTextChars };
-  const boundary = new RequestToolResultBoundary(policy);
   const tool = createRequestMcpToolBridge(
     scopedPodTool,
     controller.snapshot,
     () => request,
-    boundary,
+    policy,
   );
   const execute = (
     id: string,
     args: Record<string, unknown> = { context: names[0] },
     signal?: AbortSignal,
   ) => tool.execute(id, args, signal, undefined, {} as never);
-  return { controller, request, diagnostic, tool, execute, policy, boundary };
+  return { controller, request, diagnostic, tool, execute, policy };
 }
 
 describe("Slice 4 unified request tool results", () => {
@@ -295,7 +286,7 @@ describe("Slice 4 unified request tool results", () => {
     await f.controller.close();
   });
 
-  it("bounds shared item counts, blocks unsafe identities and disallows raw retention", async () => {
+  it("bounds shared item counts and blocks unsafe identities", async () => {
     const f = await fixture();
     f.diagnostic.mockResolvedValue({
       content: [],
@@ -313,13 +304,6 @@ describe("Slice 4 unified request tool results", () => {
       expect(JSON.stringify(refused)).not.toContain(namespace);
     }
     expect(f.diagnostic).toHaveBeenCalledTimes(1);
-    expect(
-      () =>
-        new RequestToolResultBoundary({
-          ...f.policy,
-          rawRetention: "enabled" as never,
-        }),
-    ).toThrow();
     await f.controller.close();
   });
 
@@ -329,68 +313,13 @@ describe("Slice 4 unified request tool results", () => {
       contextsTool,
       f.controller.snapshot,
       () => f.request,
-      f.boundary,
+      f.policy,
     );
     const result = await inventory.execute("inventory", {}, undefined, undefined, {} as never);
     expect(result.isError).toBe(false);
     expect(f.request.counts.dispatches).toBe(1);
     expect(JSON.stringify(result.content)).toContain("configuration_contexts_list");
     expect(JSON.stringify(result.content)).toContain("dispatchedAt");
-    await f.controller.close();
-  });
-
-  it("keeps the result guard session-owned across replacement and bounds Pi rejections at the minimum limit", async () => {
-    const f = await fixture();
-    const old = await f.execute("old");
-    await f.controller.restart(true);
-    const next = createRequestMcpToolBridge(
-      scopedPodTool,
-      f.controller.snapshot,
-      () => f.request,
-      f.boundary,
-    );
-    const fresh = await next.execute("new", { context: "B" }, undefined, undefined, {} as never);
-    for (const [id, result] of [
-      ["old", old],
-      ["new", fresh],
-    ] as const) {
-      if (!isPublicDetails(result.details)) throw new Error("Invalid result details");
-      expect(
-        f.boundary.protectMessage({
-          type: "message_end",
-          message: {
-            role: "toolResult",
-            toolName: "pods_list",
-            toolCallId: id,
-            timestamp: Date.now(),
-            content: result.content,
-            details: result.details,
-            isError: result.isError === true,
-          },
-        }),
-      ).toBeUndefined();
-    }
-    const boundary = new RequestToolResultBoundary({ ...f.policy, maxTextChars: 256 });
-    const rejection = boundary.protectMessage({
-      type: "message_end",
-      message: {
-        role: "toolResult",
-        toolName: "pods_list",
-        toolCallId: "invalid",
-        timestamp: Date.now(),
-        content: [{ type: "text", text: "Schema error: password=private" }],
-        details: { raw: "private" },
-        isError: true,
-      },
-    });
-    expect(rejection).toBeDefined();
-    if (!rejection) throw new Error("Missing guarded rejection");
-    const message = rejection.message;
-    if (message?.role !== "toolResult") throw new Error("Missing tool rejection");
-    const result = { content: message.content, details: message.details, isError: message.isError };
-    expect(JSON.stringify(result).length).toBeLessThanOrEqual(256);
-    expect(JSON.stringify(result)).not.toContain("private");
-    expect(JSON.stringify(result)).not.toMatch(/dispatchedAt|settledAt/);
     await f.controller.close();
   });
 });

@@ -9,8 +9,8 @@ Pi SRE has no dedicated adapter that understands or compensates for Kubernetes M
 **Status:** Slice 0 delivered (2026-11-05): [frozen capability and design contracts](./PHASE5_CONTRACTS.md),
 22-entry matrix, real-server discovery fixtures and contract tests. Slice 1 delivered
 (2026-11-06): narrowing-only resource policy and structural read projections with offline
-coverage. Slices 2–6 remain planned. No additional runtime tool or write capability is
-enabled; full parity is not complete.
+coverage. Slice 2 delivered (2026-11-07): eight added core reads through the shared
+request pipeline. Slices 3–6 remain planned. No write capability is enabled; full parity is not complete.
 
 **Prerequisite:** Complete the accepted context-routing baseline and the investigation/context simplification migration: current selection, request budgets, unified bridge, cancellation and model-visible provenance. See the [accepted multi-cluster plan](./MULTI_CLUSTER_INVESTIGATION_PLAN.md). Simplification Slice 6 switched production on 2026-11-04; its Slice 7 full acceptance remains pending. Extend `CurrentClusterSelection`, `RequestExecution`, `RequestMcpController` and `createRequestMcpToolBridge`; do not recreate incident authority.
 
@@ -205,6 +205,36 @@ Add the remaining applicable reads: `pods_list_in_namespace`, `pods_top`, `nodes
 model-supplied exact context, known/omitted namespace, success/empty results, malformed presentation,
 MCP failures, timeout/cancellation, truncation, recovery, and stale-result withholding.
 Different resource kinds are handled through MCP's generic tools, not local Kubernetes code.
+
+**Delivered (2026-11-07):** The eight added reads use discovered-schema validation,
+explicit context, original connection/target identity, request budgets and bounded results.
+Conditional tools are published only when advertised; the MCP template enables compatibility
+filtering, which tests any target rather than proving support on every target. All controlled
+tools, Exec and configuration_view remain excluded.
+
+Generic resource policy is enforced at both direct admission and bridge execution with the
+startup-configured narrowing policy. Resource text and structured content pass through the
+Slice 1 projection before publication; YAML list sequences and structured items envelopes
+are supported. Policy denial is a distinct pre-dispatch `resource-policy-denied` outcome.
+Node service logs send a finite default of 100 tailLines, allow 1–1000, and reject file paths.
+Namespace omission and pod metrics all_namespaces behavior are described in source metadata;
+configured server namespace and authorization policy may further narrow coverage.
+
+The MCP template selects YAML list output, explicitly denies Secrets, and retains read_only.
+Existing operator configurations require review against that template; no files or RBAC are
+rewritten automatically. The resource policy is fixed for the application lifetime.
+
+Offline matrix tests exercise every added capability for final arguments, exact context,
+namespace handling, success/empty or missing resource results, malformed presentation, MCP
+failure, timeout/cancellation, truncation, reconnect/recovery and stale-result withholding.
+Real Pi tests cover projected ConfigMap data and preserved Pi pre-handler validation errors
+in tool-result history and provider inputs. An opt-in real-server test uses synthetic loopback
+Kubernetes data to verify actual get/list response formats and Secret denial before API access.
+No live cluster, OpenShift platform or controlled operation was exercised.
+
+Validation: `npm run verify` passed formatting, lint, TypeScript, **502 tests**
+(16 opt-in tests skipped), and build. The separate opt-in Phase 5 server suite
+passed **14/14** tests against Kubernetes MCP Server 0.0.67 with synthetic data.
 
 ### Slice 3 — Complete Config Discovery and Inspection
 

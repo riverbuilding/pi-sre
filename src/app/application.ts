@@ -66,6 +66,7 @@ export class SreApplication {
       publish: (state) => this.runtime?.publishMcp(state),
       signal: this.cancellation.signal,
       intent: this.startupClusterIntent,
+      resourceReadPolicy: config.safety.resources,
       ...(config.kubernetes.contexts ? { configuredRule: config.kubernetes.contexts } : {}),
     });
   }

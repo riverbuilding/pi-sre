@@ -1,7 +1,5 @@
-import {
-  createRequestMcpToolBridge,
-  RequestToolResultBoundary,
-} from "../../../src/mcp/request-tool-bridge.js";
+import { DEFAULT_RESULT_POLICY } from "../../../src/config/schema.js";
+import { createRequestMcpToolBridge } from "../../../src/mcp/request-tool-bridge.js";
 import { scopedPodTool } from "../../fixtures/scoped-tool.js";
 import type {
   ExtensionAPI,
@@ -189,7 +187,7 @@ it("shows the exact requested context on each tool call without relaying sensiti
     scopedPodTool,
     {},
     () => undefined,
-    new RequestToolResultBoundary(),
+    DEFAULT_RESULT_POLICY,
   );
   const render = bridge.renderCall!;
   const text = render({ context: "A", labelSelector: "password=hidden" }, {} as never, {} as never)

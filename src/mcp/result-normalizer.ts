@@ -16,6 +16,7 @@ export type ToolFailureCategory =
   | "authorization-failed"
   | "invalid-arguments"
   | "tool-execution-failed"
+  | "resource-policy-denied"
   | "tool-not-approved"
   | "scope-unavailable"
   | "incompatible-schema"
@@ -63,6 +64,8 @@ const TRUNCATION_NOTICE = "\n[Result truncated]";
 const EMPTY_SUCCESS = "Tool completed successfully with no content.";
 
 const FAILURE_MESSAGES: Record<ToolFailureCategory, string> = {
+  "resource-policy-denied":
+    "Resource read is denied by the configured resource policy; call not executed.",
   "tool-not-approved": "This Kubernetes MCP tool is not approved for execution.",
   "scope-unavailable":
     "Cluster diagnostics are unavailable for the requested target or current resolution. Check /clusters --status and MCP availability.",

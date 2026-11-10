@@ -1,23 +1,15 @@
 import { Text } from "@earendil-works/pi-tui";
 
-import type {
-  MessageEndEvent,
-  MessageEndEventResult,
-  ToolDefinition,
-} from "@earendil-works/pi-coding-agent";
+import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 
 import type { RequestMcpPublication } from "../app/request-mcp-controller.js";
-import { DEFAULT_RESULT_POLICY, resultPolicySchema, type ResultPolicy } from "../config/schema.js";
+import type { ResultPolicy } from "../config/schema.js";
 import { ExecutionError, type ExecutionFailureCategory } from "../execution/errors.js";
 import { isPresentableIdentity } from "../execution/identity.js";
 import type { CallResult, RequestExecution } from "../execution/request-execution.js";
 import { prepareMcpToolArguments } from "../runtime/tool-call-preparation.js";
 import { allowsMcpToolExecution } from "../runtime/tool-execution-policy.js";
-import {
-  getMcpToolPolicy,
-  McpToolSchemaError,
-  prepareMcpToolSchema,
-} from "../runtime/tool-policy.js";
+import { McpToolSchemaError, prepareMcpToolSchema } from "../runtime/tool-policy.js";
 import {
   classifyToolFailure,
   normalizeMcpResult,
@@ -25,6 +17,9 @@ import {
   type ToolFailureCategory,
 } from "./result-normalizer.js";
 import type { McpToolDescriptor } from "./tool-discovery.js";
+
+import { ResourceReadPolicyError } from "./read-policy.js";
+import { normalizeSensitiveReadResult } from "./read-projection.js";
 
 type FailureCategory = ToolFailureCategory | ExecutionFailureCategory | "cancelled";
 type Status = "success" | "error" | "invalid-result" | "cancelled" | "not-executed";
@@ -34,7 +29,7 @@ interface Source {
   /** Only dispatched results assert execution against this context. */
   readonly context?: string;
   readonly namespace?: string;
-  readonly namespacePolicy?: "server/context policy (not all namespaces)";
+  readonly namespacePolicy?: string;
 }
 
 interface Presentation {
@@ -111,6 +106,9 @@ function present(
 }
 
 function failureCategory(error: unknown): FailureCategory {
+  if (error instanceof ResourceReadPolicyError) {
+    return "resource-policy-denied";
+  }
   if (error instanceof ExecutionError) return error.category;
   if (error instanceof McpToolSchemaError)
     return error.reason === "not-allowlisted" ? "tool-not-approved" : "incompatible-schema";
@@ -132,65 +130,19 @@ function failureText(category: FailureCategory): string {
   }
 }
 
-/** One session-owned boundary, shared across tool publications and connection replacement. */
-export class RequestToolResultBoundary {
-  readonly policy: ResultPolicy;
-  readonly #published = new WeakSet<object>();
-
-  constructor(policy: ResultPolicy = DEFAULT_RESULT_POLICY) {
-    this.policy = resultPolicySchema.parse(policy);
-  }
-
-  mark<T extends { details: object }>(result: T): T {
-    this.#published.add(result.details);
-    return result;
-  }
-
-  /** Register once at Pi message_end; schema/abort rejections bypass tool_result. */
-  protectMessage({ message }: MessageEndEvent): MessageEndEventResult | undefined {
-    if (message.role !== "toolResult" || !getMcpToolPolicy(message.toolName)) return undefined;
-    if (
-      typeof message.details === "object" &&
-      message.details !== null &&
-      this.#published.has(message.details)
-    )
-      return undefined;
-    // Pi's pre-handler validation includes raw arguments in its error text. Replace it
-    // before transcript persistence and the next model stream, without relaying that text.
-    const result =
-      present(
-        { operation: message.toolName },
-        { status: "not-executed" },
-        "Pi did not execute this diagnostic call. No query time or cluster observation is available.",
-        false,
-        this.policy.maxTextChars,
-      ) ?? presentationRefused();
-    return {
-      message: {
-        role: "toolResult",
-        toolCallId: message.toolCallId,
-        toolName: message.toolName,
-        timestamp: message.timestamp,
-        ...this.mark(result),
-      },
-    };
-  }
-}
-
 /** Unified pipeline capturing one original connection publication. */
 export function createRequestMcpToolBridge(
   descriptor: McpToolDescriptor,
-  publication: Pick<RequestMcpPublication, "accept">,
+  publication: Pick<RequestMcpPublication, "accept" | "resourceReadPolicy">,
   currentRequest: () => RequestExecution | undefined,
-  boundary: RequestToolResultBoundary,
+  policy: ResultPolicy,
 ): ToolDefinition {
-  const policy = boundary.policy;
   const schema = prepareMcpToolSchema(descriptor);
   const operation = descriptor.name;
   return {
     name: operation,
     label: operation,
-    description: `${descriptor.description ?? operation}${operation === "pods_log" ? " Pi SRE limits: tail defaults to 100 lines; allowed range 1–1000; streaming is disabled." : ""}`,
+    description: `${descriptor.description ?? operation}${["pods_log", "nodes_log"].includes(operation) ? " Pi SRE limits: log tail defaults to 100 lines; allowed range 1–1000; streaming is disabled." : ""}`,
     parameters: structuredClone(schema.parameters),
     executionMode: "parallel",
     renderCall(args) {
@@ -213,12 +165,11 @@ export function createRequestMcpToolBridge(
     // Repeat validation at the execution boundary, including direct programmatic calls.
     async execute(toolCallId, parameters, signal) {
       let source: Source = { operation };
-      const refusePresentation = () => boundary.mark(presentationRefused());
       const render = (state: Presentation, text: string, truncated = false) => {
         const result = present(source, state, text, truncated, policy.maxTextChars);
         // The pre-dispatch reservation guarantees this for all execution outcomes.
-        if (!result) return refusePresentation();
-        return boundary.mark(result);
+        if (!result) return presentationRefused();
+        return result;
       };
       const fail = (category: FailureCategory, result?: CallResult<unknown>) =>
         render(
@@ -241,17 +192,35 @@ export function createRequestMcpToolBridge(
         // Never include malformed or sensitive identities, even on a validation failure.
         const context = args?.context;
         const namespace = args?.namespace;
+        const allPodMetrics = operation === "pods_top" && args?.all_namespaces !== false;
+        let namespaceSource: Pick<Source, "namespace" | "namespacePolicy"> = {};
+        if (allPodMetrics) {
+          namespaceSource = {
+            namespacePolicy:
+              "all namespaces requested (all_namespaces defaults to true), subject to server policy; namespace argument does not narrow this call",
+          };
+        } else if (isPresentableIdentity(namespace)) {
+          namespaceSource = { namespace };
+        } else if (schema.policy.clusterDependent) {
+          let namespacePolicy = "server/context policy (not all namespaces)";
+          if (operation === "resources_list") {
+            namespacePolicy =
+              "namespace omitted; all namespaces for namespaced kinds requested, subject to server policy";
+          }
+          namespaceSource = { namespacePolicy };
+        }
         source = {
           operation,
           ...(isPresentableIdentity(context) ? { context } : {}),
-          ...(isPresentableIdentity(namespace)
-            ? { namespace }
-            : schema.policy.clusterDependent
-              ? { namespacePolicy: "server/context policy (not all namespaces)" }
-              : {}),
+          ...namespaceSource,
         };
-        if (!args || !schema.validateArguments(args) || !allowsMcpToolExecution(operation, args))
+        if (
+          !args ||
+          !schema.validateArguments(args) ||
+          !allowsMcpToolExecution(operation, args, publication.resourceReadPolicy)
+        ) {
           return fail("invalid-arguments");
+        }
         for (const field of ["context", "namespace", "container"]) {
           if (args[field] !== undefined && !isPresentableIdentity(args[field]))
             return fail("invalid-arguments");
@@ -272,7 +241,7 @@ export function createRequestMcpToolBridge(
             policy.maxTextChars,
           )
         )
-          return refusePresentation();
+          return presentationRefused();
         const request = currentRequest();
         if (!request) return fail("request-closed");
         if (!publication.accept) return fail("transport-unavailable");
@@ -289,7 +258,16 @@ export function createRequestMcpToolBridge(
             result.status === "cancelled" ? "cancelled" : failureCategory(result.error),
             result,
           );
-        const normalized = normalizeMcpResult(result.value, policy);
+        const normalized =
+          operation === "resources_get" || operation === "resources_list"
+            ? normalizeSensitiveReadResult(
+                operation,
+                args,
+                result.value,
+                policy,
+                publication.resourceReadPolicy,
+              )
+            : normalizeMcpResult(result.value, policy);
         return render(
           {
             status:

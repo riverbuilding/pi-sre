@@ -6,7 +6,7 @@ import {
   MCP_TOOL_POLICIES,
 } from "../../../src/runtime/tool-policy.js";
 import type { McpToolDescriptor } from "../../../src/mcp/tool-discovery.js";
-import { diagnosticTools } from "../../fixtures/diagnostic-tools.js";
+import capture from "../../fixtures/phase5-server-0.0.67.json" with { type: "json" };
 
 const descriptor: McpToolDescriptor = {
   name: "pods_get",
@@ -74,7 +74,10 @@ describe("discovered MCP argument schemas", () => {
 
   it("retains the diagnostic capability allowlist", () => {
     expect(MCP_TOOL_POLICIES.map((policy) => policy.name).sort()).toEqual(
-      diagnosticTools.map((tool) => tool.name).sort(),
+      capture.cases["read-only"]
+        .filter((tool) => tool.name !== "configuration_view")
+        .map((tool) => tool.name)
+        .sort(),
     );
   });
 

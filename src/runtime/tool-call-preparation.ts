@@ -8,5 +8,8 @@ export function prepareMcpToolArguments(
   if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
   const args: Record<string, unknown> = { ...value };
   if (policy.name === "pods_log" && args.tail === undefined) args.tail = 100;
+  if (policy.name === "nodes_log" && args.tailLines === undefined) {
+    args.tailLines = 100;
+  }
   return structuredClone(args);
 }

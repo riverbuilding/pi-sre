@@ -17,8 +17,12 @@ export const scenarios = [
 ] as const;
 export type Scenario = (typeof scenarios)[number];
 
-/** Descriptor discovery only. No tool calls, real credentials, or external cluster access. */
-export async function probePhase5Server(executable: string, scenario: Scenario) {
+/** Synthetic loopback discovery, with optional read exercises. No real cluster access. */
+export async function probePhase5Server(
+  executable: string,
+  scenario: Scenario,
+  exercise?: (client: McpClient, requests: readonly string[]) => Promise<void>,
+) {
   const directory = await mkdtemp(join(tmpdir(), "pi-sre-phase5-"));
   const requests: string[] = [];
   const extended = scenario === "openshift-metrics";
@@ -49,7 +53,9 @@ export async function probePhase5Server(executable: string, scenario: Scenario) 
       body = {
         kind: "APIResourceList",
         groupVersion: group ? `${group.name}/${group.version}` : "v1",
-        resources: (group?.kinds ?? ["Pod", "Node", "Namespace"]).map((kind) => {
+        resources: (
+          group?.kinds ?? ["Pod", "Node", "Namespace", ...(exercise ? ["Secret"] : [])]
+        ).map((kind) => {
           let name: string;
           if (kind === "PodMetrics") {
             name = "pods";
@@ -63,11 +69,45 @@ export async function probePhase5Server(executable: string, scenario: Scenario) 
             name,
             singularName: kind.toLowerCase(),
             kind,
-            namespaced: kind === "Pod" || kind === "PodMetrics",
+            namespaced: kind === "Pod" || kind === "PodMetrics" || kind === "Secret",
             verbs: ["get", "list"],
           };
         }),
       };
+    } else if (exercise && path === "/api/v1/namespaces/ns-alpha/pods/web") {
+      body = {
+        apiVersion: "v1",
+        kind: "Pod",
+        metadata: {
+          name: "web",
+          namespace: "ns-alpha",
+          annotations: { private: "UNMARKED_PRIVATE" },
+        },
+        spec: {
+          containers: [{ name: "web", env: [{ name: "VALUE", value: "UNMARKED_PRIVATE" }] }],
+        },
+      };
+    } else if (
+      exercise &&
+      (path === "/api/v1/pods" || path === "/api/v1/namespaces/ns-alpha/pods")
+    ) {
+      const items = request.url?.includes("labelSelector=")
+        ? []
+        : [
+            {
+              apiVersion: "v1",
+              kind: "Pod",
+              metadata: {
+                name: "web",
+                namespace: "ns-alpha",
+                annotations: { private: "UNMARKED_PRIVATE" },
+              },
+              spec: {
+                containers: [{ name: "web", env: [{ name: "VALUE", value: "UNMARKED_PRIVATE" }] }],
+              },
+            },
+          ];
+      body = { apiVersion: "v1", kind: "PodList", items };
     } else {
       body = { kind: "Status", status: "Failure", reason: "NotFound", code: 404 };
     }
@@ -114,6 +154,12 @@ export async function probePhase5Server(executable: string, scenario: Scenario) 
       [
         `read_only = ${scenario === "read-only"}`,
         'toolsets = ["config", "core"]',
+        ...(exercise
+          ? [
+              'list_output = "yaml"',
+              'denied_resources = [{ group = "", version = "v1", kind = "Secret" }]',
+            ]
+          : []),
         `experimental_enable_target_compatibility_tool_filters = ${scenario === "kubernetes" || extended}`,
       ].join("\n"),
     );
@@ -133,6 +179,7 @@ export async function probePhase5Server(executable: string, scenario: Scenario) 
       }),
     );
     const descriptors = (await client.listTools()).sort((a, b) => a.name.localeCompare(b.name));
+    await exercise?.(client, requests);
     if (requests.some((request) => !request.startsWith("GET "))) {
       throw new Error("Descriptor probe attempted a non-read Kubernetes request");
     }

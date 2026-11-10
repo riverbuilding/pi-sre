@@ -7,7 +7,6 @@ import {
 
 import type { RequestMcpController } from "../app/request-mcp-controller.js";
 import type { SreConfig } from "../config/config.js";
-import { RequestToolResultBoundary } from "../mcp/request-tool-bridge.js";
 import { registerRequestExtension } from "../tui/request-extension.js";
 import { createSreResourceLoaderOptions } from "./resource-loader.js";
 import { installRequestExecution } from "./request-execution-adapter.js";
@@ -22,7 +21,6 @@ export async function createSreRuntime(
   requestApplicationShutdown?: () => Promise<void>,
 ): Promise<SreRuntime> {
   const appHome = config.paths.home;
-  const boundary = new RequestToolResultBoundary(config.results);
   let extension: ReturnType<typeof registerRequestExtension> | undefined;
   let notify: ((message: string) => void) | undefined;
   let initialized = false;
@@ -44,7 +42,7 @@ export async function createSreRuntime(
             extension = registerRequestExtension(pi, {
               controller: mcpController,
               currentRequest: () => execution.current,
-              boundary,
+              resultPolicy: config.results,
               setNotifier: (callback) => {
                 notify = callback;
               },

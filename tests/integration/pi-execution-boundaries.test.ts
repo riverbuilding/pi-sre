@@ -1,3 +1,4 @@
+import { DEFAULT_RESULT_POLICY } from "../../src/config/schema.js";
 import { CurrentClusterSelection } from "../../src/cluster/current-selection.js";
 import { ClusterContextRegistry } from "../../src/cluster/context-registry.js";
 import type { RequestMcpPublication } from "../../src/app/request-mcp-controller.js";
@@ -23,10 +24,7 @@ import { describe, expect, it } from "vitest";
 import { installRequestExecution } from "../../src/runtime/request-execution-adapter.js";
 import { createSreResourceLoaderOptions } from "../../src/runtime/resource-loader.js";
 import { RequestMcpController } from "../../src/app/request-mcp-controller.js";
-import {
-  createRequestMcpToolBridge,
-  RequestToolResultBoundary,
-} from "../../src/mcp/request-tool-bridge.js";
+import { createRequestMcpToolBridge } from "../../src/mcp/request-tool-bridge.js";
 import { scopedPodTool } from "../fixtures/scoped-tool.js";
 
 type Stream = Awaited<ReturnType<AgentSession["agent"]["streamFunction"]>>;
@@ -505,7 +503,7 @@ it("Slice 1: automatic overflow retry preserves request and iteration counts", a
     }
   }));
 
-it("Slice 4: real Pi publishes bounded source content and guards pre-handler schema errors before model/history", async () => {
+it("Slice 4: real Pi publishes bounded source content and preserves Pi schema errors before model/history", async () => {
   const contextsTool = { name: "configuration_contexts_list", inputSchema: { type: "object" } };
   let dispatches = 0;
   const controller = new RequestMcpController({
@@ -564,33 +562,32 @@ it("Slice 4: real Pi publishes bounded source content and guards pre-handler sch
           const invalid = modelResults.find((m) => m.id === "invalid")!;
           expect(JSON.stringify(valid.content)).toContain('\\"context\\":\\"A\\"');
           expect(JSON.stringify(valid.content)).toContain("dispatchedAt");
-          expect(JSON.stringify(invalid.content)).toContain("not-executed");
+          expect(JSON.stringify(invalid.content)).toContain("labelSelector");
+          expect(JSON.stringify(invalid.content)).toContain("private-argument");
           expect(JSON.stringify(invalid.content)).not.toContain("dispatchedAt");
-          expect(JSON.stringify(modelResults)).not.toMatch(/private-result|private-argument/);
+          expect(JSON.stringify(modelResults)).not.toContain("private-result");
           expect(execution.current?.counts.dispatches).toBe(1);
           const results = session.messages.filter((m) => m.role === "toolResult");
-          expect(JSON.stringify(results)).not.toMatch(/private-result|private-argument/);
+          expect(JSON.stringify(results)).not.toContain("private-result");
           expect(results).toHaveLength(2);
           const stored = session.sessionManager
             .getBranch()
             .filter((entry) => entry.type === "message" && entry.message.role === "toolResult");
           expect(stored).toHaveLength(2);
-          expect(JSON.stringify(stored)).not.toMatch(/private-result|private-argument/);
+          expect(JSON.stringify(stored)).not.toContain("private-result");
         } finally {
           await execution.dispose();
         }
       },
       undefined,
       (pi) => {
-        const boundary = new RequestToolResultBoundary();
         const bridge = createRequestMcpToolBridge(
           scopedPodTool,
           controller.snapshot,
           () => execution?.current,
-          boundary,
+          DEFAULT_RESULT_POLICY,
         );
         pi.registerTool(bridge);
-        pi.on("message_end", (event) => boundary.protectMessage(event));
       },
     );
   } finally {
@@ -849,7 +846,6 @@ it("Slice 5: original A/B Pod sources survive current selection and same-name ta
   let execution: ReturnType<typeof installRequestExecution> | undefined;
   let controller: RequestMcpController;
   let endpoint = "first";
-  const boundary = new RequestToolResultBoundary();
   await fixture(
     async (session) => {
       await controller.restart();
@@ -921,7 +917,6 @@ it("Slice 5: original A/B Pod sources survive current selection and same-name ta
     undefined,
     (pi) => {
       environment = registerRequestEnvironment(pi);
-      pi.on("message_end", (event) => boundary.protectMessage(event));
       controller = new RequestMcpController({
         connect: async () => {
           const target = endpoint;
@@ -950,9 +945,126 @@ it("Slice 5: original A/B Pod sources survive current selection and same-name ta
         publish: (state) => {
           for (const tool of state.tools)
             pi.registerTool(
-              createRequestMcpToolBridge(tool, state, () => execution?.current, boundary),
+              createRequestMcpToolBridge(
+                tool,
+                state,
+                () => execution?.current,
+                DEFAULT_RESULT_POLICY,
+              ),
             );
           environment.publish(state);
+        },
+      });
+    },
+  );
+});
+
+it("Phase 5 Slice 2: resource projections stay safe and Pi validation errors reach history and provider input", async () => {
+  const descriptor = {
+    name: "resources_get",
+    inputSchema: {
+      type: "object",
+      properties: {
+        context: { type: "string" },
+        apiVersion: { type: "string" },
+        kind: { type: "string" },
+        name: { type: "string" },
+      },
+      required: ["apiVersion", "kind", "name"],
+    },
+  };
+  let execution: ReturnType<typeof installRequestExecution> | undefined;
+  let controller: RequestMcpController;
+  let dispatches = 0;
+  await fixture(
+    async (session) => {
+      await controller.restart();
+      session.setActiveToolsByName(["resources_get"]);
+      execution = installRequestExecution(
+        session,
+        { maxToolCalls: 3, maxModelIterations: 4 },
+        () => {},
+      );
+      let streams = 0;
+      session.agent.streamFunction = (model, context) => {
+        const message = answer(model);
+        const results = context.messages.filter((m) => m.role === "toolResult");
+        expect(JSON.stringify(results)).not.toContain("UNMARKED_PRIVATE");
+        if (++streams === 1) {
+          message.stopReason = "toolUse";
+          message.content = [
+            {
+              type: "toolCall",
+              id: "resource",
+              name: "resources_get",
+              arguments: { context: "A", apiVersion: "v1", kind: "ConfigMap", name: "web" },
+            },
+            {
+              type: "toolCall",
+              id: "invalid",
+              name: "resources_get",
+              arguments: { context: "A", name: "web", unexpected: "invalid-input-marker" },
+            },
+          ];
+        } else {
+          expect(results).toHaveLength(2);
+          expect(JSON.stringify(results)).toContain("keyCounts");
+          expect(JSON.stringify(results)).toContain("apiVersion");
+          expect(JSON.stringify(results)).toContain("invalid-input-marker");
+        }
+        return response(message);
+      };
+      try {
+        await session.prompt("inspect ConfigMap metadata");
+        expect(dispatches).toBe(1);
+        const results = session.messages.filter((m) => m.role === "toolResult");
+        expect(JSON.stringify(results)).not.toContain("UNMARKED_PRIVATE");
+        expect(JSON.stringify(results)).toContain("keyCounts");
+        expect(execution.current?.counts.dispatches).toBe(1);
+      } finally {
+        await controller.close();
+        await execution.dispose();
+      }
+    },
+    undefined,
+    (pi) => {
+      controller = new RequestMcpController({
+        connect: async () => ({
+          state: "ready",
+          listTools: async () => [
+            { name: "configuration_contexts_list", inputSchema: { type: "object" } },
+            descriptor,
+          ],
+          callTool: async (name) => {
+            if (name === "configuration_contexts_list")
+              return {
+                content: [],
+                structuredContent: { contexts: [{ name: "A", default: false }] },
+              };
+            dispatches++;
+            const object = {
+              apiVersion: "v1",
+              kind: "ConfigMap",
+              metadata: { name: "web", annotations: { arbitrary: "UNMARKED_PRIVATE" } },
+              data: { arbitrary: "UNMARKED_PRIVATE" },
+            };
+            return {
+              content: [{ type: "text", text: JSON.stringify(object) }],
+              structuredContent: object,
+            };
+          },
+          close: async () => {},
+        }),
+        publish: (state) => {
+          for (const tool of state.tools)
+            pi.registerTool(
+              createRequestMcpToolBridge(
+                tool,
+                state,
+                () => execution?.current,
+                DEFAULT_RESULT_POLICY,
+              ),
+            );
         },
       });
     },

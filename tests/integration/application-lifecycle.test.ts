@@ -219,7 +219,7 @@ describe("application lifecycle with real Pi and managed MCP", () => {
     await ui.run.mock.results[0]?.value;
     await expectChildExited();
   });
-  it("uses the production pipeline for repeated queries, safe Pi rejections and independent request limits", async () => {
+  it("uses the production pipeline for repeated queries, original Pi rejections and independent request limits", async () => {
     ui.run.mockImplementation(async (runtime) => {
       const session = runtime.session;
       const originalSession = session;
@@ -248,7 +248,7 @@ describe("application lifecycle with real Pi and managed MCP", () => {
               type: "toolCall",
               id: `invalid-${iteration}`,
               name: "pods_get",
-              arguments: { context: "alpha", password: "PRIVATE_REJECTION" },
+              arguments: { context: "alpha", labelSelector: "invalid-input-marker" },
             },
           ];
         if (stage < 3)
@@ -271,8 +271,10 @@ describe("application lifecycle with real Pi and managed MCP", () => {
       for (const offset of [0, 3]) {
         expect(results[offset]).toMatchObject({
           isError: true,
-          details: { status: "not-executed" },
+          details: {},
         });
+        expect(JSON.stringify(results[offset]?.content)).toContain("invalid-input-marker");
+        expect(JSON.stringify(results[offset]?.content)).toContain("name");
         expect(results[offset + 1]).toMatchObject({
           isError: false,
           details: { status: "success" },
@@ -283,13 +285,11 @@ describe("application lifecycle with real Pi and managed MCP", () => {
           details: { failureCategory: "budget-refused" },
         });
       }
-      expect(JSON.stringify(results)).not.toMatch(
-        /PRIVATE_REJECTION|PRIVATE_FIXTURE|evidenceId|incidentId/,
-      );
+      expect(JSON.stringify(results)).not.toMatch(/PRIVATE_FIXTURE|evidenceId|incidentId/);
       const persisted = session.sessionManager
         .getEntries()
         .filter((entry) => entry.type === "message" && entry.message.role === "toolResult");
-      expect(JSON.stringify(persisted)).not.toMatch(/PRIVATE_REJECTION|PRIVATE_FIXTURE/);
+      expect(JSON.stringify(persisted)).not.toMatch(/PRIVATE_FIXTURE/);
       const calls = (await readFile(`${pidPath}.calls`, "utf8")).trim().split("\n");
       expect(calls).toHaveLength(3); // startup inventory plus one dispatch per user message
     });

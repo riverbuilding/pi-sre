@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 
 import { describe, expect, it } from "vitest";
 
+import { normalizeSensitiveReadResult } from "../../../src/mcp/read-projection.js";
 import { discoverMcpTools } from "../../../src/mcp/tool-discovery.js";
 import { MCP_TOOL_POLICIES, prepareMcpToolSchema } from "../../../src/runtime/tool-policy.js";
 import capture from "../../fixtures/phase5-server-0.0.67.json" with { type: "json" };
@@ -114,12 +115,16 @@ describe("Phase 5 Slice 0 frozen server evidence (not runtime schema admission)"
     expect(facts.limits.pods_exec.outputLimitArgument).toBeNull();
   });
 
-  it("keeps the production application at six diagnostics despite the larger inventory", async () => {
+  it("exposes the 14 reviewed reads while excluding config inspection, writes and Exec", async () => {
     const report = await discoverMcpTools({ listTools: async () => capture.cases.unfiltered });
     expect(report.exposed.map((tool) => tool.name).sort()).toEqual(
       MCP_TOOL_POLICIES.map((policy) => policy.name).sort(),
     );
-    expect(report.exposed).toHaveLength(6);
+    expect(report.exposed).toHaveLength(14);
+    const ordinary = await discoverMcpTools({ listTools: async () => capture.cases.kubernetes });
+    for (const name of ["projects_list", "pods_top", "nodes_top"]) {
+      expect(ordinary.exposed.some((tool) => tool.name === name)).toBe(false);
+    }
     for (const name of targets.filter(
       (name) => !MCP_TOOL_POLICIES.some((policy) => policy.name === name),
     )) {
@@ -134,6 +139,44 @@ const executable = process.env.PI_SRE_CONTRACT_SERVER;
 describe.skipIf(!executable)(
   "Phase 5 real-server descriptor probe (synthetic Kubernetes only)",
   () => {
+    it("projects real resource response channels and verifies server Secret denial", async () => {
+      await probePhase5Server(executable!, "read-only", async (client, requests) => {
+        const args = { context: "alpha", apiVersion: "v1", kind: "Pod" };
+        const get = await client.callTool("resources_get", { ...args, name: "web" });
+        const projected = normalizeSensitiveReadResult(
+          "resources_get",
+          { ...args, name: "web" },
+          get,
+        );
+        expect(projected.status).toBe("success");
+        expect(projected.text).toContain("web");
+        expect(JSON.stringify(projected)).not.toContain("UNMARKED_PRIVATE");
+        const list = await client.callTool("resources_list", args);
+        expect(list).not.toHaveProperty("isError", true);
+        const projectedList = normalizeSensitiveReadResult("resources_list", args, list);
+        expect(projectedList.status).toBe("success");
+        expect(projectedList.text).toContain("web");
+        expect(projectedList.text).not.toContain("UNMARKED_PRIVATE");
+        const empty = await client.callTool("resources_list", {
+          ...args,
+          labelSelector: "app=empty",
+        });
+        expect(normalizeSensitiveReadResult("resources_list", args, empty)).toMatchObject({
+          status: "success",
+          text: '{"items":[]}',
+        });
+        const denied = await client.callTool("resources_get", {
+          ...args,
+          kind: "Secret",
+          name: "private",
+        });
+        expect(denied.isError).toBe(true);
+        expect(requests.some((path) => path.includes("/secrets"))).toBe(false);
+        expect(requests).toContain("GET /api/v1/namespaces/ns-alpha/pods/web");
+        expect(requests).toContain("GET /api/v1/namespaces/ns-alpha/pods");
+      });
+    });
+
     it.each(scenarios)("%s matches the frozen discovery fixture", async (scenario) => {
       expect(execFileSync(executable!, ["--version"], { encoding: "utf8" }).trim()).toBe(
         capture.serverVersion,

@@ -1,3 +1,4 @@
+import type { ResourceReadPolicy } from "../config/resource-policy.js";
 import type { CurrentClusterSelection } from "../cluster/current-selection.js";
 import type { McpToolDescriptor } from "../mcp/tool-discovery.js";
 import { prepareMcpToolArguments } from "../runtime/tool-call-preparation.js";
@@ -10,6 +11,7 @@ import { isPresentableIdentity } from "./identity.js";
 /** One original connection, never a proxy that routes calls to a replacement. */
 export interface DiagnosticConnection {
   readonly ready: boolean;
+  readonly resourceReadPolicy?: ResourceReadPolicy;
   /** Aborted only when this original connection is retired. */
   readonly signal?: AbortSignal;
   getTool(name: string): McpToolDescriptor | undefined;
@@ -43,11 +45,16 @@ export function acceptMcpCall(
     );
   const schema = prepareMcpToolSchema(descriptor);
   const args = prepareMcpToolArguments(schema.policy, parameters);
-  if (!args || !schema.validateArguments(args) || !allowsMcpToolExecution(operation, args))
+  if (
+    !args ||
+    !schema.validateArguments(args) ||
+    !allowsMcpToolExecution(operation, args, connection.resourceReadPolicy)
+  ) {
     throw new ExecutionError(
       "invalid-arguments",
       "Invalid Kubernetes MCP arguments; call not executed.",
     );
+  }
   for (const field of ["context", "namespace", "container"]) {
     if (args[field] !== undefined && !isPresentableIdentity(args[field]))
       throw new ExecutionError(

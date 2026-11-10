@@ -1,3 +1,8 @@
+import {
+  DEFAULT_RESOURCE_READ_POLICY,
+  resourceReadPolicySchema,
+  type ResourceReadPolicy,
+} from "../config/resource-policy.js";
 import { ClusterContextRegistry } from "../cluster/context-registry.js";
 import { CurrentClusterSelection } from "../cluster/current-selection.js";
 import type { ClusterScopeRule, StartupClusterIntent } from "../cluster/context-resolver.js";
@@ -13,6 +18,7 @@ import {
 } from "../mcp/tool-discovery.js";
 
 export interface RequestMcpPublication {
+  readonly resourceReadPolicy?: ResourceReadPolicy;
   readonly status: "connecting" | "ready" | "unavailable";
   readonly message: string;
   readonly tools: readonly McpToolDescriptor[];
@@ -42,6 +48,7 @@ interface OwnedConnection {
 export class RequestMcpController {
   readonly #connect: (signal: AbortSignal) => Promise<McpConnection>;
   readonly #publish: (state: RequestMcpPublication) => void | Promise<void>;
+  readonly #resourceReadPolicy: ResourceReadPolicy;
   readonly #intent: StartupClusterIntent;
   readonly #configuredRule: ClusterScopeRule | undefined;
   readonly #shutdown = new AbortController();
@@ -64,7 +71,16 @@ export class RequestMcpController {
     intent?: StartupClusterIntent;
     configuredRule?: ClusterScopeRule;
     signal?: AbortSignal;
+    resourceReadPolicy?: ResourceReadPolicy;
   }) {
+    this.#resourceReadPolicy = resourceReadPolicySchema.parse(
+      options.resourceReadPolicy ?? DEFAULT_RESOURCE_READ_POLICY,
+    );
+    for (const pair of this.#resourceReadPolicy.allowedReadKinds) {
+      Object.freeze(pair);
+    }
+    Object.freeze(this.#resourceReadPolicy.allowedReadKinds);
+    Object.freeze(this.#resourceReadPolicy);
     this.#connect = options.connect;
     this.#publish = options.publish;
     this.#intent = options.intent ?? {};
@@ -203,6 +219,7 @@ export class RequestMcpController {
       };
       freeze(tools);
       const connection: DiagnosticConnection = {
+        resourceReadPolicy: this.#resourceReadPolicy,
         get ready() {
           return owned.ready && transport.state === "ready" && !signal.aborted;
         },
@@ -212,6 +229,7 @@ export class RequestMcpController {
       };
       const selection = this.#selection;
       const publication: RequestMcpPublication = {
+        resourceReadPolicy: this.#resourceReadPolicy,
         status: "ready",
         message: "Kubernetes MCP ready; inventory does not imply authentication or cluster health.",
         tools,

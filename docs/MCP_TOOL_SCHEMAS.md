@@ -10,7 +10,7 @@ Pi SRE does not compare discovered input or output schemas against local per-too
 
 ## Discovery and compatibility
 
-The approved operations are `configuration_contexts_list`, `pods_list`, `pods_get`, `pods_log`, `events_list`, and `namespaces_list`. New operation names require a policy change. Changes to arguments, required fields, constraints, descriptions, annotations, or output declarations do not require updating a local schema snapshot.
+The approved operations are `configuration_contexts_list`, `pods_list`, `pods_list_in_namespace`, `pods_get`, `pods_log`, `pods_top`, `events_list`, `namespaces_list`, `nodes_log`, `nodes_stats_summary`, `nodes_top`, `resources_list`, `resources_get`, and conditional `projects_list`. New operation names require a policy change. Changes to arguments, required fields, constraints, descriptions, annotations, or output declarations do not require updating a local schema snapshot.
 
 The adapter reads the descriptor fields it uses and rejects duplicate names. It requires object inputs with usable top-level `properties` and `required` fields. Cluster-dependent tools must declare a top-level `context` parameter, even if additional properties are allowed. Call admission checks that the explicit context satisfies both discovered constraints and the current available selection. A missing scope capability does not authorize an implicit-current-context fallback.
 
@@ -29,9 +29,9 @@ The [0.0.67 capture](../tests/fixtures/phase2-server-0.0.67.json) records histor
 
 Tools use Pi parallel execution with one shared four-active/32-waiter FIFO queue, 30-second waiting timeout and separate MCP call timeout. Dispatched failures/timeouts/cancellation do not refund allowance; pre-dispatch refusals are free. Model inventory queries use the same request budget, while connection lifecycle discovery is uncharged.
 
-`RequestToolResultBoundary` is created once per application Session and registered at `message_end`. Pi schema/abort refusals can bypass handlers and contain original arguments; this hook substitutes a bounded not-executed result before transcript persistence/provider input. Results already marked by the same boundary keep their original source across MCP publications.
+Result policy is validated during configuration loading and passed directly to the tool bridge. Pi pre-handler schema/abort errors remain unchanged so the model can correct its arguments; those errors can include model-supplied arguments and do not pass through bridge presentation limits.
 
-Pod logs default to 100 lines; explicit tails must be integers from 1 to 1,000. `follow: true` and `stream: true` are blocked even if advertised. Server constraints can be tighter. These are retrieval/presentation limits, not a transport byte ceiling.
+Pod and node logs default to 100 lines; explicit tails must be integers from 1 to 1,000. `follow: true` and `stream: true` are blocked even if advertised. Node logs always send finite `tailLines` and permit a single service query, excluding file paths. Server constraints can be tighter. These are retrieval/presentation limits, not a transport byte ceiling.
 
 ## Results and application state
 
@@ -43,7 +43,7 @@ The adapter also retains inventory/field limits, exact identity rules, endpoint 
 
 ## Diagnostic surface
 
-All five diagnostic operations require and preserve exact model-supplied context. Arguments below describe the historical 0.0.67 capture; actual inputs follow discovery.
+All thirteen cluster-dependent diagnostic operations require and preserve exact model-supplied context. Arguments below describe the historical 0.0.67 capture; actual inputs follow discovery.
 
 | Operation         | Captured model arguments                                        | Namespace behavior                                                                        |
 | ----------------- | --------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
@@ -53,7 +53,9 @@ All five diagnostic operations require and preserve exact model-supplied context
 | `events_list`     | `context`, `namespace`, `fieldSelector`                         | Explicit namespace is forwarded; omission does not assert all-namespace coverage.         |
 | `namespaces_list` | `context`, `fieldSelector`                                      | Cluster-scoped namespace inventory.                                                       |
 
-`configuration_view`, exec/attach, mutation operations, generic resource/Secret access, and shell remain outside the allowlist. Namespace `*` in application status means no application-level namespace restriction, not that each tool queries every namespace. Provenance is in model-visible content, not just details.
+The added reads retain their discovered schemas: `pods_list_in_namespace` requires namespace; `pods_top` defaults to requesting all namespaces unless `all_namespaces: false`, so namespace alone does not narrow it. `nodes_log`, `nodes_stats_summary`, `nodes_top`, and `projects_list` use the explicit context. Generic reads require canonical apiVersion/kind and get additionally requires name; list omission requests all namespaces for namespaced kinds, subject to server policy, while get omission uses configured namespace. The 0.0.67 synthetic server check demonstrates configured namespace narrowing even for list omission.
+
+Generic resource admission applies the configured narrowing policy below Pi hooks and direct handlers. Both resource result channels are structurally projected before normalizing; only presentation fields are parsed and unknown fields are discarded. Server YAML list sequences and structured `{items: ...}` envelopes are supported. Arbitrary tables, mismatched resources and malformed selected fields fail closed. Configure `list_output = "yaml"`, server Secret denial and scoped RBAC as in the template. `configuration_view`, exec/attach, mutation operations, Secret access, and shell remain outside the allowlist. Namespace `*` in application status means no application-level namespace restriction, not that each tool queries every namespace. Provenance is in model-visible content, not just details.
 
 ## Source, limits and recovery
 
@@ -69,11 +71,11 @@ MCP replacement closes dispatch and withdraws tools, cancels/settles old calls, 
 | ---------------------------------- | -------------------------------------------------------------- |
 | `runtime/tool-policy.ts`           | Approved names, cluster dependence and discovered schemas      |
 | `runtime/tool-call-preparation.ts` | Private parameter copy, exact context, finite log default      |
-| `runtime/tool-execution-policy.ts` | Application log limits                                         |
+| `runtime/tool-execution-policy.ts` | Application resource access and log limits                     |
 | `cluster/current-selection.ts`     | Strict startup and current exact/all availability              |
 | `execution/accept-mcp-call.ts`     | Synchronous acceptance, original connection/tool/target checks |
 | `execution/request-execution.ts`   | Request identity, budgets, calls and cancellation              |
 | `app/request-mcp-controller.ts`    | Connection replacement and ready publication barrier           |
-| `mcp/request-tool-bridge.ts`       | One tool pipeline, source envelope and message safety boundary |
+| `mcp/request-tool-bridge.ts`       | One tool pipeline, source envelope and result presentation     |
 | `mcp/context-discovery.ts`         | Minimal validated application inventory                        |
 | `mcp/result-normalizer.ts`         | Content presentation, redaction, failure categories and limits |

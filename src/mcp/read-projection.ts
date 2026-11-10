@@ -232,7 +232,8 @@ export function projectResourceRead(
     if (operation === "resources_get") {
       return projectResource(value, target);
     }
-    const raw = record(value);
+    // Server YAML list output is a bare sequence; structured MCP uses { items }.
+    const raw = Array.isArray(value) ? { items: value } : record(value);
     if (
       !Array.isArray(raw.items) ||
       (raw.kind !== undefined && raw.kind !== "List" && raw.kind !== `${target.kind}List`) ||

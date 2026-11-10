@@ -86,9 +86,9 @@ Slice 4 记录（2026-11-03）：`createRequestMcpToolBridge` 消费 Slice 3 pub
 
 身份与执行错误归属 `src/execution/identity.ts`、`errors.ts`，新路径不引用 domain validation/errors。只保留执行需要的 display-safe/UTF-8 身份校验、取消、预算和失败分类。旧生产路径及其领域代码保持到 Slice 6 原子删除。
 
-Pi 0.99.0 的 `prepareToolCall` 会在 schema/abort 拒绝后跳过 handler 与 `afterToolCall`，不能仅用 `tool_result` 覆盖全部结果。`RequestToolResultBoundary.protectMessage` 必须在 Session 初始化时注册到 `message_end`；同一个 boundary 跨连接替换及工具 publication 共用。由 boundary 标记过的结果保持原来源；其余批准工具的 Pi 前置拒绝被替换为受限的未执行说明，原 schema 错误及参数不进入工具结果历史。真实 Pi fixture 验证替换先于 provider input 与 SessionManager persistence。模型自己生成的 assistant 工具参数不属于服务端响应脱敏范围。
+Pi 0.99.0 的 `prepareToolCall` 会在 schema/abort 拒绝后跳过 handler 与 `afterToolCall`。这些前置拒绝保留 Pi 原始错误，便于模型修正参数；不再通过 `message_end` 替换工具结果。Pi 原始错误可能包含模型提供的参数，不受 bridge 的结果封装及长度限制。正常进入 bridge 的 MCP 结果继续执行脱敏、来源标注与长度限制。真实 Pi fixture 验证校验错误进入 provider input 与 SessionManager persistence，且不会派发 MCP 调用。
 
-Slice 4 针对性离线验证 74/74 通过；完整 `npm run verify` 通过（50 个测试文件通过/1 跳过、751 个测试通过/7 跳过、构建通过）。生产尚未接线；Slice 6 同时接入 bridge 与 message_end boundary。安装包、live 与视觉验收未执行。
+Slice 4 针对性离线验证 74/74 通过；完整 `npm run verify` 通过（50 个测试文件通过/1 跳过、751 个测试通过/7 跳过、构建通过）。生产尚未接线；Slice 6 接入 bridge。安装包、live 与视觉验收未执行。
 
 Slice 5 记录（2026-11-04）：`registerRequestEnvironment` 必须随扩展在启动时注册一次；工具安装后调用其 `publish(publication)`，与工具发布共同位于 Slice 3 ready 屏障内；用户改选由新 `/clusters` 调用 `refresh()`。外部直接更改 selection/inventory 后也须 refresh/publish。生产接线及新 request prompt 的替换仍由 Slice 6 一次完成，不与旧环境扩展共同注册。
 
@@ -102,10 +102,10 @@ Slice 5 完整门禁：`npm run verify` 通过（格式、lint、类型检查、
 
 Slice 6 交付（2026-11-04）：
 
-- `SreApplication` / `createSreRuntime` 一次切换至 `RequestMcpController`、单一当前选择和 `RequestExecution`；`request-extension.ts` 只在启动注册，MCP publication 安装匹配工具后发布环境，再开放派发。Session-owned `RequestToolResultBoundary` 的 `message_end` 防护跨连接复用；请求适配器在真实模型流外层执行限制，退出注销订阅并释放调用。
+- `SreApplication` / `createSreRuntime` 一次切换至 `RequestMcpController`、单一当前选择和 `RequestExecution`；`request-extension.ts` 只在启动注册，MCP publication 安装匹配工具后发布环境，再开放派发。结果策略在配置入口校验后直接传入 bridge；请求适配器在真实模型流外层执行限制，退出注销订阅并释放调用。
 - 删除旧调查 controller/service/store/archive、整个已无剩余生产调用者的 domain 模型、observation adapter、双路径 bridge、incident lease、binding/epoch、执行 revisions、pending conclusion 与 agent_end 提交。移除五个领域工具和 `/incident`、`/evidence`。身份校验与执行错误保留在 execution；只读、显式 context、队列、取消、超时、原连接/目标身份及发布屏障继续由新管线负责。
 - 正式配置使用 `execution.maxToolCalls` / `execution.maxModelIterations`，旧 investigation/defaultTimeRange 被严格拒绝；删除 staged schema/模板别名。MCP 恢复重新验证 YAML/只读 TOML，仅更新 transport 配置，不刷新当前选择、请求额度、Session 或扩展。执行/结果限额变更需重启应用。构建先清理 dist，防止已删除的领域模块残留在 npm payload。
-- 删除只服务旧调查授权、领域存储及切换/reload 恢复的测试。有效断言由请求管线、当前环境、真实 Pi 边界测试及迁移后的 application 生命周期测试覆盖。生产组合验证直接查询/追问独立额度、无领域工具/命令、前置 schema 错误安全替换并进入 transcript、迭代上限、MCP 恢复 exact unavailable、非只读配置拒绝、退出和子进程清理。包测试验证旧领域模块不再出现在构建产物。
+- 删除只服务旧调查授权、领域存储及切换/reload 恢复的测试。有效断言由请求管线、当前环境、真实 Pi 边界测试及迁移后的 application 生命周期测试覆盖。生产组合验证直接查询/追问独立额度、无领域工具/命令、前置 schema 错误原样进入 transcript、迭代上限、MCP 恢复 exact unavailable、非只读配置拒绝、退出和子进程清理。包测试验证旧领域模块不再出现在构建产物。
 - 同步 AGENTS、README、DESIGN、工具/schema、投影与执行契约文档；旧调查指南明确标为历史，Phase 1–4 原验收日期/结果及 Phase 4 视觉待办不变。Phase 5 依赖当前选择与请求管线，不恢复 incident authority。
 - Pi 内置会话替换、历史导航与 reload 的命令/快捷键/程序入口禁用仍是独立产品缺口。已删除应用恢复路径，不为开放入口保留重挂接能力，也不宣称这些入口已全面禁用。完整安装包交互、live/server 契约及视觉终端验收留给 Slice 7。
 

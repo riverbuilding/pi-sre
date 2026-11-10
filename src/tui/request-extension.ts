@@ -2,10 +2,8 @@ import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-age
 
 import type { RequestMcpController, RequestMcpPublication } from "../app/request-mcp-controller.js";
 import type { RequestExecution } from "../execution/request-execution.js";
-import {
-  createRequestMcpToolBridge,
-  type RequestToolResultBoundary,
-} from "../mcp/request-tool-bridge.js";
+import { createRequestMcpToolBridge } from "../mcp/request-tool-bridge.js";
+import type { ResultPolicy } from "../config/schema.js";
 import { registerMcpRecovery } from "./mcp-restart-command.js";
 import { registerRequestEnvironment } from "./request-environment-extension.js";
 
@@ -15,7 +13,7 @@ export function registerRequestExtension(
   options: {
     controller: RequestMcpController | undefined;
     currentRequest: () => RequestExecution | undefined;
-    boundary: RequestToolResultBoundary;
+    resultPolicy: ResultPolicy;
     setNotifier: (notify: (message: string) => void) => void;
   },
 ) {
@@ -35,7 +33,7 @@ export function registerRequestExtension(
         descriptor,
         state,
         options.currentRequest,
-        options.boundary,
+        options.resultPolicy,
       );
       pi.registerTool(tool);
       registered.set(tool.name, tool);
@@ -67,7 +65,6 @@ export function registerRequestExtension(
         publish(options.controller.snapshot);
       }
     }),
-    pi.on("message_end", (event) => options.boundary.protectMessage(event)),
     pi.on("user_bash", () => ({
       result: {
         output: "Shell commands are unavailable in Pi SRE read-only mode.",
