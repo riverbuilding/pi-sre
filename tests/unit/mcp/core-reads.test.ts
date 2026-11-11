@@ -182,7 +182,11 @@ describe.each(cases)("Phase 5 Slice 2 $name", ({ name, args: required }) => {
         ...args,
         ...(name === "resources_get" ? { name: large.metadata.name } : {}),
       });
-      expect(JSON.stringify(result).length).toBeLessThanOrEqual(1800);
+      const block = result.content[0];
+      if (block?.type !== "text") {
+        throw new Error("Missing text");
+      }
+      expect(block.text.slice(block.text.indexOf("\n") + 1).length).toBeLessThanOrEqual(1800);
       expect(result.isError).toBe(false);
       expect(result.details).toMatchObject({ truncated: true });
       expect(JSON.stringify(result)).not.toContain("UNMARKED_PRIVATE");

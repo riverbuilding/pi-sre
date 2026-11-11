@@ -343,12 +343,12 @@ describe("loadSreConfig", () => {
 });
 
 describe("MCP inventory contract", () => {
-  it("keeps only context enumeration independent of cluster scope", () => {
+  it("keeps configuration metadata independent of cluster scope", () => {
     expect(
       MCP_TOOL_POLICIES.filter((tool) => !tool.clusterDependent).map((tool) => tool.name),
-    ).toEqual(["configuration_contexts_list"]);
+    ).toEqual(["configuration_contexts_list", "configuration_view"]);
     expect(getMcpToolPolicy("configuration_contexts_list")?.clusterDependent).toBe(false);
-    expect(getMcpToolPolicy("configuration_view")).toBeUndefined();
+    expect(getMcpToolPolicy("configuration_view")?.clusterDependent).toBe(false);
     expect(getMcpToolPolicy("targets_list")).toBeUndefined();
     expect(getMcpToolPolicy("pods_list")?.clusterDependent).toBe(true);
   });

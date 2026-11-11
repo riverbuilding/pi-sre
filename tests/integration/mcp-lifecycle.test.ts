@@ -89,10 +89,13 @@ describe("managed MCP lifecycle", () => {
     const connection = await ManagedMcpConnection.connect(config("paginated"));
     try {
       const report = await discoverMcpTools(connection);
-      expect(report.exposed.map((tool) => tool.name)).toEqual(["configuration_contexts_list"]);
+      expect(report.exposed.map((tool) => tool.name)).toEqual([
+        "configuration_contexts_list",
+        "configuration_view",
+      ]);
       expect(report.decisions).toEqual([
         { name: "configuration_contexts_list", status: "exposed" },
-        { name: "configuration_view", status: "rejected", reason: "not-allowlisted" },
+        { name: "configuration_view", status: "exposed" },
       ]);
     } finally {
       await connection.close();

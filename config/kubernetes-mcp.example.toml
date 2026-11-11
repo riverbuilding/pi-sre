@@ -16,8 +16,8 @@ toolsets = [
   "config",
 ]
 
-# Never expose kubeconfig content to the model.
-disabled_tools = ["configuration_view"]
+# Pi SRE structurally projects configuration_view into safe metadata before publication.
+# Raw kubeconfig/authentication fields never reach model results.
 
 # Pi SRE exposes only approved diagnostics with one explicit validated context per call.
 # Exact-set and live-* scope rules are application-enforced; each diagnostic

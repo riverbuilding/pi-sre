@@ -321,7 +321,15 @@ export function normalizeSensitiveReadResult(
       operation === "configuration_view"
         ? projectConfiguration(value)
         : projectResourceRead(value, operation, args, resourcePolicy);
-    // Both channels must be safe; do not forward prose, links, embedded resources or binary data.
+    // Prefer structured data and discard the unused channel. Projection failure must not fall back.
+    if (envelope.structuredContent !== undefined) {
+      return normalizeMcpResult(
+        { content: [], structuredContent: project(envelope.structuredContent) },
+        resultPolicy,
+      );
+    }
+
+    // Text-only results must not forward prose, links, embedded resources or binary data.
     const content = envelope.content.map((block) => {
       const item = record(block);
       if (item.type !== "text" || typeof item.text !== "string") {
@@ -335,12 +343,7 @@ export function normalizeSensitiveReadResult(
       });
       return { type: "text", text: JSON.stringify(project(value)) };
     });
-    const structuredContent =
-      envelope.structuredContent === undefined ? undefined : project(envelope.structuredContent);
-    return normalizeMcpResult(
-      { content, ...(structuredContent === undefined ? {} : { structuredContent }) },
-      resultPolicy,
-    );
+    return normalizeMcpResult({ content }, resultPolicy);
   } catch {
     return { ...normalizeToolFailure("invalid-result", resultPolicy), status: "invalid-result" };
   }

@@ -10,7 +10,8 @@ Pi SRE has no dedicated adapter that understands or compensates for Kubernetes M
 22-entry matrix, real-server discovery fixtures and contract tests. Slice 1 delivered
 (2026-11-06): narrowing-only resource policy and structural read projections with offline
 coverage. Slice 2 delivered (2026-11-07): eight added core reads through the shared
-request pipeline. Slices 3–6 remain planned. No write capability is enabled; full parity is not complete.
+request pipeline. Slice 3 delivered (2026-11-10): safe configuration inspection and
+configuration discovery boundary coverage. Slices 4–6 remain planned. No write capability is enabled; full parity is not complete.
 
 **Prerequisite:** Complete the accepted context-routing baseline and the investigation/context simplification migration: current selection, request budgets, unified bridge, cancellation and model-visible provenance. See the [accepted multi-cluster plan](./MULTI_CLUSTER_INVESTIGATION_PLAN.md). Simplification Slice 6 switched production on 2026-11-04; its Slice 7 full acceptance remains pending. Extend `CurrentClusterSelection`, `RequestExecution`, `RequestMcpController` and `createRequestMcpToolBridge`; do not recreate incident authority.
 
@@ -245,6 +246,32 @@ or target-parameter mappings during MVP.
 **Acceptance:** Inventory tests cover multi-target versus single-target filtering,
 refusal of unsupported provider/target listings, sanitized configuration results, and
 no rule amendment or authoritative inventory install caused by model-driven enumeration; application reconnect resolves live `*` before publication. No fabricated aliases bypass scope.
+
+**Delivered (2026-11-10):** `configuration_view` is the fifteenth reviewed read,
+using the shared request pipeline and Slice 1 structural projection on both text and
+structured channels. Only context/cluster names, context namespaces and endpoint
+origins reach model results; authentication fields, paths, extensions and raw YAML
+are withheld. The template enables inspection while retaining read_only and Secret
+denial. Existing TOML files may need configuration_view removed from disabled_tools.
+The tool description explains that minified refers to the server default context
+(default true), not current user selection. Configuration metadata carries no cluster
+execution attribution or selection authority.
+
+Offline tests cover final argument validation through direct handlers/admission,
+sanitization, malformed secondary channels, empty results, bounded presentation,
+server errors, timeout, cancellation and late results. Enumeration and inspection
+cannot install inventory or amend exact/live-all intent; reconnect resolves scope
+before ready publication without resetting request budgets. Singleton and disabled
+server inventories fail closed; target listings and fabricated aliases remain rejected.
+Real Pi tests verify safe results in events, provider inputs and stored messages,
+while preserving pre-handler argument validation errors. The opt-in real-server
+suite exercises full/default/minified configuration YAML and unchanged enumeration
+against synthetic loopback Kubernetes data. No live cluster or controlled operation
+was exercised; visual acceptance remains separate.
+
+Validation: `npm run verify` passed formatting, lint, TypeScript, **516 tests**
+(17 opt-in tests skipped), and build. The separate opt-in Phase 5 server suite
+passed **15/15** tests against Kubernetes MCP Server 0.0.67 with synthetic data.
 
 ### Slice 4 — Controlled Profile and Human Approval Infrastructure
 

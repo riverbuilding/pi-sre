@@ -4,6 +4,8 @@
 
 依据：设计正文第 1–13 节及 Implementation Slices。历史附录不是实施要求。
 
+2026-11-11 结果限长调整：`results.maxTextChars` 现定义为每次工具调用归一化正文的独立字符上限，包含截断提示，按 JavaScript 字符串长度计算；来源、details 及 JSON 包装不计入。normalizer 统一执行正文限长，`present` 只添加完整安全来源和状态，不再二次限长或因来源大小返回展示失败。此约定取代下文 Slice 4 记录中的完整序列化结果预算，历史验收记录保持原样。
+
 ## 已验证的 Pi 接口
 
 依赖为安装的 `@earendil-works/pi-coding-agent` 0.99.0 及其嵌套 `pi-agent-core` 0.99.0。直接阅读 `dist/core/agent-session.js`、`extensions/types.d.ts`、`settings-manager.js`，以及嵌套 core 的 `dist/agent.js`、`agent-loop.js`。测试见 [真实 Pi fixture](../tests/integration/pi-execution-boundaries.test.ts)：真实 services/session、内存设置与 transcript、临时应用目录、确定性 stream，无模型网络请求；压缩使用公开 `session_before_compact` 返回确定性 summary，不 mock 压缩调度。

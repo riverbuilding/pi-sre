@@ -230,29 +230,66 @@ describe("Slice 4 unified request tool results", () => {
     await f.controller.close();
   });
 
-  it.each([256, 800, 1400, 2500])(
-    "preserves complete escaped identities or refuses before dispatch under %i chars",
-    async (maxChars) => {
+  it.each([255, 256, 257, 10_000])(
+    "limits only the normalized body and preserves complete provenance for %i input chars",
+    async (length) => {
+      const maxChars = 256;
       const context = 'A"\\😀'.repeat(60);
       const f = await fixture([context], maxChars);
-      f.diagnostic.mockResolvedValue(textResult('"\\😀\n'.repeat(2000)));
+      const text = '"\\😀\n'.repeat(2000).slice(0, length);
+      f.diagnostic.mockResolvedValue(textResult(text));
       const result = await f.execute("long");
-      expect(JSON.stringify(result).length).toBeLessThanOrEqual(maxChars);
+      expect(f.diagnostic).toHaveBeenCalledTimes(1);
+      expect(f.request.counts.dispatches).toBe(1);
+      expect(result.isError).toBe(false);
+      const truncated = length > maxChars;
+      expect(result.details).toEqual({ status: "success", truncated });
+      expect(JSON.stringify(result).length).toBeGreaterThan(maxChars);
       const content = result.content[0];
       expect(content?.type).toBe("text");
-      if (content?.type !== "text") throw new Error("Missing text");
-      if (f.diagnostic.mock.calls.length === 0) {
-        expect(content.text).toContain("presentation-refused");
-        expect(f.request.counts.dispatches).toBe(0);
+      if (content?.type !== "text") {
+        throw new Error("Missing text");
+      }
+      const boundary = content.text.indexOf("\n");
+      const source: unknown = JSON.parse(content.text.slice("Source: ".length, boundary));
+      expect(source).toMatchObject({
+        context,
+        truncated,
+        status: "success",
+        execution: "dispatched",
+        dispatchedAt: expect.any(String),
+        settledAt: expect.any(String),
+      });
+      const body = content.text.slice(boundary + 1);
+      expect(body.length).toBeLessThanOrEqual(maxChars);
+      if (truncated) {
+        expect(body).toMatch(/\n\[Result truncated\]$/);
+        expect(body).not.toMatch(/[\uD800-\uDBFF]\n/u);
       } else {
-        const source: unknown = JSON.parse(content.text.split("\n")[0]!.slice("Source: ".length));
-        expect(source).toMatchObject({ context, truncated: true });
-        expect(content.text).toContain("[Result truncated]");
-        expect(content.text).not.toMatch(/[\uD800-\uDBFF]\n/u);
+        expect(body).toBe(text);
       }
       await f.controller.close();
     },
   );
+
+  it("applies the full body allowance independently to concurrent calls", async () => {
+    const f = await fixture(["A", "B"], 256);
+    f.diagnostic.mockResolvedValue(textResult("x".repeat(256)));
+    const results = await Promise.all([
+      f.execute("a", { context: "A" }),
+      f.execute("b", { context: "B" }),
+    ]);
+    for (const result of results) {
+      expect(result.details).toEqual({ status: "success", truncated: false });
+      const content = result.content[0];
+      if (content?.type !== "text") {
+        throw new Error("Missing text");
+      }
+      expect(content.text.slice(content.text.indexOf("\n") + 1)).toBe("x".repeat(256));
+    }
+    expect(f.request.counts.dispatches).toBe(2);
+    await f.controller.close();
+  });
 
   it("redacts structured/text data and omits binary with no raw payload in details", async () => {
     const f = await fixture();

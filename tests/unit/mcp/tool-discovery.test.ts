@@ -39,11 +39,11 @@ describe("MCP tool discovery", () => {
   it("excludes unknown operations even when they advertise read-only behavior", async () => {
     const report = await discover([
       allowed,
-      { ...allowed, name: "configuration_view", annotations: { readOnlyHint: true } },
+      { ...allowed, name: "targets_list", annotations: { readOnlyHint: true } },
     ]);
     expect(report.exposed).toEqual([allowed]);
     expect(report.decisions).toContainEqual({
-      name: "configuration_view",
+      name: "targets_list",
       status: "rejected",
       reason: "not-allowlisted",
     });

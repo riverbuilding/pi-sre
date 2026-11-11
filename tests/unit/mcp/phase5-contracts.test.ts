@@ -115,12 +115,12 @@ describe("Phase 5 Slice 0 frozen server evidence (not runtime schema admission)"
     expect(facts.limits.pods_exec.outputLimitArgument).toBeNull();
   });
 
-  it("exposes the 14 reviewed reads while excluding config inspection, writes and Exec", async () => {
+  it("exposes the 15 reviewed reads while excluding provider listings, writes and Exec", async () => {
     const report = await discoverMcpTools({ listTools: async () => capture.cases.unfiltered });
     expect(report.exposed.map((tool) => tool.name).sort()).toEqual(
       MCP_TOOL_POLICIES.map((policy) => policy.name).sort(),
     );
-    expect(report.exposed).toHaveLength(14);
+    expect(report.exposed).toHaveLength(15);
     const ordinary = await discoverMcpTools({ listTools: async () => capture.cases.kubernetes });
     for (const name of ["projects_list", "pods_top", "nodes_top"]) {
       expect(ordinary.exposed.some((tool) => tool.name === name)).toBe(false);
@@ -139,6 +139,22 @@ const executable = process.env.PI_SRE_CONTRACT_SERVER;
 describe.skipIf(!executable)(
   "Phase 5 real-server descriptor probe (synthetic Kubernetes only)",
   () => {
+    it("projects real configuration YAML for full and minified inspection without changing inventory", async () => {
+      await probePhase5Server(executable!, "read-only", async (client) => {
+        const before = await client.callTool("configuration_contexts_list", {});
+        for (const args of [{}, { minified: false }, { minified: true }]) {
+          const raw = await client.callTool("configuration_view", args);
+          const projected = normalizeSensitiveReadResult("configuration_view", args, raw);
+          expect(projected.status).toBe("success");
+          expect(projected.text).toContain("ns-alpha");
+          expect(projected.text.includes("ns-beta")).toBe(args.minified === false);
+          expect(projected.text).toContain("endpointOrigin");
+          expect(projected.text).not.toMatch(/users|certificate|current-context/);
+        }
+        expect(await client.callTool("configuration_contexts_list", {})).toEqual(before);
+      });
+    });
+
     it("projects real resource response channels and verifies server Secret denial", async () => {
       await probePhase5Server(executable!, "read-only", async (client, requests) => {
         const args = { context: "alpha", apiVersion: "v1", kind: "Pod" };

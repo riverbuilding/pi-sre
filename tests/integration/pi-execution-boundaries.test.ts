@@ -26,6 +26,7 @@ import { createSreResourceLoaderOptions } from "../../src/runtime/resource-loade
 import { RequestMcpController } from "../../src/app/request-mcp-controller.js";
 import { createRequestMcpToolBridge } from "../../src/mcp/request-tool-bridge.js";
 import { scopedPodTool } from "../fixtures/scoped-tool.js";
+import { configurationView, configurationPrivateValue } from "../fixtures/configuration-view.js";
 
 type Stream = Awaited<ReturnType<AgentSession["agent"]["streamFunction"]>>;
 type Message = Awaited<ReturnType<Stream["result"]>>;
@@ -1065,6 +1066,122 @@ it("Phase 5 Slice 2: resource projections stay safe and Pi validation errors rea
                 DEFAULT_RESULT_POLICY,
               ),
             );
+        },
+      });
+    },
+  );
+});
+
+it("Phase 5 Slice 3: configuration credentials never reach real Pi events, history or provider input", async () => {
+  const descriptor = {
+    name: "configuration_view",
+    inputSchema: { type: "object", properties: { minified: { type: "boolean" } } },
+  };
+  let execution: ReturnType<typeof installRequestExecution> | undefined;
+  let controller: RequestMcpController;
+  let dispatches = 0;
+  await fixture(
+    async (session) => {
+      await controller.restart();
+      session.setActiveToolsByName(["configuration_view"]);
+      execution = installRequestExecution(
+        session,
+        { maxToolCalls: 4, maxModelIterations: 4 },
+        () => {},
+      );
+      let streams = 0;
+      const events: string[] = [];
+      const unsubscribe = session.subscribe((event) => {
+        events.push(JSON.stringify(event));
+      });
+      session.agent.streamFunction = (model, context) => {
+        const input = JSON.stringify(context.messages);
+        expect(input).not.toContain(configurationPrivateValue);
+        const message = answer(model);
+        if (++streams === 1) {
+          message.stopReason = "toolUse";
+          message.content = [
+            {
+              type: "toolCall",
+              id: "full",
+              name: "configuration_view",
+              arguments: { minified: false },
+            },
+            {
+              type: "toolCall",
+              id: "minified",
+              name: "configuration_view",
+              arguments: { minified: true },
+            },
+            {
+              type: "toolCall",
+              id: "invalid",
+              name: "configuration_view",
+              arguments: { minified: "invalid-input-marker" },
+            },
+          ];
+        } else {
+          expect(input).toContain("endpointOrigin");
+          expect(input).toContain("invalid-input-marker");
+          expect(input).not.toContain("auth-provider");
+          expect(context.messages.filter((m) => m.role === "toolResult")).toHaveLength(3);
+        }
+        return response(message);
+      };
+      try {
+        await session.prompt("inspect safe kubeconfig metadata");
+        expect(dispatches).toBe(2);
+        expect(streams).toBe(2);
+        expect(events.join("\n")).not.toContain(configurationPrivateValue);
+        expect(JSON.stringify(session.messages)).not.toContain(configurationPrivateValue);
+        expect(JSON.stringify(session.sessionManager.getBranch())).not.toContain(
+          configurationPrivateValue,
+        );
+        expect(JSON.stringify(session.messages)).toContain("endpointOrigin");
+        expect(controller.selection!.availability.available).toEqual(["alpha"]);
+        expect(controller.selection!.target("outside-selection")).toBeUndefined();
+        expect(execution.current?.counts.dispatches).toBe(2);
+      } finally {
+        unsubscribe();
+        await controller.close();
+        await execution.dispose();
+      }
+    },
+    undefined,
+    (pi) => {
+      controller = new RequestMcpController({
+        connect: async () => ({
+          state: "ready",
+          listTools: async () => [
+            { name: "configuration_contexts_list", inputSchema: { type: "object" } },
+            descriptor,
+          ],
+          callTool: async (name) => {
+            if (name === "configuration_contexts_list") {
+              return {
+                content: [],
+                structuredContent: { contexts: [{ name: "alpha", default: false }] },
+              };
+            }
+            dispatches++;
+            return {
+              content: [{ type: "text", text: JSON.stringify(configurationView) }],
+              structuredContent: configurationView,
+            };
+          },
+          close: async () => {},
+        }),
+        publish: (state) => {
+          for (const tool of state.tools) {
+            pi.registerTool(
+              createRequestMcpToolBridge(
+                tool,
+                state,
+                () => execution?.current,
+                DEFAULT_RESULT_POLICY,
+              ),
+            );
+          }
         },
       });
     },

@@ -23,8 +23,7 @@ export type ToolFailureCategory =
   | "capacity-exceeded"
   | "timeout"
   | "invalid-result"
-  | "budget-refused"
-  | "presentation-refused";
+  | "budget-refused";
 
 export interface NormalizedMcpResult {
   readonly text: string;
@@ -81,7 +80,6 @@ const FAILURE_MESSAGES: Record<ToolFailureCategory, string> = {
   "invalid-result": "Kubernetes MCP returned an unsupported or invalid tool result.",
   "budget-refused":
     "Request tool dispatch limit reached; explain the available findings and limits.",
-  "presentation-refused": "The diagnostic identity envelope exceeds the configured result budget.",
   timeout: "Kubernetes MCP operation timed out. Check connectivity and the configured timeout.",
 };
 
@@ -118,10 +116,13 @@ function bounded(
 ): { text: string; truncated: boolean } {
   const safe = redactDiagnosticText(text);
   const cut = truncated || safe.length > policy.maxTextChars;
+  let end = policy.maxTextChars - TRUNCATION_NOTICE.length;
+  if (end > 0 && /[\uD800-\uDBFF]/u.test(safe[end - 1] ?? "")) {
+    end--;
+  }
+
   return {
-    text: cut
-      ? safe.slice(0, policy.maxTextChars - TRUNCATION_NOTICE.length) + TRUNCATION_NOTICE
-      : safe,
+    text: cut ? safe.slice(0, end) + TRUNCATION_NOTICE : safe,
     truncated: cut,
   };
 }

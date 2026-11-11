@@ -11,6 +11,7 @@ export interface McpToolPolicy {
 export const MCP_TOOL_POLICIES: readonly McpToolPolicy[] = Object.freeze(
   [
     { name: "configuration_contexts_list", clusterDependent: false },
+    { name: "configuration_view", clusterDependent: false },
     { name: "pods_list", clusterDependent: true },
     { name: "pods_list_in_namespace", clusterDependent: true },
     { name: "pods_top", clusterDependent: true },

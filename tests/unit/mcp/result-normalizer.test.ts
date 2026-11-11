@@ -53,6 +53,13 @@ describe("MCP result normalization", () => {
     expect(normalizeMcpResult(textResult("x".repeat(256)), policy).truncated).toBe(false);
   });
 
+  it("keeps surrogate pairs intact at the body truncation boundary", () => {
+    const prefix = "x".repeat(policy.maxTextChars - "\n[Result truncated]".length - 1);
+    const result = normalizeMcpResult(textResult(prefix + "😀" + "y".repeat(50)), policy);
+    expect(result.text).toBe(prefix + "\n[Result truncated]");
+    expect(result.truncated).toBe(true);
+  });
+
   it("shares the structured item budget across nested objects and arrays", () => {
     const result = normalizeMcpResult(
       { content: [], structuredContent: { contexts: ["dev", "prod", "third"], ignored: "later" } },

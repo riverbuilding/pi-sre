@@ -8,6 +8,7 @@ const nonBlank = z.string().trim().min(1);
 export const MAX_RESULT_TEXT_CHARS = 64_000;
 
 export const resultPolicySchema = z.strictObject({
+  // Per-call normalized body limit; source metadata and result wrapping are excluded.
   maxTextChars: z.int().min(256).max(MAX_RESULT_TEXT_CHARS).default(8_000),
   maxItems: z.int().positive().max(1_000).default(50),
   // Raw MCP payloads are never persisted or attached to Pi result details.

@@ -258,6 +258,11 @@ describe("SreApplication", () => {
         inputSchema: { type: "object" },
         annotations: { readOnlyHint: true },
       },
+      {
+        name: "targets_list",
+        inputSchema: { type: "object" },
+        annotations: { readOnlyHint: true },
+      },
     ]);
     const app = new SreApplication(config());
 
@@ -269,7 +274,7 @@ describe("SreApplication", () => {
         startupDiagnostics: [
           expect.objectContaining({
             type: "info",
-            message: expect.stringContaining("1 approved, 0 deferred, 1 rejected"),
+            message: expect.stringContaining("2 approved, 0 deferred, 1 rejected"),
           }),
           expect.objectContaining({
             type: "info",

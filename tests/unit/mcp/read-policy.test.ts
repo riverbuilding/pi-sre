@@ -184,17 +184,23 @@ describe("Phase 5 Slice 1 read policy foundations (tools remain disabled)", () =
     );
   });
 
-  it("projects safe nested resource fields from both channels and drops arbitrary extensions", () => {
-    const result = normalized(pod);
-    expect(result.status).toBe("success");
-    expect(result.text).toContain('"cpu":"100m"');
-    expect(result.text).toContain('"nodeName":"worker"');
-    expect(JSON.stringify(result)).not.toContain(privateValue);
-    expect(projectResourceRead(pod, "resources_get", args)).toMatchObject({
-      metadata: { name: "web" },
-      status: { phase: "Pending" },
-    });
-  });
+  it.each(["text", "structured"])(
+    "projects safe nested resource fields from %s and drops arbitrary extensions",
+    (channel) => {
+      const result = normalizeSensitiveReadResult("resources_get", args, {
+        content: channel === "text" ? [{ type: "text", text: JSON.stringify(pod) }] : [],
+        ...(channel === "structured" ? { structuredContent: pod } : {}),
+      });
+      expect(result.status).toBe("success");
+      expect(result.text).toContain('"cpu":"100m"');
+      expect(result.text).toContain('"nodeName":"worker"');
+      expect(JSON.stringify(result)).not.toContain(privateValue);
+      expect(projectResourceRead(pod, "resources_get", args)).toMatchObject({
+        metadata: { name: "web" },
+        status: { phase: "Pending" },
+      });
+    },
+  );
 
   it("withholds ConfigMap keys and values, retaining only metadata and counts", () => {
     const value = {
@@ -322,7 +328,7 @@ describe("Phase 5 Slice 1 read policy foundations (tools remain disabled)", () =
     expect(JSON.stringify(result)).not.toContain(privateValue);
   });
 
-  it("rejects a sensitive or malformed secondary channel even with safe structured data", () => {
+  it("prefers structured resources and withholds unused content", () => {
     for (const content of [
       [{ type: "text", text: privateValue }],
       [{ type: "resource_link", uri: privateValue }],
@@ -331,10 +337,23 @@ describe("Phase 5 Slice 1 read policy foundations (tools remain disabled)", () =
         content,
         structuredContent: pod,
       });
-      expect(result.status).toBe("invalid-result");
+      expect(result.status).toBe("success");
+      expect(result.text).toContain('"nodeName":"worker"');
       expect(JSON.stringify(result)).not.toContain(privateValue);
     }
   });
+
+  it.each([null, privateValue, { ...pod, kind: "Secret" }])(
+    "rejects invalid structured resources without falling back to valid text: %j",
+    (structuredContent) => {
+      const result = normalizeSensitiveReadResult("resources_get", args, {
+        content: [{ type: "text", text: JSON.stringify(pod) }],
+        structuredContent,
+      });
+      expect(result.status).toBe("invalid-result");
+      expect(JSON.stringify(result)).not.toContain(privateValue);
+    },
+  );
 
   it("applies existing item/text budgets after projection and retains no raw details", () => {
     const result = normalizeSensitiveReadResult(

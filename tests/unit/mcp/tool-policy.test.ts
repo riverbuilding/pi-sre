@@ -74,10 +74,7 @@ describe("discovered MCP argument schemas", () => {
 
   it("retains the diagnostic capability allowlist", () => {
     expect(MCP_TOOL_POLICIES.map((policy) => policy.name).sort()).toEqual(
-      capture.cases["read-only"]
-        .filter((tool) => tool.name !== "configuration_view")
-        .map((tool) => tool.name)
-        .sort(),
+      capture.cases["read-only"].map((tool) => tool.name).sort(),
     );
   });
 

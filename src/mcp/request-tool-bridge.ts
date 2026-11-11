@@ -39,30 +39,9 @@ interface Presentation {
   readonly settledAt?: number;
 }
 
-const NOTICE = "\n[Result truncated]";
-
-function presentationRefused() {
+/** Add provenance to the bounded normalized body. No raw data enters details. */
+function present(source: Source, state: Presentation, text: string, truncated: boolean) {
   return {
-    content: [
-      {
-        type: "text" as const,
-        text: "Not executed: source cannot fit the result limit. Identity withheld; no query time. [presentation-refused]",
-      },
-    ],
-    details: { status: "not-executed" as const, truncated: false },
-    isError: true,
-  };
-}
-
-/** Whole serialized public result shares one budget. No raw data enters details. */
-function present(
-  source: Source,
-  state: Presentation,
-  text: string,
-  truncated: boolean,
-  maxChars: number,
-) {
-  const build = (excerpt: string, cut: boolean) => ({
     content: [
       {
         type: "text" as const,
@@ -79,30 +58,17 @@ function present(
                 dispatchedAt: new Date(state.dispatchedAt).toISOString(),
                 settledAt: new Date(state.settledAt!).toISOString(),
               }),
-          truncated: cut,
-        })}\n${excerpt}`,
+          truncated,
+        })}\n${text}`,
       },
     ],
     details: {
       status: state.status,
-      truncated: cut,
+      truncated,
       ...(state.failureCategory ? { failureCategory: state.failureCategory } : {}),
     },
     isError: state.status !== "success",
-  });
-  const fits = (excerpt: string, cut: boolean) =>
-    JSON.stringify(build(excerpt, cut)).length <= maxChars;
-  if (fits(text, truncated)) return build(text, truncated);
-  if (!fits(NOTICE, true)) return undefined;
-  let low = 0;
-  let high = text.length;
-  while (low < high) {
-    const mid = Math.ceil((low + high) / 2);
-    if (fits(text.slice(0, mid) + NOTICE, true)) low = mid;
-    else high = mid - 1;
-  }
-  if (low > 0 && /[\uD800-\uDBFF]/u.test(text[low - 1]!)) low--;
-  return build(text.slice(0, low) + NOTICE, true);
+  };
 }
 
 function failureCategory(error: unknown): FailureCategory {
@@ -139,10 +105,20 @@ export function createRequestMcpToolBridge(
 ): ToolDefinition {
   const schema = prepareMcpToolSchema(descriptor);
   const operation = descriptor.name;
+  let description = descriptor.description ?? operation;
+  if (operation === "configuration_view") {
+    description +=
+      " Pi SRE returns only safe metadata: context/cluster names, namespaces and endpoint origins. minified refers to the server default context, not the current user selection. This does not change selection or refresh authoritative inventory.";
+  }
+  if (["pods_log", "nodes_log"].includes(operation)) {
+    description +=
+      " Pi SRE limits: log tail defaults to 100 lines; allowed range 1–1000; streaming is disabled.";
+  }
+
   return {
     name: operation,
     label: operation,
-    description: `${descriptor.description ?? operation}${["pods_log", "nodes_log"].includes(operation) ? " Pi SRE limits: log tail defaults to 100 lines; allowed range 1–1000; streaming is disabled." : ""}`,
+    description,
     parameters: structuredClone(schema.parameters),
     executionMode: "parallel",
     renderCall(args) {
@@ -153,7 +129,7 @@ export function createRequestMcpToolBridge(
           `${operation} | READ ONLY`,
           schema.policy.clusterDependent
             ? `Requested context: ${isPresentableIdentity(context) ? JSON.stringify(context) : "missing or unsafe identity; withheld"}`
-            : "Context: inventory operation (not cluster dependent)",
+            : "Context: configuration metadata (not cluster dependent; does not change selection)",
         ].join("\n"),
         0,
         0,
@@ -165,12 +141,8 @@ export function createRequestMcpToolBridge(
     // Repeat validation at the execution boundary, including direct programmatic calls.
     async execute(toolCallId, parameters, signal) {
       let source: Source = { operation };
-      const render = (state: Presentation, text: string, truncated = false) => {
-        const result = present(source, state, text, truncated, policy.maxTextChars);
-        // The pre-dispatch reservation guarantees this for all execution outcomes.
-        if (!result) return presentationRefused();
-        return result;
-      };
+      const render = (state: Presentation, text: string, truncated = false) =>
+        present(source, state, text, truncated);
       const fail = (category: FailureCategory, result?: CallResult<unknown>) =>
         render(
           {
@@ -199,7 +171,7 @@ export function createRequestMcpToolBridge(
             namespacePolicy:
               "all namespaces requested (all_namespaces defaults to true), subject to server policy; namespace argument does not narrow this call",
           };
-        } else if (isPresentableIdentity(namespace)) {
+        } else if (schema.policy.clusterDependent && isPresentableIdentity(namespace)) {
           namespaceSource = { namespace };
         } else if (schema.policy.clusterDependent) {
           let namespacePolicy = "server/context policy (not all namespaces)";
@@ -209,9 +181,10 @@ export function createRequestMcpToolBridge(
           }
           namespaceSource = { namespacePolicy };
         }
+
         source = {
           operation,
-          ...(isPresentableIdentity(context) ? { context } : {}),
+          ...(schema.policy.clusterDependent && isPresentableIdentity(context) ? { context } : {}),
           ...namespaceSource,
         };
         if (
@@ -225,23 +198,6 @@ export function createRequestMcpToolBridge(
           if (args[field] !== undefined && !isPresentableIdentity(args[field]))
             return fail("invalid-arguments");
         }
-        // Reserve the largest envelope before synchronous acceptance/registration. Both
-        // timestamps are fixed-width ISO UTC; the longest failure category is reserved.
-        if (
-          !present(
-            source,
-            {
-              status: "invalid-result",
-              failureCategory: "authentication-failed",
-              dispatchedAt: 0,
-              settledAt: 0,
-            },
-            NOTICE,
-            true,
-            policy.maxTextChars,
-          )
-        )
-          return presentationRefused();
         const request = currentRequest();
         if (!request) return fail("request-closed");
         if (!publication.accept) return fail("transport-unavailable");
@@ -259,7 +215,9 @@ export function createRequestMcpToolBridge(
             result,
           );
         const normalized =
-          operation === "resources_get" || operation === "resources_list"
+          operation === "resources_get" ||
+          operation === "resources_list" ||
+          operation === "configuration_view"
             ? normalizeSensitiveReadResult(
                 operation,
                 args,
