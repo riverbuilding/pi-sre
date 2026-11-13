@@ -1,3 +1,4 @@
+import { executionProfileLabel, type ExecutionProfile } from "../config/controlled-operations.js";
 import { Text } from "@earendil-works/pi-tui";
 
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
@@ -40,14 +41,20 @@ interface Presentation {
 }
 
 /** Add provenance to the bounded normalized body. No raw data enters details. */
-function present(source: Source, state: Presentation, text: string, truncated: boolean) {
+function present(
+  source: Source,
+  state: Presentation,
+  text: string,
+  truncated: boolean,
+  profile?: ExecutionProfile,
+) {
   return {
     content: [
       {
         type: "text" as const,
         text: `Source: ${JSON.stringify({
           ...source,
-          profile: "READ ONLY",
+          profile: executionProfileLabel(profile),
           status: state.status,
           execution: state.dispatchedAt === undefined ? "not-executed" : "dispatched",
           ...(state.failureCategory ? { failureCategory: state.failureCategory } : {}),
@@ -99,7 +106,7 @@ function failureText(category: FailureCategory): string {
 /** Unified pipeline capturing one original connection publication. */
 export function createRequestMcpToolBridge(
   descriptor: McpToolDescriptor,
-  publication: Pick<RequestMcpPublication, "accept" | "resourceReadPolicy">,
+  publication: Pick<RequestMcpPublication, "accept" | "resourceReadPolicy" | "profile">,
   currentRequest: () => RequestExecution | undefined,
   policy: ResultPolicy,
 ): ToolDefinition {
@@ -126,7 +133,7 @@ export function createRequestMcpToolBridge(
         typeof args === "object" && args !== null && "context" in args ? args.context : undefined;
       return new Text(
         [
-          `${operation} | READ ONLY`,
+          `${operation} | ${executionProfileLabel(publication.profile)}`,
           schema.policy.clusterDependent
             ? `Requested context: ${isPresentableIdentity(context) ? JSON.stringify(context) : "missing or unsafe identity; withheld"}`
             : "Context: configuration metadata (not cluster dependent; does not change selection)",
@@ -142,7 +149,7 @@ export function createRequestMcpToolBridge(
     async execute(toolCallId, parameters, signal) {
       let source: Source = { operation };
       const render = (state: Presentation, text: string, truncated = false) =>
-        present(source, state, text, truncated);
+        present(source, state, text, truncated, publication.profile);
       const fail = (category: FailureCategory, result?: CallResult<unknown>) =>
         render(
           {

@@ -1,8 +1,10 @@
+import { executionProfileLabel, type ExecutionProfile } from "../config/controlled-operations.js";
 import type { RequestMcpPublication } from "../app/request-mcp-controller.js";
 import type { ClusterScopeRule } from "../cluster/context-resolver.js";
 import { isPresentableIdentity } from "../execution/identity.js";
 
 export interface EnvironmentFacts {
+  readonly profile?: ExecutionProfile;
   readonly status: RequestMcpPublication["status"];
   readonly rule: ClusterScopeRule | undefined;
   /** Endpoint values are comparison-only and must never be rendered. */
@@ -12,6 +14,7 @@ export interface EnvironmentFacts {
 export function captureEnvironment(state: RequestMcpPublication): EnvironmentFacts {
   return {
     status: state.status,
+    profile: state.profile ?? "read-only",
     rule: state.selection ? structuredClone(state.selection.rule) : undefined,
     inventory: new Map(
       state.selection?.inventory.contexts.map(({ name, server }) => [name, server]),
@@ -41,7 +44,7 @@ export function environmentLines(facts: EnvironmentFacts, complete = false): str
   const unavailable =
     facts.rule?.kind === "exact" ? selected.filter((name) => !available.includes(name)) : [];
   return [
-    "READ ONLY",
+    executionProfileLabel(facts.profile),
     `Selection: ${!facts.rule ? "not initialized" : facts.rule.kind === "all" ? "All (*) — live inventory" : `Exact ${environmentNames(facts.rule.contexts, complete)}`}`,
     `Available targets: ${available.length} ${environmentNames(available, complete)}`,
     `Unavailable selected: ${unavailable.length} ${environmentNames(unavailable, complete)}`,
@@ -67,6 +70,9 @@ export function environmentDescription(facts: EnvironmentFacts): string {
 /** Diff and notification derive from the same captured facts; defaults are excluded. */
 export function environmentChanges(previous: EnvironmentFacts, next: EnvironmentFacts): string[] {
   const lines: string[] = [];
+  if (previous.profile !== next.profile) {
+    lines.push(`Execution profile: ${executionProfileLabel(next.profile)}.`);
+  }
   if (JSON.stringify(previous.rule) !== JSON.stringify(next.rule))
     lines.push(
       "Selection changed; only newly accepted calls use this selection. Accepted calls keep their original context.",

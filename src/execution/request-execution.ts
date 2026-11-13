@@ -30,6 +30,9 @@ export type CallResult<T> =
 export class RequestExecution {
   readonly requestId = randomUUID();
   readonly #abort = new AbortController();
+  readonly #closing = new AbortController();
+  #controlledDispatches = 0;
+
   readonly #queue: ExecutionQueue;
   readonly #limits: ExecutionLimits;
   readonly #calls = new Map<
@@ -58,6 +61,23 @@ export class RequestExecution {
     };
   }
 
+  /** Pending approvals end on normal completion too; accepted reads still settle. */
+  get closingSignal(): AbortSignal {
+    return this.#closing.signal;
+  }
+
+  get controlledDispatches(): number {
+    return this.#controlledDispatches;
+  }
+
+  chargeControlledDispatch(limit: number): void {
+    this.assertOpen();
+    if (!Number.isInteger(limit) || limit < 1 || this.#controlledDispatches >= limit) {
+      throw new ExecutionError("budget-refused", "Request controlled operation limit reached.");
+    }
+    this.#controlledDispatches++;
+  }
+
   consumeModelIteration(): void {
     this.assertOpen();
     if (this.#iterations >= this.#limits.maxModelIterations)
@@ -71,6 +91,7 @@ export class RequestExecution {
     check: () => void,
     dispatch: (signal: AbortSignal) => Promise<T>,
     callSignal?: AbortSignal,
+    prepareDispatch?: (signal: AbortSignal) => Promise<() => void>,
   ): Promise<CallResult<T>> {
     this.assertOpen();
     if (this.#calls.has(identity.toolCallId))
@@ -92,11 +113,17 @@ export class RequestExecution {
           );
         release = admission.release;
         signal.throwIfAborted();
+        let consumePermit: (() => void) | undefined;
+        if (prepareDispatch) {
+          consumePermit = await prepareDispatch(signal);
+        }
+        signal.throwIfAborted();
         check();
         signal.throwIfAborted();
         if (this.#dispatches >= this.#limits.maxToolCalls)
           throw new ExecutionError("budget-refused", "Request tool dispatch limit reached.");
         // No await between runtime checks, charging and transport invocation.
+        consumePermit?.();
         this.#dispatches++;
         call.phase = "active";
         dispatchedAt = Date.now();
@@ -128,11 +155,13 @@ export class RequestExecution {
 
   cancel(): void {
     this.#closed = true;
+    this.#closing.abort();
     this.#abort.abort();
   }
 
   async finish(): Promise<void> {
     this.#closed = true;
+    this.#closing.abort();
     await this.waitForIdle();
   }
 

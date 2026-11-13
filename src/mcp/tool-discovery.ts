@@ -1,3 +1,8 @@
+import {
+  isControlledOperation,
+  type ExecutionProfile,
+  type ControlledOperation,
+} from "../config/controlled-operations.js";
 import type { Tool } from "@earendil-works/pi-mcp";
 import { prepareMcpToolSchema, McpToolSchemaError } from "../runtime/tool-policy.js";
 import type { McpConnection } from "./connection.js";
@@ -8,6 +13,11 @@ export type McpToolDescriptor = Readonly<
 
 export type ToolDiscoveryDecision =
   | { readonly name: string; readonly status: "exposed" }
+  | {
+      readonly name: string;
+      readonly status: "deferred";
+      readonly reason: "pending-controlled-policy";
+    }
   | {
       readonly name?: string;
       readonly status: "rejected";
@@ -44,6 +54,8 @@ function parseDescriptor(value: Tool): McpToolDescriptor | undefined {
 export async function discoverMcpTools(
   connection: Pick<McpConnection, "listTools">,
   signal?: AbortSignal,
+  profile: ExecutionProfile = "read-only",
+  enabledTools: readonly ControlledOperation[] = [],
 ): Promise<ToolDiscoveryReport> {
   const rawTools = await connection.listTools(signal);
   const parsed = rawTools.map(parseDescriptor);
@@ -69,6 +81,14 @@ export async function discoverMcpTools(
     }
     if ((nameCounts.get(tool.name) ?? 0) > 1) {
       decisions.push({ name: tool.name, status: "rejected", reason: "duplicate-name" });
+      continue;
+    }
+    if (
+      profile === "controlled-operations" &&
+      isControlledOperation(tool.name) &&
+      enabledTools.includes(tool.name)
+    ) {
+      decisions.push({ name: tool.name, status: "deferred", reason: "pending-controlled-policy" });
       continue;
     }
     try {

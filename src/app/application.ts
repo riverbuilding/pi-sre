@@ -1,3 +1,4 @@
+import { SafetyProfileChangeError } from "../config/controlled-operations.js";
 import { mkdir } from "node:fs/promises";
 import { captureEnvironment, environmentDescription } from "../runtime/request-environment.js";
 
@@ -56,6 +57,9 @@ export class SreApplication {
               },
             });
         initial = false;
+        if (JSON.stringify(settings.safety) !== JSON.stringify(config.safety)) {
+          throw new SafetyProfileChangeError();
+        }
         for (const key of ["home", "auth", "models", "settings", "sessions", "logs"] as const) {
           if (settings.paths[key] !== config.paths[key]) {
             throw new SreConfigError("Session paths changed; restart pi-sre.");
@@ -67,6 +71,7 @@ export class SreApplication {
       signal: this.cancellation.signal,
       intent: this.startupClusterIntent,
       resourceReadPolicy: config.safety.resources,
+      safety: config.safety,
       ...(config.kubernetes.contexts ? { configuredRule: config.kubernetes.contexts } : {}),
     });
   }
@@ -117,7 +122,7 @@ export class SreApplication {
       }
       startupDiagnostics.push({
         type: "info",
-        message: `Kubernetes MCP discovery: ${counts.exposed} approved, ${counts.deferred} deferred, ${counts.rejected} rejected. ${state.tools.length} read-only tools registered.`,
+        message: `Kubernetes MCP discovery: ${counts.exposed} approved, ${counts.deferred} deferred, ${counts.rejected} rejected. ${state.tools.length} diagnostic tools registered; controlled capabilities remain disabled.`,
       });
     } else {
       startupDiagnostics.push({ type: "warning", message: state.message });
@@ -143,6 +148,7 @@ export class SreApplication {
       process.off("SIGTERM", this.onSignal);
       // Await public, idempotent initialization so shutdown cannot leave a late UI behind.
       await this.mode.init();
+      this.mcpController.approvals.enableInteractiveTerminal();
     } catch (error) {
       throw new SreApplicationError("Pi SRE terminal startup failed.", error);
     }

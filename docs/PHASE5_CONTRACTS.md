@@ -1,9 +1,10 @@
 # Phase 5 Contracts — Kubernetes MCP Config/Core Parity
 
 Frozen for Slice 0 on 2026-11-05. This is a design and compatibility contract,
-not a claim that the later slices are implemented. Production still exposes the
-six existing diagnostics, accepts only `safety.mode: read-only`, and uses the
-unchanged read-only MCP example. No controlled tool was invoked for this work.
+not a claim that the later slices are implemented. At freeze time production exposed
+six diagnostics, accepted only `safety.mode: read-only`, and used the read-only MCP
+example. See the [implementation status](./PHASE5_IMPLEMENTATION_SLICES.md) for delivered
+slices. Slice 4 accepts controlled startup configuration but enables no controlled tool.
 
 **MVP scope revision (2026-11-05):** Only the **Multi-Context kubeconfig Provider** is supported. Other providers and their target discovery/parameter mappings are deferred for consideration until after MVP; they are not Phase 5 acceptance gaps. **Exec tools, including `pods_exec`, are unsupported in every profile**, even with human approval or improved server limits. The 22-row upstream inventory remains reference evidence; the MVP delivery target is **20 definitions: 15 reads (some platform/API-conditional) and 5 controlled operations**, excluding `targets_list` and `pods_exec`.
 
@@ -124,7 +125,7 @@ and approval boundary; there is no automatic retry, compensation or rollback.
 
 ## Startup configuration and resource policy
 
-Slice 4 will extend the existing `safety.mode` with exactly `read-only` (default) and
+Slice 4 extends the existing `safety.mode` with exactly `read-only` (default) and
 `controlled-operations`. No model argument, skill, UI tool call or context wildcard can
 change the profile. Profile changes require process restart. A separately supplied,
 reviewed MCP TOML and Kubernetes credentials must match it; never rewrite the current
@@ -132,7 +133,7 @@ read-only file or expand RBAC automatically. A write-enabled or unverifiable con
 must not display READ ONLY. Controlled mode always displays
 `CONTROLLED OPERATIONS — APPROVAL REQUIRED`, even during diagnostics.
 
-Planned controlled configuration is `safety.controlledOperations` with:
+Controlled startup configuration is `safety.controlledOperations` with:
 
 | Field                     | Frozen policy                                                                                          |
 | ------------------------- | ------------------------------------------------------------------------------------------------------ |
@@ -142,7 +143,8 @@ Planned controlled configuration is `safety.controlledOperations` with:
 | `maxOperationsPerRequest` | Default 1; integer 1–10; independent subset of maxToolCalls                                            |
 
 Reject controlled-only settings in read-only mode; reject unknown fields and names.
-These keys are contracts only in Slice 0: the existing schema still rejects them.
+These keys are implemented in Slice 4. All five controlled capabilities remain deferred
+until Slice 5 installs their reviewed policy and passes its sensitive-boundary tests.
 No changes to execution.maxToolCalls/maxModelIterations defaults or reset semantics.
 
 Slice 1 introduces `safety.resources.allowedReadKinds`, exact canonical apiVersion/kind

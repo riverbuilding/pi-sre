@@ -1,3 +1,4 @@
+import { createTerminalApprovalChannel } from "./controlled-approval-channel.js";
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 
 import type { RequestMcpController, RequestMcpPublication } from "../app/request-mcp-controller.js";
@@ -60,6 +61,7 @@ export function registerRequestExtension(
       }
 
       started = true;
+      options.controller?.approvals.setChannel(createTerminalApprovalChannel(ctx));
       options.setNotifier((message) => ctx.ui.notify(message, "warning"));
       if (options.controller) {
         publish(options.controller.snapshot);
@@ -67,7 +69,7 @@ export function registerRequestExtension(
     }),
     pi.on("user_bash", () => ({
       result: {
-        output: "Shell commands are unavailable in Pi SRE read-only mode.",
+        output: "Shell commands are unavailable in Pi SRE.",
         exitCode: 1,
         cancelled: false,
         truncated: false,
@@ -78,6 +80,7 @@ export function registerRequestExtension(
     publish,
     dispose(): void {
       disposed = true;
+      options.controller?.approvals.setChannel(undefined);
       environment.dispose();
       for (const remove of removers) {
         remove();

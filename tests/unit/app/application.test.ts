@@ -1,6 +1,7 @@
+import { RequestMcpController } from "../../../src/app/request-mcp-controller.js";
 import { DEFAULT_RESOURCE_READ_POLICY } from "../../../src/config/resource-policy.js";
 import { DEFAULT_RESULT_POLICY } from "../../../src/config/schema.js";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -188,6 +189,37 @@ describe("SreApplication", () => {
     );
     expect(app.selection?.availability.available).toEqual([]);
     expect(mocks.mcpClose).toHaveBeenCalledOnce();
+  });
+
+  it("requires process restart for profile changes and never opens the replacement connection", async () => {
+    const settings = config();
+    await writeFile(
+      settings.paths.config,
+      `kubernetes:
+  mcp:
+    transport: stdio
+    command: kubernetes-mcp-server
+    configFile: kubernetes-mcp.toml
+safety:
+  mode: controlled-operations
+`,
+    );
+    await writeFile(settings.paths.kubernetesMcpConfig, "read_only = false\n");
+    mocks.modeRun.mockImplementation(async () => {
+      const controller: unknown = mocks.createRuntime.mock.calls[0]?.[1];
+      if (!(controller instanceof RequestMcpController)) {
+        throw new Error("Missing application MCP controller.");
+      }
+      await controller.restart(true);
+      expect(controller.snapshot).toMatchObject({
+        status: "unavailable",
+        profile: "read-only",
+        tools: [],
+      });
+      expect(controller.snapshot.message).toContain("restart pi-sre");
+      expect(mocks.mcpConnect).toHaveBeenCalledOnce();
+    });
+    await new SreApplication(settings).run();
   });
 
   it("uses the Pi SRE home and disposes once when the mode returns", async () => {

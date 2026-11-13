@@ -11,7 +11,9 @@ Pi SRE has no dedicated adapter that understands or compensates for Kubernetes M
 (2026-11-06): narrowing-only resource policy and structural read projections with offline
 coverage. Slice 2 delivered (2026-11-07): eight added core reads through the shared
 request pipeline. Slice 3 delivered (2026-11-10): safe configuration inspection and
-configuration discovery boundary coverage. Slices 4–6 remain planned. No write capability is enabled; full parity is not complete.
+configuration discovery boundary coverage. Slice 4 delivered (2026-11-11): opt-in
+profile configuration, truthful profile publication and shared approval infrastructure.
+Slices 5–6 remain planned. No write capability is enabled; full parity is not complete.
 
 **Prerequisite:** Complete the accepted context-routing baseline and the investigation/context simplification migration: current selection, request budgets, unified bridge, cancellation and model-visible provenance. See the [accepted multi-cluster plan](./MULTI_CLUSTER_INVESTIGATION_PLAN.md). Simplification Slice 6 switched production on 2026-11-04; its Slice 7 full acceptance remains pending. Extend `CurrentClusterSelection`, `RequestExecution`, `RequestMcpController` and `createRequestMcpToolBridge`; do not recreate incident authority.
 
@@ -282,6 +284,48 @@ controlled tools disabled until their Slice 5 shared-policy and approval tests p
 **Acceptance:** Unit and real-Pi integration tests prove no write call in default mode and no Exec call in any profile,
 no dispatch on denied/expired/cancelled approval, no reusable approval after argument or
 connection changes, no direct-handler bypass, and no false READ ONLY display.
+
+**Delivered (2026-11-11):** Startup accepts the validated controlled profile and
+its frozen configuration limits. Matching MCP `read_only` is mandatory; CLI overrides
+are refused. Separate controlled examples disable all five operations and Exec. Profile
+or resource-policy changes during MCP restart leave dispatch closed and require process
+restart. Discovery defers explicitly enabled controlled names; the production allowlist,
+bridge and direct admission still reject all five. No production controlled policy is
+installed by this slice.
+
+The session-owned approval service captures an immutable final argument copy, original
+request/connection/descriptor, one exact available target, selection and absolute expiry.
+It requires an application-owned review policy and an authenticated interactive terminal
+channel. Deny is the first selector option; only the exact approval answer grants one
+call. Normal request completion, cancellation, target removal/replacement, selection
+changes (including change-away-and-back), authority invalidation, channel replacement and
+connection retirement end pending approvals. Same-value rules and unrelated inventory
+refreshes/additions preserve an unchanged target. Descriptors remain immutable within
+a controller-owned connection; future policy/descriptor replacement must abort the
+explicit authority signal. Final arguments/schema and concrete authority facts are
+rechecked immediately before consuming the permit and both budgets, without yielding.
+
+All controlled proposals share one session slot through terminal settlement. Queueing
+never extends approval expiry. Refusals are free; dispatched failure/cancellation/timeout
+consumes both allowances, never retries and reports possible effects. Receipts retain at
+most 100 FIFO entries in memory, with safe identity, operation summary, timestamps, outcome
+and fixed uncertainty notices. Raw arguments, previews, manifests, outputs, fingerprints
+and error payloads are excluded from receipts and return values. Previewing requires the
+future reviewed policy; pattern redaction is only an additional fail-closed check.
+
+Offline and real-Pi tests use a synthetic policy, MCP transport and selector to exercise
+final hook-modified arguments, direct-handler refusal, no-UI/RPC/default-profile refusal,
+denial, abort, timeout, late replies, queue expiry, serialization, budget accounting,
+sticky invalidation, safe result history/provider/event boundaries and dialog cleanup.
+These do not implement the five operation policies or enable sensitive manifest inputs.
+Slice 5 must extend the Pi pre-handler/message/renderer protections and test sensitive
+arguments before publishing any controlled capability. No live cluster or controlled
+operation was exercised; visual terminal acceptance remains separate.
+
+Validation: the targeted approval suite passes **38/38** cases. `npm run verify`
+passes formatting, lint, TypeScript, the offline/integration/package suites and build.
+The 17 explicit opt-in server/live tests remain skipped by the canonical gate; no
+server contract, live cluster or visual acceptance was rerun for this slice.
 
 ### Slice 5 — Five Controlled Capabilities
 

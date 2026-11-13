@@ -1,0 +1,26 @@
+# Explicit opt-in. Copy separately; do not overwrite the read-only configuration.
+# Slice 4 prepares approval infrastructure; controlled tools remain disabled until Slice 5.
+kubernetes:
+  mcp:
+    transport: stdio
+    command: kubernetes-mcp-server
+    args: []
+    configFile: kubernetes-mcp.controlled.toml
+    startupTimeoutMs: 15000
+    toolCallTimeoutMs: 30000
+execution:
+  maxToolCalls: 40
+  maxModelIterations: 80
+safety:
+  mode: controlled-operations
+  controlledOperations:
+    # Reviewed subset only; Exec is unsupported in every profile.
+    # Changing this list does not enable controlled tools in Slice 4.
+    enabledTools: []
+    approvalTimeoutMs: 60000
+    callTimeoutMs: 30000
+    maxOperationsPerRequest: 1
+results:
+  maxTextChars: 8000
+  maxItems: 50
+  rawRetention: disabled

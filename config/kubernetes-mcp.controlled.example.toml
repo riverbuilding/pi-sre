@@ -1,0 +1,19 @@
+# Separate opt-in configuration. Review credentials and narrowly scoped RBAC separately.
+# The application displays CONTROLLED OPERATIONS — APPROVAL REQUIRED for this connection.
+read_only = false
+list_output = "yaml"
+denied_resources = [{ group = "", version = "v1", kind = "Secret" }]
+experimental_enable_target_compatibility_tool_filters = true
+toolsets = ["core", "config"]
+
+# Slice 4 keeps all controlled capabilities disabled on both sides of the boundary.
+# Slice 5 owns enablement after its operation policy and approval tests pass.
+# Exec remains unsupported permanently.
+disabled_tools = [
+  "pods_delete",
+  "pods_run",
+  "resources_create_or_update",
+  "resources_delete",
+  "resources_scale",
+  "pods_exec",
+]

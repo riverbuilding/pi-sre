@@ -22,8 +22,7 @@ execution:
 
 safety:
   mode: read-only
-  # Slice 1 policy foundation; generic resource/config tools remain disabled until
-  # Slices 2/3. Omit resources to use the reviewed default GVK set, or narrow it:
+  # Generic resource reads use the reviewed default GVK set; narrow it if needed:
   # resources:
   #   allowedReadKinds:
   #     - apiVersion: v1

@@ -10,6 +10,20 @@ export class CurrentClusterSelection {
   #rule: ClusterScopeRule;
   #inventory: ClusterContextRegistry;
   #targets = new Map<string, object>();
+  readonly #listeners = new Set<() => void>();
+
+  observeChanges(listener: () => void): () => void {
+    this.#listeners.add(listener);
+    return () => {
+      this.#listeners.delete(listener);
+    };
+  }
+
+  private changed(): void {
+    for (const listener of this.#listeners) {
+      listener();
+    }
+  }
 
   constructor(
     inventory: ClusterContextRegistry,
@@ -58,6 +72,7 @@ export class CurrentClusterSelection {
     }
     this.#inventory = inventory;
     this.#targets = targets;
+    this.changed();
   }
 
   target(context: string): object | undefined {
@@ -76,6 +91,7 @@ export class CurrentClusterSelection {
     )
       throw new Error("Unknown MCP context; selection was not changed.");
     this.#rule = candidate;
+    this.changed();
   }
 
   /** Only selection and inventory facts relevant to a picker draft are compared. */

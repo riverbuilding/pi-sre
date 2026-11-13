@@ -111,6 +111,15 @@ A change is complete when it preserves the read-only safety model, keeps cluster
 - `docs/MULTI_CLUSTER_INVESTIGATION_PLAN.md` records the accepted exact-set/live-wildcard target, reconnect contracts, and later extensions; it is not a claim of runtime implementation.
 - `config/*.example.*` contains versioned, safe configuration templates.
 
+## Code Style
+
+### Prefer simple, non-repetitive code
+
+- Prefer straightforward, readable code and simple equivalent expressions over unnecessarily verbose or duplicated logic.
+- Keep related conditions together when they lead to the same behavior. Combine branches with identical bodies using `||` or `&&` when this preserves behavior, short-circuit evaluation, and type narrowing, and keeps the condition easy to read. Avoid repeating identical return statements or function calls across adjacent branches; keep branches separate when combining them would reduce clarity.
+- Prefer early returns to deeply nested conditionals.
+- Do not introduce abstractions solely to eliminate trivial duplication. Prioritize readability and maintainability over minimizing line count.
+
 ## TypeScript Conventions
 
 - Use TypeScript for all package, extension, MCP integration, and orchestration code.
@@ -376,6 +385,10 @@ Use Vitest for TypeScript unit tests unless the repository establishes another s
 - Test public behavior rather than private implementation details.
 - Mock the MCP boundary rather than mocking every internal function.
 - Use deterministic fixtures for Kubernetes resources and tool responses.
+- Treat unit tests as communication as well as correctness checks: make the expected behavior and values clear to a reader without tracing the implementation.
+- Prefer exact expected values (`toBe`, `toStrictEqual`) and complete expected mock calls over substring checks, partial object matches, truthiness checks, or call counts alone when the full expected result is known. For example, assert the complete approval preview and dispatched arguments rather than only that the preview contains `"scale":2`.
+- Write expected values independently of the production code and actual result. Control time and generated IDs when needed for deterministic assertions. Reserve flexible matchers for values whose identity is incidental (such as a newly composed abort signal), and partial assertions for contracts that intentionally leave the remaining content unspecified.
+- For safety receipts and other bounded outputs, assert the complete allowed value and shape so unexpected fields fail the test; checking only that selected sensitive substrings are absent is insufficient.
 - Avoid tests that require a real production cluster.
 - Put real-cluster testing in explicit integration/eval suites.
 

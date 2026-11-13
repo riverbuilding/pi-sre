@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { controlledOperationsSchema } from "./controlled-operations.js";
 import { parseClusterRule } from "../cluster/context-resolver.js";
 import { executionLimitsSchema } from "./execution.js";
 import { DEFAULT_RESOURCE_READ_POLICY, resourceReadPolicySchema } from "./resource-policy.js";
@@ -42,10 +43,19 @@ export const sreConfigSchema = z.strictObject({
     }),
   }),
   execution: executionLimitsSchema.default(executionLimitsSchema.parse({})),
-  safety: z.strictObject({
-    mode: z.literal("read-only"),
-    resources: resourceReadPolicySchema.default(DEFAULT_RESOURCE_READ_POLICY),
-  }),
+  safety: z.discriminatedUnion("mode", [
+    z.strictObject({
+      mode: z.literal("read-only"),
+      resources: resourceReadPolicySchema.default(DEFAULT_RESOURCE_READ_POLICY),
+    }),
+    z.strictObject({
+      mode: z.literal("controlled-operations"),
+      resources: resourceReadPolicySchema.default(DEFAULT_RESOURCE_READ_POLICY),
+      controlledOperations: controlledOperationsSchema.default(
+        controlledOperationsSchema.parse({}),
+      ),
+    }),
+  ]),
 });
 
 export type SreConfigFile = z.input<typeof sreConfigSchema>;

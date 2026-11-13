@@ -1,6 +1,6 @@
 # Pi SRE
 
-Pi SRE is an independent, read-only TypeScript application for Kubernetes diagnosis, built on the Pi agent runtime and Kubernetes MCP Server. Pi owns the conversation and terminal UI; Pi SRE owns context selection, execution limits, cancellation, MCP lifecycle, and bounded, redacted results with explicit provenance.
+Pi SRE is an independent TypeScript application for Kubernetes diagnosis, read-only by default, built on the Pi agent runtime and Kubernetes MCP Server. Pi owns the conversation and terminal UI; Pi SRE owns context selection, execution limits, cancellation, MCP lifecycle, and bounded, redacted results with explicit provenance.
 
 [Investigation/context simplification Slices 0–6](docs/INVESTIGATION_CONTEXT_SIMPLIFICATION_IMPLEMENTATION_SLICES.md) are implemented. Production uses Pi messages and request execution controls. Ask a question, query permitted contexts, revise the explanation through follow-up messages, and report directly. There is no Incident prerequisite, independent EvidenceStore, hypothesis object, conclusion tool, or structured investigation archive. `/incident`, `/evidence` and the five local investigation tools have been removed. Compaction is lossy; missing facts or provenance may require fresh queries.
 
@@ -19,7 +19,7 @@ cp config/pi-sre.example.yaml ~/.pi-sre/config.yaml
 cp config/kubernetes-mcp.example.toml ~/.pi-sre/kubernetes-mcp.toml
 ```
 
-Review both files. Pi SRE requires `read_only = true` and stdio transport in the MCP TOML, and appends `--config <absolute path>` when launching the server. The application allowlist, server configuration and Kubernetes RBAC all enforce the read-only boundary.
+Review both files. The default profile requires `read_only = true` and stdio transport in the MCP TOML, and appends `--config <absolute path>` when launching the server. The application allowlist, server configuration and Kubernetes RBAC all enforce the read-only boundary.
 
 The application home contains `config.yaml`, `kubernetes-mcp.toml`, Pi `auth.json`, `models.json`, `settings.json`, `sessions/`, and `logs/`. It is the runtime context; the repository working directory is not operational scope. Pi's default coding-agent storage and project instructions/extensions/skills/templates are excluded. Generic shell and coding tools are unavailable.
 
@@ -49,6 +49,25 @@ results:
   maxItems: 50
   rawRetention: disabled
 ```
+
+Phase 5 Slice 4 also accepts the explicit startup profile `safety.mode: controlled-operations`.
+Use the separate [application YAML](config/pi-sre.controlled.example.yaml) and
+[MCP TOML](config/kubernetes-mcp.controlled.example.toml) after reviewing configuration
+and credentials. The matching TOML must explicitly set `read_only = false`; a mismatch
+or missing setting is refused. CLI arguments cannot override `read_only`. No files or
+RBAC are rewritten. Safety profile and policy changes require a process restart.
+The widget, call renderer and result provenance show
+`CONTROLLED OPERATIONS — APPROVAL REQUIRED`, including during diagnostic reads.
+
+`safety.controlledOperations` accepts only `enabledTools` (a reviewed subset of the five
+controlled names, default `[]`), `approvalTimeoutMs` (default/max 60,000), `callTimeoutMs`
+(default 30,000, max 60,000), and `maxOperationsPerRequest` (default 1, range 1–10).
+Timeouts must be positive integers. Controlled-only settings are rejected in read-only
+mode. **All controlled tools remain disabled in Slice 4**, including when listed in
+`enabledTools`; discovery reports enabled candidates as deferred. Slice 5 owns operation
+policy, sensitive message boundaries and capability enablement. Exec is unsupported in
+every profile. Approval infrastructure tests use synthetic policy and transport; no live
+operation or visual approval acceptance is claimed.
 
 Migrate `investigation.maxToolCalls` to `execution.maxToolCalls`; delete `investigation` and `defaultTimeRange`. Old fields are rejected, with no compatibility aliases. Execution limits default to 40 dispatches (range 1–1,000) and 80 model iterations (range 1–2,000).
 
@@ -82,11 +101,11 @@ Selection can change during active work. It affects only newly accepted calls. A
 
 Exact selections retain disappeared members as **unavailable selected**; executable targets are selected ∩ available. Returning names become candidates again; new unselected names remain excluded. Live all follows validated inventory discovered at startup/recovery. Inventory membership does not establish authentication, authorization, cluster health or inspection.
 
-The wrapping widget continuously displays READ ONLY, current all/exact selection, available targets, unavailable selected names, MCP state and namespace policy. Call UI shows the complete safe requested context. Environment messages describe selection, inventory/target changes and MCP changes without endpoints or credentials. Identical refreshes/default-metadata changes are deduplicated. Idle updates append messages without starting the model; active updates use custom steering and do not allocate a user request. Before every model request, a context hook restores a missing/outdated environment snapshot, including after automatic compaction directly retries. It never reconstructs authority from history.
+The wrapping widget continuously displays the actual startup profile (READ ONLY by default), current all/exact selection, available targets, unavailable selected names, MCP state and namespace policy. Call UI shows the complete safe requested context. Environment messages describe selection, inventory/target changes and MCP changes without endpoints or credentials. Identical refreshes/default-metadata changes are deduplicated. Idle updates append messages without starting the model; active updates use custom steering and do not allocate a user request. Before every model request, a context hook restores a missing/outdated environment snapshot, including after automatic compaction directly retries. It never reconstructs authority from history.
 
 ## MCP recovery and tools
 
-Startup attempts a connection; failures open the TUI with diagnostics closed. Repair configuration and use `/mcp_restart`. Replacement rereads and validates YAML and read-only TOML, withdraws tools and blocks dispatch, cancels/settles old calls, closes the old connection, discovers tools/schema/contexts, publishes tools/environment/notices, then opens dispatch. Failure stays closed. There is no background reconnect. Recovery retains current selection and does not reset budgets, rebuild extensions, replay calls, or wake an idle model. Execution/result limits and application paths require an application restart to change.
+Startup attempts a connection; failures open the TUI with diagnostics closed. Repair configuration and use `/mcp_restart`. Replacement rereads and validates YAML and profile-matched TOML, withdraws tools and blocks dispatch, cancels/settles old calls, closes the old connection, discovers tools/schema/contexts, publishes tools/environment/notices, then opens dispatch. Failure stays closed. There is no background reconnect. Recovery retains current selection and does not reset budgets, rebuild extensions, replay calls, or wake an idle model. Execution/result limits and application paths require an application restart to change.
 
 Approved operations are `configuration_contexts_list`, `configuration_view`, `pods_list`, `pods_list_in_namespace`, `pods_get`, `pods_log`, `pods_top`, `events_list`, `namespaces_list`, `nodes_log`, `nodes_stats_summary`, `nodes_top`, `resources_list`, `resources_get`, and conditional `projects_list`, subject to discovered compatible schemas and per-target API availability. Every cluster-dependent call requires one exact model-supplied context, even with a singleton selection. Pod and node logs default to 100 lines and permit 1–1,000; streaming is disabled. Node log queries permit a single service name, excluding file paths. Namespace omission uses server/context policy, never a promise of all-namespace coverage. Model-driven enumeration shares the request dispatch budget; lifecycle discovery alone is uncharged and cannot serve model queries.
 
@@ -100,7 +119,7 @@ Pi SRE trusts the configured server. It consumes discovered input schemas, not e
 
 ## Results and conversation history
 
-The model-visible `content` includes exact context, operation, namespace or omission policy, READ ONLY, execution status and truncation. Dispatched calls include client dispatch/settlement times, which are not Kubernetes object observation times. Undispatched refusals have no query time. Empty success, tool failure, transport failure, authentication/authorization failure, timeout and cancellation remain distinct. Same-named resources retain their original context and time after selection or target changes.
+The model-visible `content` includes exact context, operation, namespace or omission policy, the actual execution profile, execution status and truncation. Dispatched calls include client dispatch/settlement times, which are not Kubernetes object observation times. Undispatched refusals have no query time. Empty success, tool failure, transport failure, authentication/authorization failure, timeout and cancellation remain distinct. Same-named resources retain their original context and time after selection or target changes.
 
 `results.maxTextChars` (256–64,000) limits each tool call's normalized result body, including any truncation notice, independently of other calls. The limit is applied during normalization; source metadata, details and JSON wrapping are excluded. Presentation preserves the complete safe source identity without further truncation or size checks. This is a JavaScript string-length limit, not a transport byte or token limit. `results.maxItems` (1–1,000) bounds content blocks or nested structured fields/array entries; structured nesting beyond 32 is truncated. Binary payloads are omitted; links are not fetched. Known credential fields/patterns are redacted, error payloads replaced with safe categories, and truncated stderr tails withheld. Arbitrary sensitive application data cannot all be identified by pattern redaction.
 

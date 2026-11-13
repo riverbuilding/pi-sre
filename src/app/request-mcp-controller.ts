@@ -1,3 +1,9 @@
+import { ControlledApprovalService } from "../execution/controlled-approval.js";
+import type { SreConfig } from "../config/config.js";
+import {
+  SafetyProfileChangeError,
+  type ExecutionProfile,
+} from "../config/controlled-operations.js";
 import {
   DEFAULT_RESOURCE_READ_POLICY,
   resourceReadPolicySchema,
@@ -18,6 +24,7 @@ import {
 } from "../mcp/tool-discovery.js";
 
 export interface RequestMcpPublication {
+  readonly profile?: ExecutionProfile;
   readonly resourceReadPolicy?: ResourceReadPolicy;
   readonly status: "connecting" | "ready" | "unavailable";
   readonly message: string;
@@ -46,9 +53,11 @@ interface OwnedConnection {
  * ready barrier, not model acknowledgement. The publisher must support empty withdrawals.
  */
 export class RequestMcpController {
+  readonly approvals: ControlledApprovalService;
   readonly #connect: (signal: AbortSignal) => Promise<McpConnection>;
   readonly #publish: (state: RequestMcpPublication) => void | Promise<void>;
   readonly #resourceReadPolicy: ResourceReadPolicy;
+  readonly #safety: SreConfig["safety"];
   readonly #intent: StartupClusterIntent;
   readonly #configuredRule: ClusterScopeRule | undefined;
   readonly #shutdown = new AbortController();
@@ -72,15 +81,24 @@ export class RequestMcpController {
     configuredRule?: ClusterScopeRule;
     signal?: AbortSignal;
     resourceReadPolicy?: ResourceReadPolicy;
+    safety?: SreConfig["safety"];
   }) {
     this.#resourceReadPolicy = resourceReadPolicySchema.parse(
-      options.resourceReadPolicy ?? DEFAULT_RESOURCE_READ_POLICY,
+      options.safety?.resources ?? options.resourceReadPolicy ?? DEFAULT_RESOURCE_READ_POLICY,
     );
     for (const pair of this.#resourceReadPolicy.allowedReadKinds) {
       Object.freeze(pair);
     }
     Object.freeze(this.#resourceReadPolicy.allowedReadKinds);
     Object.freeze(this.#resourceReadPolicy);
+    this.#safety = structuredClone(
+      options.safety ?? { mode: "read-only", resources: this.#resourceReadPolicy },
+    );
+    this.approvals = new ControlledApprovalService(
+      this.#safety.mode,
+      this.#safety.mode === "controlled-operations" ? this.#safety.controlledOperations : undefined,
+    );
+    this.#state = { ...this.#state, profile: this.#safety.mode };
     this.#connect = options.connect;
     this.#publish = options.publish;
     this.#intent = options.intent ?? {};
@@ -133,7 +151,13 @@ export class RequestMcpController {
     if (this.#owned) this.#owned.ready = false;
     this.#report = undefined;
     this.#selection?.updateInventory(new ClusterContextRegistry([]));
-    this.#state = { status, message, tools: [], selection: this.#selection };
+    this.#state = {
+      status,
+      message,
+      tools: [],
+      selection: this.#selection,
+      profile: this.#safety.mode,
+    };
   }
 
   private invalidate(): void {
@@ -201,7 +225,14 @@ export class RequestMcpController {
           });
         }
       });
-      const report = await discoverMcpTools(transport, signal);
+      const report = await discoverMcpTools(
+        transport,
+        signal,
+        this.#safety.mode,
+        this.#safety.mode === "controlled-operations"
+          ? this.#safety.controlledOperations.enabledTools
+          : [],
+      );
       this.#report = report;
       const registry = await discoverClusterContexts(transport, report, signal);
       signal.throwIfAborted();
@@ -229,6 +260,7 @@ export class RequestMcpController {
       };
       const selection = this.#selection;
       const publication: RequestMcpPublication = {
+        profile: this.#safety.mode,
         resourceReadPolicy: this.#resourceReadPolicy,
         status: "ready",
         message: "Kubernetes MCP ready; inventory does not imply authentication or cluster health.",
@@ -250,12 +282,14 @@ export class RequestMcpController {
       this.#state = publication;
       owned.ready = true;
     } catch (error) {
-      this.withdraw(
-        "unavailable",
-        error instanceof ContextDiscoveryError
-          ? `${error.message} Use /mcp_restart to retry.`
-          : "Kubernetes MCP connection, discovery or publication failed. Use /mcp_restart to retry.",
-      );
+      let message =
+        "Kubernetes MCP connection, discovery or publication failed. Use /mcp_restart to retry.";
+      if (error instanceof SafetyProfileChangeError) {
+        message = error.message;
+      } else if (error instanceof ContextDiscoveryError) {
+        message = `${error.message} Use /mcp_restart to retry.`;
+      }
+      this.withdraw("unavailable", message);
       this.invalidate();
       try {
         await this.retire();
@@ -270,6 +304,7 @@ export class RequestMcpController {
     const closing = Promise.withResolvers<void>();
     this.#closing = closing.promise;
     this.#stopObservingShutdown();
+    this.approvals.close();
     this.#shutdown.abort();
     this.withdraw("unavailable", "Kubernetes MCP closed.");
     this.invalidate();

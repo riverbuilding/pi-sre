@@ -90,6 +90,12 @@ export async function loadSreConfig(options: LoadSreConfigOptions = {}): Promise
     throw new SreConfigError("kubernetes.mcp.args must not set --config-dir in Phase 1.");
   }
 
+  if (mcp.args.some((arg) => arg === "--read-only" || arg.startsWith("--read-only="))) {
+    throw new SreConfigError(
+      "kubernetes.mcp.args must not override read-only; use safety.mode and a matching MCP configFile.",
+    );
+  }
+
   const configFile = resolveConfiguredPath(mcp.configFile, dirname(configPath), userHome);
   let mcpContents: string;
   try {
@@ -104,8 +110,11 @@ export async function loadSreConfig(options: LoadSreConfigOptions = {}): Promise
   } catch {
     throw new SreConfigError(`Cannot parse Kubernetes MCP TOML configuration at ${configFile}.`);
   }
-  if (mcpSettings.read_only !== true) {
-    throw new SreConfigError("Kubernetes MCP configuration must set read_only = true.");
+  const readOnly = parsed.data.safety.mode === "read-only";
+  if (mcpSettings.read_only !== readOnly) {
+    throw new SreConfigError(
+      `Kubernetes MCP configuration must set read_only = ${readOnly} for the selected safety.mode.`,
+    );
   }
   if (mcpSettings.port !== undefined && mcpSettings.port !== "") {
     throw new SreConfigError("Kubernetes MCP configuration must use stdio transport (empty port).");
